@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.1.1] - 2026-09-02
+
+- docs: author the six master planning docs, index, and project CLAUDE.md from the approved plan (aa0af7f)
+
+
 ## [v0.1.0] - 2026-09-02
 
 - feat: initial project setup with full governance (5475408)

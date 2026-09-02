@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.0] - 2026-09-02
+
+- feat(pricing): plug-and-play dual pricing providers — eBay live asks vs PriceCharting historical FMV (#5) (89a6fdd)
+
+
 ## [v0.2.1] - 2026-09-02
 
 - chore(beads): export the R19 eval-set bead into the tracked JSONL mirror (8354b10)

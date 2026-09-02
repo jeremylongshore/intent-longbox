@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.1.2] - 2026-09-02
+
+- chore(beads): initialize isolated local beads workspace (prefix longbox) (94e51e3)
+
+
 ## [v0.1.1] - 2026-09-02
 
 - docs: author the six master planning docs, index, and project CLAUDE.md from the approved plan (aa0af7f)

@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.1] - 2026-09-02
+
+- chore(beads): export the R19 eval-set bead into the tracked JSONL mirror (8354b10)
+
+
 ## [v0.2.0] - 2026-09-02
 
 - feat: Intent Longbox v0 core pipeline with full 7-layer test system (#4) (6ddb9ff)

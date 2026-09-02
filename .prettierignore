@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+uploads/
+pnpm-lock.yaml
+000-docs/
+migrations/
+CHANGELOG.md
+LICENSE
+.beads/
+.agents/
+.claude/
+.codex/
+TEST_AUDIT.md

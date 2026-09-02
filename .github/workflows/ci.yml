@@ -9,43 +9,114 @@ on:
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: "22"
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: "npm"
-
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Enable corepack (pnpm pinned via package.json packageManager)
+        run: corepack enable
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+      - name: ESLint
+        run: pnpm lint
+      - name: Prettier check
+        run: pnpm format:check
 
-      - name: Lint
-        run: npx eslint .
-
-  test:
-    name: Test (Node ${{ matrix.node-version }})
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: tsc --noEmit
+        run: pnpm typecheck
 
-      - name: Install dependencies
-        run: npm ci
+  test:
+    name: Unit tests + coverage floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Vitest with coverage (line 80 floor on src/services + src/providers)
+        run: pnpm test:coverage
 
-      - name: Run tests
-        run: npm test
+  integration:
+    name: Postgres integration + HTTP smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: longbox
+          POSTGRES_PASSWORD: longbox
+          POSTGRES_DB: postgres
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U longbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Integration lane (migrations, append-only triggers, scan-session flow, HTTP smoke)
+        run: pnpm test:integration
+        env:
+          TEST_DATABASE_ADMIN_URL: postgres://longbox:longbox@localhost:54329/postgres
+
+  # ── Advisory harness gates (gate-promotion policy: observe first, promote later) ──
+
+  harness-audit:
+    name: audit-harness verify + conform (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify hash-pinned artifacts
+        run: pnpm exec audit-harness verify
+      - name: Conformance gates
+        run: pnpm exec audit-harness conform .
+
+  harness-scan:
+    name: audit-harness escape-scan (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Escape-scan the branch range
+        run: |
+          git fetch origin main:refs/remotes/origin/main || true
+          pnpm exec audit-harness escape-scan --range origin/main..HEAD

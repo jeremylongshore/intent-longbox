@@ -15,6 +15,7 @@ out/
 # Testing / coverage
 coverage/
 .nyc_output/
+tests/.tmp-smoke-uploads/
 
 # TypeScript
 *.tsbuildinfo
@@ -38,6 +39,9 @@ desktop.ini
 .idea/
 .vscode/
 *.code-workspace
+
+# ===== App data =====
+uploads/
 
 # ===== Environment =====
 .env

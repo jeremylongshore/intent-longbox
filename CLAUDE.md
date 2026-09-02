@@ -22,13 +22,13 @@ Photo-to-listing pipeline for comic shops: a shop employee photographs a back-is
 
 All docs in `000-docs/` per /doc-filing; index at `000-docs/000-INDEX.md`.
 
-| Doc | What |
-|-----|------|
-| 002-PP-PRD | Requirements R1 to R20, MoSCoW-tagged |
-| 003-AT-ARCH | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate |
-| 004-PP-UJRN | Employee, owner, and correction journeys in retailer language |
-| 005-AT-SPEC | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks |
-| 006-OD-STAT | Live status: phase state, blockers, decision log (update this as things move) |
+| Doc          | What                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| 002-PP-PRD   | Requirements R1 to R20, MoSCoW-tagged                                                      |
+| 003-AT-ARCH  | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate |
+| 004-PP-UJRN  | Employee, owner, and correction journeys in retailer language                              |
+| 005-AT-SPEC  | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks        |
+| 006-OD-STAT  | Live status: phase state, blockers, decision log (update this as things move)              |
 
 ## Governance
 
@@ -41,10 +41,22 @@ All docs in `000-docs/` per /doc-filing; index at `000-docs/000-INDEX.md`.
 
 ## Build & test
 
-No product code yet (Phase 1). When Phase 2 starts: pnpm scripts for build/test/migrate will be documented here; CI runs the static eval regression set on PRs.
+Phase 2 core is in. Node 22 + pnpm, TypeScript strict ESM, Fastify + pg + Zod.
 
+```bash
+pnpm install
+pnpm migrate            # applies migrations/*.sql (needs DATABASE_URL)
+pnpm register-shop --name "Gotham City Limit" --slug gotham   # one-command shop onboarding
+pnpm dev                # tsx watch src/server.ts
+pnpm typecheck          # tsc --noEmit over src/scripts/tests
+pnpm build              # tsc → dist/
+pnpm test               # vitest unit tests (pure logic)
+```
+
+Layout: `migrations/` (SQL, append-only triggers enforce the Hickey model in the DB itself), `src/providers/` (VisionProvider seam: anthropic + openai-compat + per-shop registry), `src/services/` (barcode, bands, rerank contradiction gate, condition, pricing, shopify, scanSession, costLog), `src/routes/` (shop-scoped API under `/api/shops/:shopId/...`), `public/` (minimal phone UI). Multi-shop is real: shops are rows, keys resolve per shop via `shop_credentials.key_ref` → env var name with global-env fallback; `LLM_BASE_URL`/`LLM_API_KEY` gateway override wins. PriceCharting + Shopify clients run as stubs until tokens exist. CI static eval regression set is still a pending Phase 2 exit item.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -94,7 +106,9 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
 
 **Critical rules:**
+
 - Explicit user or orchestrator instructions override this Beads block.
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
+
 <!-- END BEADS INTEGRATION -->

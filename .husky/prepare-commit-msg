@@ -1,0 +1,2 @@
+# Chain the beads prepare-commit-msg hook.
+if [ -x .beads/hooks/prepare-commit-msg ]; then .beads/hooks/prepare-commit-msg "$@"; fi

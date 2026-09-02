@@ -7,6 +7,7 @@ Thank you for your interest in contributing to **intent-longbox**! This guide wi
 ### Prerequisites
 
 <!-- Language: node — the skill customizes this section -->
+
 - Git
 - GitHub account
 - Development environment for node
@@ -52,16 +53,17 @@ cd intent-longbox
 
 ### Branch Strategy
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Production-ready code |
-| `feature/*` | New features |
-| `fix/*` | Bug fixes |
-| `docs/*` | Documentation changes |
+| Branch      | Purpose               |
+| ----------- | --------------------- |
+| `main`      | Production-ready code |
+| `feature/*` | New features          |
+| `fix/*`     | Bug fixes             |
+| `docs/*`    | Documentation changes |
 
 ### Testing
 
 <!-- Language: node — tests vary by language -->
+
 Run the test suite before submitting a PR:
 
 ```bash
@@ -91,6 +93,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 **Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`
 
 **Examples:**
+
 - `feat(api): add user authentication endpoint`
 - `fix(parser): handle empty input gracefully`
 - `docs(readme): update installation instructions`
@@ -98,6 +101,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 ### Code Style
 
 <!-- Language: node — style varies by language -->
+
 - Follow the project's existing conventions
 - Run linting before committing
 - Write clear, self-documenting code
@@ -116,4 +120,4 @@ project's [Apache-2.0 License](LICENSE).
 
 ---
 
-*Thank you for helping improve intent-longbox!*
+_Thank you for helping improve intent-longbox!_

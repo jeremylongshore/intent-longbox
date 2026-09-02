@@ -32,14 +32,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 Project documentation lives in [`000-docs/`](000-docs/):
 
-| Doc | Purpose |
-|-----|---------|
-| [Business Case](000-docs/001-PP-BCASE-business-case.md) | Problem, market, ROI |
-| [PRD](000-docs/002-PP-PRD-product-requirements.md) | Requirements & user stories |
-| [Architecture](000-docs/003-AT-ARCH-architecture.md) | System design & data flow |
-| [User Journey](000-docs/004-PP-UJRN-user-journey.md) | Walkthrough & personas |
-| [Technical Spec](000-docs/005-AT-SPEC-technical-spec.md) | Stack, APIs, deployment |
-| [Status](000-docs/006-OD-STAT-status.md) | Current state & roadmap |
+| Doc                                                      | Purpose                     |
+| -------------------------------------------------------- | --------------------------- |
+| [Business Case](000-docs/001-PP-BCASE-business-case.md)  | Problem, market, ROI        |
+| [PRD](000-docs/002-PP-PRD-product-requirements.md)       | Requirements & user stories |
+| [Architecture](000-docs/003-AT-ARCH-architecture.md)     | System design & data flow   |
+| [User Journey](000-docs/004-PP-UJRN-user-journey.md)     | Walkthrough & personas      |
+| [Technical Spec](000-docs/005-AT-SPEC-technical-spec.md) | Stack, APIs, deployment     |
+| [Status](000-docs/006-OD-STAT-status.md)                 | Current state & roadmap     |
 
 ## Security
 

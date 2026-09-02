@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Longbox</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 12px;
+        background: #f5f5f2;
+        color: #222;
+        max-width: 480px;
+        margin-inline: auto;
+      }
+      h1 {
+        font-size: 1.2rem;
+      }
+      section {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+      button {
+        font-size: 1rem;
+        padding: 10px 14px;
+        border-radius: 6px;
+        border: 1px solid #888;
+        background: #eee;
+      }
+      button.primary {
+        background: #1a56db;
+        color: #fff;
+        border-color: #1a56db;
+      }
+      .candidate {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 8px;
+        margin: 6px 0;
+        cursor: pointer;
+      }
+      .candidate.selected {
+        border-color: #1a56db;
+        background: #eef3ff;
+      }
+      .band {
+        font-weight: bold;
+      }
+      .band.high {
+        color: #067a3a;
+      }
+      .band.medium {
+        color: #b45309;
+      }
+      .band.low {
+        color: #b91c1c;
+      }
+      .warn {
+        color: #b91c1c;
+      }
+      label {
+        display: block;
+        margin: 4px 0;
+      }
+      input[type="text"],
+      input[type="number"],
+      select {
+        font-size: 1rem;
+        padding: 8px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      #status {
+        font-size: 0.85rem;
+        color: #555;
+        white-space: pre-wrap;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Longbox — scan a book</h1>
+
+    <section id="shop-section">
+      <label
+        >Shop
+        <select id="shop-select"></select>
+      </label>
+      <button id="start-btn" class="primary">Start scan session</button>
+    </section>
+
+    <section id="photo-section" class="hidden">
+      <h2>1. Photos</h2>
+      <label>Cover photo <input type="file" id="cover-input" accept="image/*" capture="environment" /></label>
+      <label
+        >Barcode photo (optional)
+        <input type="file" id="barcode-input" accept="image/*" capture="environment"
+      /></label>
+      <label
+        >Barcode digits, if your scanner read them (optional)
+        <input type="text" id="barcode-digits" inputmode="numeric" placeholder="12 or 17 digits" />
+      </label>
+      <button id="identify-btn" class="primary">Identify</button>
+    </section>
+
+    <section id="candidates-section" class="hidden">
+      <h2>2. Which book is it?</h2>
+      <div id="band-line"></div>
+      <div id="contradiction-line" class="warn"></div>
+      <div id="candidate-list"></div>
+      <div id="manual-search" class="hidden">
+        <label>Manual entry — title <input type="text" id="manual-title" /></label>
+        <label>Issue # <input type="text" id="manual-issue" /></label>
+        <label>Publisher <input type="text" id="manual-publisher" /></label>
+        <button id="manual-confirm-btn">Confirm manual entry</button>
+      </div>
+      <button id="confirm-btn" class="primary hidden">Confirm</button>
+    </section>
+
+    <section id="condition-section" class="hidden">
+      <h2>3. Condition (range + defects — never a number)</h2>
+      <label
+        >Low
+        <select id="grade-low"></select
+      ></label>
+      <label
+        >High
+        <select id="grade-high"></select
+      ></label>
+      <div id="defect-boxes"></div>
+      <button id="condition-btn" class="primary">Save condition</button>
+    </section>
+
+    <section id="price-section" class="hidden">
+      <h2>4. Price</h2>
+      <label>Search query <input type="text" id="price-query" /></label>
+      <button id="price-btn" class="primary">Get price</button>
+      <div id="price-result"></div>
+      <label>Override (dollars, optional) <input type="number" id="price-override" step="0.01" /></label>
+    </section>
+
+    <section id="draft-section" class="hidden">
+      <h2>5. Ship it</h2>
+      <button id="draft-btn" class="primary">Send to Shopify draft</button>
+      <div id="draft-result"></div>
+    </section>
+
+    <section><div id="status"></div></section>
+
+    <script src="app.js"></script>
+  </body>
+</html>

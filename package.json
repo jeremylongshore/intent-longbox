@@ -1,0 +1,60 @@
+{
+  "name": "intent-longbox",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing",
+  "type": "module",
+  "packageManager": "pnpm@10.8.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "INTEGRATION=1 vitest run -c vitest.integration.config.ts",
+    "prepare": "husky",
+    "migrate": "tsx scripts/migrate.ts",
+    "register-shop": "tsx scripts/register-shop.ts"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.0.3",
+    "@fastify/static": "^8.1.1",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@intentsolutions/audit-harness": "^1.3.1",
+    "@types/node": "^22.13.0",
+    "@types/pg": "^8.11.10",
+    "@vitest/coverage-v8": "^3.2.7",
+    "eslint": "^10.9.1",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.4.1",
+    "prettier": "^3.9.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^3.0.5"
+  }
+}

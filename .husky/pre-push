@@ -1,0 +1,2 @@
+# Chain the beads pre-push hook (JSONL export before push).
+if [ -x .beads/hooks/pre-push ]; then .beads/hooks/pre-push "$@"; fi

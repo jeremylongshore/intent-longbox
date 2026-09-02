@@ -1,0 +1,8 @@
+# Repo-specific hash-pin targets beyond the harness defaults (see
+# @intentsolutions/audit-harness scripts/harness-hash.sh). Re-pin after any
+# reviewed edit: pnpm exec audit-harness init
+tests/TESTING.md
+eslint.config.js
+.prettierrc.json
+vitest.config.ts
+vitest.integration.config.ts

@@ -1,0 +1,2 @@
+# Chain the beads post-merge hook (re-import JSONL into Dolt).
+if [ -x .beads/hooks/post-merge ]; then .beads/hooks/post-merge "$@"; fi

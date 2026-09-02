@@ -1,0 +1,2 @@
+# Chain the beads post-checkout hook (re-import JSONL into Dolt).
+if [ -x .beads/hooks/post-checkout ]; then .beads/hooks/post-checkout "$@"; fi

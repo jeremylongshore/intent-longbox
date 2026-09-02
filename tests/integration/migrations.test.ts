@@ -22,7 +22,10 @@ describe.skipIf(!dbUp)("migration runner", () => {
 
     pool = new pg.Pool({ connectionString: url });
     const applied = await pool.query(`SELECT filename FROM schema_migrations ORDER BY filename`);
-    expect(applied.rows.map((r: { filename: string }) => r.filename)).toEqual(["001_init.sql"]);
+    expect(applied.rows.map((r: { filename: string }) => r.filename)).toEqual([
+      "001_init.sql",
+      "002_ebay_credential_kind.sql",
+    ]);
 
     const tables = await pool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
@@ -50,8 +53,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     // Idempotent second run: skips, adds no rows, throws nothing.
     const secondRun = await runMigrations(url);
     expect(secondRun).toContain("skip  001_init.sql");
+    expect(secondRun).toContain("skip  002_ebay_credential_kind.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(1);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(2);
   });
 
   it("attaches append-only triggers to every event table", async () => {

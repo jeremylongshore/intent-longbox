@@ -10,7 +10,7 @@ import { createAnthropicProvider } from "./anthropic.js";
 import { createOpenAICompatProvider } from "./openaiCompat.js";
 
 export interface CredentialRow {
-  kind: "anthropic" | "openai_compat" | "shopify" | "pricecharting";
+  kind: "anthropic" | "openai_compat" | "shopify" | "pricecharting" | "ebay";
   key_ref: string;
   base_url: string | null;
 }
@@ -90,6 +90,33 @@ export async function resolveVisionProvider(db: pg.Pool, shopId: string): Promis
   throw new Error(
     "no vision provider configured for shop (no gateway override, no shop credential, no global ANTHROPIC_API_KEY/OPENAI_API_KEY)"
   );
+}
+
+/**
+ * Resolve eBay app credentials per shop (kind 'ebay'), falling back to the
+ * global env pair. Convention: the credential row's key_ref names the env var
+ * holding the CLIENT ID; the client secret lives at `${key_ref}_SECRET`
+ * (a key_ref is always a NAME, never a raw key — same rule as everywhere).
+ */
+export async function resolveEbayCredentials(
+  db: pg.Pool,
+  shopId: string
+): Promise<{ clientId: string; clientSecret: string; baseUrl?: string } | undefined> {
+  const cred = await loadShopCredential(db, shopId, "ebay");
+  if (cred) {
+    const clientId = resolveKeyRef(cred.key_ref);
+    const clientSecret = resolveKeyRef(`${cred.key_ref}_SECRET`);
+    if (clientId && clientSecret) {
+      return { clientId, clientSecret, ...(cred.base_url ? { baseUrl: cred.base_url } : {}) };
+    }
+  }
+  const clientId = envOr("EBAY_CLIENT_ID");
+  const clientSecret = envOr("EBAY_CLIENT_SECRET");
+  if (clientId && clientSecret) {
+    const baseUrl = envOr("EBAY_BASE_URL");
+    return { clientId, clientSecret, ...(baseUrl ? { baseUrl } : {}) };
+  }
+  return undefined;
 }
 
 /** Resolve a plain per-shop token (shopify / pricecharting), falling back to a global env var. */

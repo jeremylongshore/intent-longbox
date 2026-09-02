@@ -56,6 +56,33 @@
       .band.medium {
         color: #b45309;
       }
+      .price-sources {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0;
+      }
+      .price-source {
+        flex: 1;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 0.85rem;
+      }
+      .price-source.driving {
+        border-color: #067a3a;
+        background: #ecfdf3;
+      }
+      .price-source .src-name {
+        font-weight: bold;
+      }
+      .price-source .src-stub {
+        color: #b45309;
+        font-weight: bold;
+      }
+      .price-source .src-failed {
+        color: #b91c1c;
+        font-weight: bold;
+      }
       .band.low {
         color: #b91c1c;
       }
@@ -141,6 +168,7 @@
       <h2>4. Price</h2>
       <label>Search query <input type="text" id="price-query" /></label>
       <button id="price-btn" class="primary">Get price</button>
+      <div id="price-sources" class="price-sources"></div>
       <div id="price-result"></div>
       <label>Override (dollars, optional) <input type="number" id="price-override" step="0.01" /></label>
     </section>

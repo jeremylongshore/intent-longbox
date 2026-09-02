@@ -8,7 +8,6 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import { resolveVisionProvider, resolveShopToken } from "../providers/registry.js";
 import {
   addScanPhoto,
   createScanSession,
@@ -19,12 +18,15 @@ import {
 } from "../services/scanSession.js";
 import { runIdentify } from "../services/identify.js";
 import { GRADE_LABELS, validGradeRange } from "../services/condition.js";
+import { resolveVisionProvider, resolveShopToken, resolveEbayCredentials } from "../providers/registry.js";
 import {
-  applyPricingPolicy,
-  createPriceChartingClient,
-  createStubPriceChartingClient,
+  createPriceChartingProvider,
   type PricingPolicy,
+  type PricingProvider,
+  type PricingQuery,
 } from "../services/pricing.js";
+import { createEbayProvider, createStubEbayProvider } from "../services/ebay.js";
+import { priceWithProviders } from "../services/pricingService.js";
 import {
   buildProductSetInput,
   createShopifyClient,
@@ -215,42 +217,59 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
     if (!params.success) return reply.code(400).send({ error: params.error.flatten() });
     const session = await getScanSession(db, params.data.shopId, params.data.id);
     if (!session) return reply.code(404).send({ error: "scan session not found" });
+    // Structured query preferred; legacy `query` string still accepted (used
+    // as the title). At least one of the two must be present.
     const body = z
-      .object({ query: z.string().min(1).max(500), override_cents: z.number().int().positive().optional() })
+      .object({
+        title: z.string().min(1).max(300).optional(),
+        issue: z.string().min(1).max(50).optional(),
+        variant: z.string().min(1).max(200).optional(),
+        grade: z.string().min(1).max(50).optional(),
+        upc: z.string().min(1).max(50).optional(),
+        query: z.string().min(1).max(500).optional(),
+        override_cents: z.number().int().positive().optional(),
+      })
+      .refine((b) => b.title !== undefined || b.query !== undefined, {
+        message: "title (or legacy query) is required",
+      })
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: body.error.flatten() });
 
     const found = await latestPolicy(db, session.shop_id);
     if (!found) return reply.code(409).send({ error: "shop has no pricing policy; run register-shop" });
 
-    // Per-shop client config, global env fallback; stub when no token anywhere.
-    const token = await resolveShopToken(db, session.shop_id, "pricecharting", "PRICECHARTING_TOKEN");
-    const client = token ? createPriceChartingClient({ token }) : createStubPriceChartingClient();
-    const comps = await client.fetchComps(body.data.query);
-    if (!comps.ok) return reply.code(502).send({ error: comps.error, status: comps.status });
+    const query: PricingQuery = {
+      title: body.data.title ?? body.data.query!,
+      ...(body.data.issue !== undefined ? { issue: body.data.issue } : {}),
+      ...(body.data.variant !== undefined ? { variant: body.data.variant } : {}),
+      ...(body.data.grade !== undefined ? { grade: body.data.grade } : {}),
+      ...(body.data.upc !== undefined ? { upc: body.data.upc } : {}),
+    };
 
-    const suggested = applyPricingPolicy(comps.comps, found.policy);
-    const res = await db.query(
-      `INSERT INTO pricing_snapshot
-         (scan_session_id, shop_id, source, query, comps, suggested_cents, override_cents, policy_id, fetched_at)
-       VALUES ($1,$2,'pricecharting',$3,$4,$5,$6,$7,$8) RETURNING id, created_at`,
-      [
-        session.id,
-        session.shop_id,
-        body.data.query,
-        JSON.stringify(comps.comps),
-        suggested,
-        body.data.override_cents ?? null,
-        found.id,
-        comps.fetchedAt,
-      ]
-    );
+    // ALL configured pricing providers run; each falls back to a clearly
+    // flagged stub when its creds are missing (per-shop key_ref override,
+    // global env fallback — same resolution as every other credential).
+    const pcToken = await resolveShopToken(db, session.shop_id, "pricecharting", "PRICECHARTING_TOKEN");
+    const ebayCreds = await resolveEbayCredentials(db, session.shop_id);
+    const providers: PricingProvider[] = [
+      pcToken ? createPriceChartingProvider({ token: pcToken }) : createPriceChartingProvider({}),
+      ebayCreds ? createEbayProvider(ebayCreds) : createStubEbayProvider(),
+    ];
+
+    const overrideCents = body.data.override_cents;
+    const result = await priceWithProviders(db, {
+      sessionId: session.id,
+      shopId: session.shop_id,
+      providers,
+      policy: found.policy,
+      policyId: found.id,
+      query,
+      ...(overrideCents !== undefined ? { overrideCents } : {}),
+    });
     return reply.code(201).send({
-      snapshot: res.rows[0],
-      suggested_cents: suggested,
-      override_cents: body.data.override_cents ?? null,
-      comps_count: comps.comps.length,
-      stub: !token,
+      ...result,
+      // Legacy convenience flags for callers that only care "was any of this real?"
+      stub: result.sources.every((s) => s.status !== "ok" || s.stub),
     });
   });
 

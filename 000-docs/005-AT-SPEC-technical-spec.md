@@ -1,6 +1,6 @@
 # Technical Specification: intent-longbox
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 
@@ -24,7 +24,7 @@ Append-only discipline: event tables get INSERTs only; application code has no U
 
 ```
 shop                  id PK, name, slug, shopify_domain, created_at
-shop_credentials      id PK, shop_id FK, kind (anthropic|openai_compat|shopify|pricecharting),
+shop_credentials      id PK, shop_id FK, kind (anthropic|openai_compat|shopify|pricecharting|ebay),
                       key_ref (env/SOPS reference, NEVER a raw key), base_url NULL, created_at
 shop_pricing_policy   id PK, shop_id FK, comp_percent, floor_cents, rounding_rule,
                       effective_from  (new row per policy change, old rows kept)
@@ -55,7 +55,8 @@ human_confirmation    id PK, scan_session_id FK, confirmed_issue_id FK, source
 condition_assessment  id PK, scan_session_id FK, grade_range_low, grade_range_high
                       (label enums e.g. GD/VG/FN/VF/NM, never numeric), defects TEXT[],
                       notes, created_at
-pricing_snapshot      id PK, scan_session_id FK, source (pricecharting), query, comps JSONB,
+pricing_snapshot      id PK, scan_session_id FK, source (pricecharting|ebay), query, comps JSONB,
+                      ONE ROW PER SOURCE per pricing call, fetched_at,
                       suggested_cents (policy applied), override_cents NULL,
                       policy_id FK, created_at
 shopify_draft         id PK, scan_session_id FK, product_gid, status (draft|published|failed),
@@ -75,7 +76,10 @@ POST /api/scan-sessions/:id/identify          run barcode decode + retrieval + r
                                               returns candidates, band, contradiction flag
 POST /api/scan-sessions/:id/confirm           { issue_id, source }  → appends human_confirmation
 POST /api/scan-sessions/:id/condition         { grade_range_low, grade_range_high, defects[] }
-POST /api/scan-sessions/:id/price             runs comps + policy; returns suggestion
+POST /api/scan-sessions/:id/price             runs ALL configured pricing providers
+                                              (eBay live asks + PriceCharting historical
+                                              FMV); one pricing_snapshot per source;
+                                              returns per-source summaries + suggestion
                                               (body may carry override_cents)
 POST /api/scan-sessions/:id/draft             creates the Shopify DRAFT; returns product GID
 GET  /api/scan-sessions?status=in_progress    resumable session list
@@ -110,6 +114,29 @@ interface VisionProvider {
 - **OpenAI-compatible adapter**: `OPENAI_API_KEY` + model name; also serves any OpenAI-compatible endpoint.
 - **Gateway override** (jrig Transport lore): `LLM_BASE_URL` + `LLM_API_KEY` redirect either adapter through a proxy/gateway. Reliability lore carried over: reasoning models need max_tokens ≥ 2048; strip `<think>` blocks before parsing.
 - Provider selection per shop via `shop_credentials`; env config picks the pilot default. Adding a provider = one adapter file + config, no schema change.
+
+## Pricing providers (dual-source, plug-and-play)
+
+One `PricingProvider` seam, two v0 implementations, so shops compare LIVE eBay asking prices against PriceCharting HISTORICAL fair-market values:
+
+```ts
+interface PricingProvider {
+  source: string;                            // "ebay" | "pricecharting"
+  kind: "live_asks" | "historical_fmv";
+  getComps(query: { title; issue?; variant?; grade?; upc? }, shopCtx?): Promise<{
+    source; kind; comps: Comp[];
+    summary: { low_cents; median_cents; high_cents; currency };
+    fetched_at: Date;
+    stub: boolean;                           // true when no creds → clearly-flagged empty result
+  }>;
+}
+```
+
+- **eBay Browse adapter** (`kind: live_asks`): OAuth2 client-credentials flow (`EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET`; per-shop override via `shop_credentials.kind = 'ebay'` — key_ref names the client-ID env var, secret at `${key_ref}_SECRET`). App token cached until near expiry. `item_summary/search` with the comics category + a query built from title/issue/variant, returning current asking prices.
+- **PriceCharting adapter** (`kind: historical_fmv`): `PRICECHARTING_TOKEN` (per-shop override supported), ungraded + graded values when present. Stub until the Premium token exists; the real endpoint shape stays behind the interface (TODO noted in code).
+- **Multi-source run:** the price step runs ALL configured providers via `Promise.allSettled` — a failing or stubbed source never blocks the other; failures are reported in the response, not snapshotted. One immutable `pricing_snapshot` row per fetched source.
+- **Suggested price precedence:** `shop_pricing_policy` applied to the real historical-FMV comps when present, else the live-ask median, else empty comps (policy floor wins). Every snapshot row of the pricing event carries the same overall suggested_cents (the price of record); per-source medians live in each row's comps.
+- Adding a pricing source = one adapter file + credential resolution, no schema change.
 
 ## Shopify integration
 

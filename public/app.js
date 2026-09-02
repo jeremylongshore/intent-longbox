@@ -223,8 +223,21 @@ $("condition-btn").onclick = async () => {
   show("price-section");
 };
 
+const SOURCE_LABELS = {
+  ebay: "eBay — live asks",
+  pricecharting: "PriceCharting — historical FMV",
+};
+
+function dollars(cents) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 $("price-btn").onclick = async () => {
-  const body = { query: $("price-query").value };
+  // Structured query from the confirmed issue; the editable text box is the
+  // title fallback when the employee tweaks it.
+  const body = { title: $("price-query").value };
+  if (selectedCandidate && selectedCandidate.issue) body.issue = String(selectedCandidate.issue);
+  if (selectedCandidate && selectedCandidate.variant) body.variant = String(selectedCandidate.variant);
   const overrideDollars = parseFloat($("price-override").value);
   if (!Number.isNaN(overrideDollars)) body.override_cents = Math.round(overrideDollars * 100);
   const res = await fetch(api(`/scan-sessions/${sessionId}/price`), {
@@ -234,8 +247,41 @@ $("price-btn").onclick = async () => {
   });
   const data = await res.json();
   if (!res.ok) return status(`price failed: ${JSON.stringify(data)}`);
-  $("price-result").textContent =
-    `Suggested: $${(data.suggested_cents / 100).toFixed(2)} (${data.comps_count} comps${data.stub ? ", STUB — no PriceCharting token" : ""})`;
+
+  // Side-by-side source cards: eBay live asks vs PriceCharting historical.
+  const wrap = $("price-sources");
+  wrap.innerHTML = "";
+  for (const s of data.sources) {
+    const card = document.createElement("div");
+    card.className = "price-source" + (s.source === data.driven_by ? " driving" : "");
+    const name = document.createElement("div");
+    name.className = "src-name";
+    name.textContent = SOURCE_LABELS[s.source] || s.source;
+    card.appendChild(name);
+    const detail = document.createElement("div");
+    if (s.status === "failed") {
+      detail.innerHTML = `<span class="src-failed">unavailable</span>`;
+    } else if (s.stub) {
+      detail.innerHTML = `<span class="src-stub">STUB — no credentials</span>`;
+    } else if (s.comps_count === 0) {
+      detail.textContent = "no comps found";
+    } else {
+      detail.textContent = `${s.comps_count} comps · low ${dollars(s.summary.low_cents)} · median ${dollars(s.summary.median_cents)} · high ${dollars(s.summary.high_cents)}`;
+    }
+    card.appendChild(detail);
+    if (s.source === data.driven_by) {
+      const tag = document.createElement("div");
+      tag.textContent = "drives suggested price";
+      card.appendChild(tag);
+    }
+    wrap.appendChild(card);
+  }
+
+  const drivenBy =
+    data.driven_by === "policy_floor"
+      ? "shop policy floor (no real comps)"
+      : SOURCE_LABELS[data.driven_by] || data.driven_by;
+  $("price-result").textContent = `Suggested: ${dollars(data.suggested_cents)} — from ${drivenBy}`;
   show("draft-section");
 };
 

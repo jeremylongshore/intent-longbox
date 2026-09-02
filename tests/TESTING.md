@@ -28,7 +28,7 @@ L1: husky@9 + lint-staged (pre-commit: lint-staged → typecheck → unit tests 
 L2: eslint@10 flat config (typescript-eslint) + prettier@3 (pnpm lint / pnpm format:check, CI-enforced)
 L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers (pnpm test:coverage, CI-enforced)
 L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
-L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price → draft → drafted, stub Shopify/PriceCharting clients
+L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price (dual sources: stub PriceCharting + stub eBay, one snapshot per source) → draft → drafted, stub Shopify client
 L6-bdd: features/scan-session.feature (engineer-owned template; no runner wired yet)
 Advisory CI: audit-harness verify + conform + escape-scan (continue-on-error, per gate-promotion policy)
 

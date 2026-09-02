@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadShopCredential,
+  resolveEbayCredentials,
   resolveKeyRef,
   resolveShopToken,
   resolveVisionProvider,
@@ -19,7 +20,11 @@ const PROVIDER_ENV = [
   "OPENAI_MODEL",
   "OPENAI_BASE_URL",
   "SHOP_TEST_KEY",
+  "SHOP_TEST_KEY_SECRET",
   "PRICECHARTING_TOKEN",
+  "EBAY_CLIENT_ID",
+  "EBAY_CLIENT_SECRET",
+  "EBAY_BASE_URL",
 ];
 
 beforeEach(() => {
@@ -128,5 +133,38 @@ describe("resolveShopToken", () => {
     );
     vi.stubEnv("PRICECHARTING_TOKEN", "");
     expect(await resolveShopToken(pool, "shop-1", "pricecharting", "PRICECHARTING_TOKEN")).toBeUndefined();
+  });
+});
+
+describe("resolveEbayCredentials", () => {
+  it("prefers the shop credential pair (key_ref = client-id var, `${key_ref}_SECRET`)", async () => {
+    vi.stubEnv("SHOP_TEST_KEY", "shop-client-id");
+    vi.stubEnv("SHOP_TEST_KEY_SECRET", "shop-client-secret");
+    vi.stubEnv("EBAY_CLIENT_ID", "global-id");
+    vi.stubEnv("EBAY_CLIENT_SECRET", "global-secret");
+    const { pool } = credPool([
+      { kind: "ebay", key_ref: "SHOP_TEST_KEY", base_url: "https://api.sandbox.ebay.com" },
+    ]);
+    expect(await resolveEbayCredentials(pool, "shop-1")).toEqual({
+      clientId: "shop-client-id",
+      clientSecret: "shop-client-secret",
+      baseUrl: "https://api.sandbox.ebay.com",
+    });
+  });
+
+  it("falls back to global EBAY_CLIENT_ID/EBAY_CLIENT_SECRET when the shop pair is incomplete", async () => {
+    vi.stubEnv("SHOP_TEST_KEY", "shop-client-id"); // secret missing → incomplete pair
+    vi.stubEnv("EBAY_CLIENT_ID", "global-id");
+    vi.stubEnv("EBAY_CLIENT_SECRET", "global-secret");
+    const { pool } = credPool([{ kind: "ebay", key_ref: "SHOP_TEST_KEY", base_url: null }]);
+    expect(await resolveEbayCredentials(pool, "shop-1")).toEqual({
+      clientId: "global-id",
+      clientSecret: "global-secret",
+    });
+  });
+
+  it("undefined when neither shop nor global creds exist (stub provider engages)", async () => {
+    const { pool } = credPool([]);
+    expect(await resolveEbayCredentials(pool, "shop-1")).toBeUndefined();
   });
 });

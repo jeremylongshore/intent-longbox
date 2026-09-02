@@ -1,7 +1,7 @@
 // L6 smoke: one pass through the real HTTP app (fastify inject) with stub
 // clients — register shop → create session → confirm → condition → price →
-// draft → GET shows drafted. Stub Shopify/PriceCharting engage automatically
-// because no tokens are configured (R11, R12, R14 with status DRAFT).
+// draft → GET shows drafted. Stub Shopify/PriceCharting/eBay engage
+// automatically because no creds are configured (R11, R12, R14 DRAFT status).
 import { mkdirSync, rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
@@ -22,6 +22,8 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
   beforeAll(async () => {
     // Force the stub clients: no external tokens visible to this process.
     delete process.env.PRICECHARTING_TOKEN;
+    delete process.env.EBAY_CLIENT_ID;
+    delete process.env.EBAY_CLIENT_SECRET;
     delete process.env.SHOPIFY_ADMIN_TOKEN;
     delete process.env.SHOPIFY_STORE_DOMAIN;
 
@@ -84,16 +86,29 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     });
     expect(condition.statusCode).toBe(201);
 
-    // Price: stub PriceCharting → zero comps → policy floor applies (R11/R12).
+    // Price: BOTH sources run (stub PriceCharting historical + stub eBay live
+    // asks) → zero comps each → policy floor applies (R11/R12). One snapshot
+    // row per source.
     const price = await app.inject({
       method: "POST",
       url: `${base}/${sessionId}/price`,
-      payload: { query: "amazing spider-man 300" },
+      payload: { title: "Amazing Spider-Man", issue: "300" },
     });
     expect(price.statusCode).toBe(201);
-    expect(price.json().stub).toBe(true);
-    expect(price.json().suggested_cents).toBe(300); // floor_cents wins over empty comps
-    expect(price.json().comps_count).toBe(0);
+    const priceBody = price.json();
+    expect(priceBody.stub).toBe(true);
+    expect(priceBody.suggested_cents).toBe(300); // floor_cents wins over empty comps
+    expect(priceBody.driven_by).toBe("policy_floor");
+    expect(priceBody.snapshot_count).toBe(2);
+    expect(priceBody.sources.map((s: { source: string }) => s.source).sort()).toEqual([
+      "ebay",
+      "pricecharting",
+    ]);
+    for (const s of priceBody.sources) {
+      expect(s.status).toBe("ok");
+      expect(s.stub).toBe(true);
+      expect(s.comps_count).toBe(0);
+    }
 
     // Draft: stub Shopify client returns a fake GID; status lands as draft.
     const draft = await app.inject({ method: "POST", url: `${base}/${sessionId}/draft` });
@@ -111,7 +126,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     expect(body.session.status).toBe("drafted");
     expect(body.events.human_confirmation).toHaveLength(1);
     expect(body.events.condition_assessment).toHaveLength(1);
-    expect(body.events.pricing_snapshot).toHaveLength(1);
+    expect(body.events.pricing_snapshot).toHaveLength(2); // one row per pricing source
     expect(body.events.shopify_draft).toHaveLength(1);
   });
 

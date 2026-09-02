@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.0] - 2026-09-02
+
+- feat: Intent Longbox v0 core pipeline with full 7-layer test system (#4) (6ddb9ff)
+
+
 ## [v0.1.2] - 2026-09-02
 
 - chore(beads): initialize isolated local beads workspace (prefix longbox) (94e51e3)

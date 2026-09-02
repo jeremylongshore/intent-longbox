@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "longbox",
+  "project_id": "b4f46aaa-0d41-4472-b49d-8a665400e5ea"
+}

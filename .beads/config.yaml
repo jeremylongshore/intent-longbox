@@ -1,0 +1,5 @@
+dolt.local-only: true
+sync:
+    remote: "git+https://github.com/intent-solutions-io/intent-longbox.git"
+export:
+    interval: 1s

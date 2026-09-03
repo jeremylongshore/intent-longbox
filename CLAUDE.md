@@ -2,9 +2,9 @@
 
 ## What this is
 
-Photo-to-listing pipeline for comic shops: a shop employee photographs a back-issue comic on a phone browser, the system identifies title/issue/variant (barcode first, then LLM re-rank with an evidence gate), the employee confirms, condition (grade range + defects) and pricing (PriceCharting comps + shop policy) are captured, and a DRAFT product lands in Shopify for owner review. Nothing publishes without a human.
+Photo-to-listing pipeline for comic shops: a shop employee photographs a back-issue comic on a phone browser, the system identifies title/issue/variant (barcode first, then LLM re-rank with an evidence gate), the employee confirms, condition (grade range + defects) and pricing (dual sources: PriceCharting historical FMV + eBay live asks, filtered through shop policy) are captured, and a DRAFT product lands in Shopify for owner review. Nothing publishes without a human.
 
-- **Repo:** `intent-solutions-io/intent-longbox` (PRIVATE, deliberately)
+- **Repo:** `jeremylongshore/intent-longbox` (PRIVATE, deliberately; transferred from `intent-solutions-io` — README badges and other docs still carry the old org, tracked as blueprint bead E15-B01)
 - **Stack:** TypeScript/Node + Postgres, deployed on the `intentsolutions` VPS behind Caddy per intent-os ops deploy contracts
 - **First shop:** Gotham City Limit (Jacksonville), the first shop to roll out
 
@@ -34,7 +34,7 @@ All docs in `000-docs/` per /doc-filing; index at `000-docs/000-INDEX.md`.
 
 - **Doc filing:** every doc follows `NNN-CC-ABCD-description.ext` in flat `000-docs/`; keep `000-INDEX.md` current; each doc carries a `**Version:**` line and gets bumped on substantive edits.
 - **Task tracking:** beads with plain-English titles under a parent epic, mirrored three-layer via `bd-sync` (bead ↔ GitHub issue per cluster ↔ Plane issue in the Longbox project, NOT CCE). All notes via `bd-sync note`, all closes via `bd-sync close` with evidence; never raw `bd close` for mirrored beads. Epic + Plane project creation is a Phase 1 open item (see 006).
-- **Testing SOP:** `/audit-tests` + in-repo `@intentsolutions/audit-harness` install is PENDING (Phase 1 item). Until installed, the minimum gate is: migrations apply clean, static eval set green, end-to-end smoke (photo in → DRAFT visible in Shopify admin).
+- **Testing SOP:** INSTALLED. `@intentsolutions/audit-harness` is an in-repo devDep with hash manifest (`.harness-hash`); husky pre-commit runs lint-staged → typecheck → unit tests → escape-scan → verify. Policy, thresholds (line-coverage 80 on `src/services` + `src/providers`), and waived layers live in `tests/TESTING.md` — read it before changing test posture. RTM/personas/journeys traceability: `tests/{RTM,PERSONAS,JOURNEYS}.md`. CI static eval regression set is still a pending Phase 2 exit item.
 - **Secrets:** SOPS + age, estate standard. No plaintext `.env` committed; decrypt in-process only.
 - **Commits/PRs:** estate commit-branch-PR standard; feature branches, never main; commit signature is automatic.
 - **Pilot data:** no shop's data appears in anything public without that shop's written consent.
@@ -48,12 +48,19 @@ pnpm install
 pnpm migrate            # applies migrations/*.sql (needs DATABASE_URL)
 pnpm register-shop --name "Gotham City Limit" --slug gotham   # one-command shop onboarding
 pnpm dev                # tsx watch src/server.ts
-pnpm typecheck          # tsc --noEmit over src/scripts/tests
+pnpm typecheck          # tsc --noEmit over src/scripts/tests (tsconfig.check.json)
 pnpm build              # tsc → dist/
-pnpm test               # vitest unit tests (pure logic)
+pnpm test               # vitest unit tests (pure logic, no DB)
+pnpm vitest run tests/pricing.test.ts        # single test file
+pnpm test:coverage      # v8 coverage; line-80 floor on src/services + src/providers
+docker compose -f docker-compose.test.yml up -d   # postgres:16 for integration lane
+pnpm test:integration   # INTEGRATION=1 vitest — migrations, append-only triggers, scan-session flow, HTTP smoke; skips cleanly without a DB
+pnpm lint / pnpm format:check                # eslint flat config + prettier (CI-enforced)
 ```
 
-Layout: `migrations/` (SQL, append-only triggers enforce the Hickey model in the DB itself), `src/providers/` (VisionProvider seam: anthropic + openai-compat + per-shop registry), `src/services/` (barcode, bands, rerank contradiction gate, condition, pricing, shopify, scanSession, costLog), `src/routes/` (shop-scoped API under `/api/shops/:shopId/...`), `public/` (minimal phone UI). Multi-shop is real: shops are rows, keys resolve per shop via `shop_credentials.key_ref` → env var name with global-env fallback; `LLM_BASE_URL`/`LLM_API_KEY` gateway override wins. PriceCharting + Shopify clients run as stubs until tokens exist. CI static eval regression set is still a pending Phase 2 exit item.
+Layout: `migrations/` (SQL, append-only triggers enforce the Hickey model in the DB itself), `src/providers/` (VisionProvider seam: anthropic + openai-compat + per-shop registry), `src/services/` (barcode, bands, identify, rerank contradiction gate, condition, pricing + pricingService + ebay, shopify, scanSession, costLog), `src/routes/` (shop-scoped API under `/api/shops/:shopId/...`), `public/` (minimal phone UI). Multi-shop is real: shops are rows, keys resolve per shop via `shop_credentials.key_ref` → env var name with global-env fallback; `LLM_BASE_URL`/`LLM_API_KEY` gateway override wins. All external clients (PriceCharting, eBay, Shopify) degrade to stubs when creds are empty — the pipeline never blocks on a missing token; `.env.example` documents every variable name (values live in SOPS).
+
+**Pricing seam (v0.3.0):** every configured `PricingProvider` runs via `Promise.allSettled` (one bad source never blocks another), each writes its own immutable `pricing_snapshot` row, and the suggested price follows fixed precedence: real PriceCharting historical FMV → real eBay live-ask median → policy floor (`pickDrivingResult` in `src/services/pricingService.ts`). eBay uses OAuth2 client-credentials with a cached app token; its shop credential is a PAIR (key_ref names the client-ID var, secret at `${key_ref}_SECRET`).
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.7] - 2026-09-03
+
+- docs(e00-b04): ratify the Product Success Contract (019) via ISEDC council; file the council record (020) (#21) (1ed9ffb)
+
+
 ## [v0.3.6] - 2026-09-03
 
 - docs(e00-b03): draft the Longbox evidence-rules decision record (018) — PROPOSED, awaiting ratification (#20) (2b022f3)

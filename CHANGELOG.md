@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.6] - 2026-09-03
+
+- docs(e00-b03): draft the Longbox evidence-rules decision record (018) — PROPOSED, awaiting ratification (#20) (2b022f3)
+
+
 ## [v0.3.5] - 2026-09-03
 
 - docs(e00-b02): file the Longbox pain and outcome register (017); source register v1.0.1 (#19) (7f0daea)

@@ -1,6 +1,6 @@
 # 000-docs Index: intent-longbox
 
-**Version:** 1.4.0
+**Version:** 1.6.0
 **Last Updated:** 2026-09-03
 
 | # | Doc | Hook |
@@ -10,3 +10,4 @@
 | 004 | [004-PP-UJRN-user-journey.md](004-PP-UJRN-user-journey.md) | The three journeys in plain retail language: employee at the long box, owner reviewing drafts, and what happens when a call is wrong. |
 | 005 | [005-AT-SPEC-technical-spec.md](005-AT-SPEC-technical-spec.md) | Concrete v0 spec: Postgres schema sketch, API surface, provider adapter shape (BYOK), Shopify productSet integration, eval and cost hooks, Whatnot CSV roadmap. |
 | 006 | [006-OD-STAT-status.md](006-OD-STAT-status.md) | Where things stand: plan approved 2026-09-01, Phase 0 item states, Phase 1 in progress. |
+| 018 | [018-AT-DECR-longbox-evidence-rules-2026-09-03.md](018-AT-DECR-longbox-evidence-rules-2026-09-03.md) | Decision record (E00-B03, RATIFIED 2026-09-03): the evidence ladder and register states, source precedence (inspected code outranks status prose; measurements outrank marketing), contradiction and supersession rules, and change control for locked decisions, thresholds, registers, test policy and external claims. Restricted internal. |

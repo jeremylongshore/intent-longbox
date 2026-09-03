@@ -16,6 +16,7 @@ env:
 #   actions/checkout    v4 -> 11d5960a326750d5838078e36cf38b85af677262
 #   actions/setup-node  v4 -> 49933ea5288caeca8642d1e84afbd3f7d6820020
 #   gitleaks/gitleaks-action v2 -> ff98106e4c7b2bc287b24eaf42907196329070c7
+#   google/osv-scanner-action v2.5.1 -> 6e4298ebc4db23e847df9b2e2de2939d6f066c67
 
 jobs:
   lint:
@@ -110,13 +111,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_SUMMARY: "true"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: osv-scanner (dependency vulnerabilities from osv.dev, any known vuln blocks)
+        # Replaced `pnpm audit` on 2026-09-03: the npm registry's audit endpoint timed out
+        # (ERR_SOCKET_TIMEOUT) on three consecutive runs. osv.dev is an independent source
+        # that carries the same GHSA advisories; scanning the lockfile needs no install.
+        # To ignore a specific advisory add it to an osv-scanner.toml with a reason.
+        uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
         with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - name: pnpm audit (production deps, high+ blocks)
-        run: pnpm audit --prod --audit-level=high
+          scan-args: |-
+            --lockfile=pnpm-lock.yaml
+            --format=table
 
   # ── Harness gates ──
   # verify + escape-scan are deterministic (hash manifest, policy-floor diff) and were

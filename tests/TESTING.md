@@ -30,7 +30,7 @@ L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/provider
 L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
 L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price (dual sources: stub PriceCharting + stub eBay, one snapshot per source) → draft → drafted, stub Shopify client
 L6-bdd: features/scan-session.feature (engineer-owned template; no runner wired yet)
-Advisory CI: audit-harness verify + conform + escape-scan (continue-on-error, per gate-promotion policy)
+CI harness gates: verify + escape-scan BLOCKING (`harness-verify` job, promoted 2026-09-02 PR #9); conform advisory (`harness-conform`, continue-on-error, per gate-promotion policy)
 
 ## Frameworks (observational)
 

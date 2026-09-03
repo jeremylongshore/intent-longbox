@@ -1,6 +1,6 @@
 {
   "name": "intent-longbox",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing",
   "type": "module",

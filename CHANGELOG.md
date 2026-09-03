@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.5] - 2026-09-03
+
+- docs(e00-b02): file the Longbox pain and outcome register (017); source register v1.0.1 (#19) (7f0daea)
+
+
 ## [v0.3.4] - 2026-09-03
 
 - docs(e00-b01): file the Longbox source register (016) and set model/effort on the project agents (#18) (e4d9ed1)

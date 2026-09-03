@@ -16,7 +16,9 @@ export const ADMIN_URL =
 
 /**
  * True when the lane should run: INTEGRATION=1 AND a Postgres answers on the
- * admin URL. Any other state logs why and lets suites skip (never fail).
+ * admin URL. Locally any other state logs why and lets suites skip. In CI
+ * (CI=true, as GitHub Actions sets) an unreachable database throws instead,
+ * so a broken service container can never produce a green job with 0 tests.
  */
 export async function probeDb(): Promise<boolean> {
   if (process.env.INTEGRATION !== "1") {
@@ -29,11 +31,19 @@ export async function probeDb(): Promise<boolean> {
     await client.end();
     return true;
   } catch (err) {
+    const where = ADMIN_URL.replace(/\/\/.*@/, "//***@");
+    await client.end().catch(() => undefined);
+    if (process.env.CI) {
+      throw new Error(
+        `[integration] CI=true but no Postgres reachable at ${where} (${(err as Error).message}); ` +
+          `refusing to skip the lane in CI`,
+        { cause: err }
+      );
+    }
     console.warn(
-      `[integration] skipping: no Postgres reachable at ${ADMIN_URL.replace(/\/\/.*@/, "//***@")} ` +
+      `[integration] skipping: no Postgres reachable at ${where} ` +
         `(${(err as Error).message}). Start one: docker compose -f docker-compose.test.yml up -d`
     );
-    await client.end().catch(() => undefined);
     return false;
   }
 }

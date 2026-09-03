@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Keep GitHub Actions up to date
+  # Keep GitHub Actions up to date (SHA-pinned uses are bumped with version comments)
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -8,8 +8,8 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
 
-  # Language: node — the skill will select the correct ecosystem
-  - package-ecosystem: "pip"
+  # Node / pnpm dependency tree (package.json + pnpm-lock.yaml)
+  - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"

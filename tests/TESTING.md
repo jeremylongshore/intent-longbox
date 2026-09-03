@@ -43,30 +43,28 @@ hooks: husky 9.x + lint-staged 17.x
 
 ## Last audit (observational)
 
-date: 2026-09-01
-grade: C (64/100) — pre-install baseline; see TEST_AUDIT.md
+date: 2026-09-02
+grade: B+ (84/100) — strict service/api matrix applied; see TEST_AUDIT.md
 auditor: audit-tests (handed off to implement-tests same day)
-p0_gaps: 0 remaining (L0/L1/L3 installed this pass)
-p1_gaps: 0 remaining (L2/L4/L6/RTM installed this pass)
-p2_gaps: 2
-
-- no dependency/security scanning lane (gitleaks/trivy) — revisit with L5
-- no mutation testing — revisit post-pilot
+p0_gaps: 3 (L5-sec scanning absent; L4-contract absent; R19 MUST uncovered → beads longbox-e5b.7.1 / .14.7)
+p1_gaps: 7 (main unprotected; Actions floating tags; integration skip-not-fail in CI; harness verify/escape-scan advisory; release.yml `npm test || true`; R3/R20 SHOULD; owner persona 33%)
+p2_gaps: 7 (mutation, branches floor, arch rules, property tests, BDD runner, commitlint, CRAP unmeasured)
+measured: unit 118/118, 99.67% lines / 89.75% branches; integration 14/14 vs postgres:16; bias LOW; gherkin-lint clean; escape-scan clean
 
 ## Traceability (observational, updated by audit-tests)
 
 rtm.total_requirements: 20
 rtm.by_moscow:
-must: 16 (13 covered, 1 partial R5, 2 pilot-manual R2/R15, 1 uncovered build gap R19 — see RTM)
+must: 16 (12 covered, 1 partial R5, 2 pilot-manual R2/R15, 1 uncovered R19 → beads longbox-e5b.7.1 eval set + longbox-e5b.14.7 CI regression)
 should: 2 (0 covered — R3 resumable UI, R20 corpus freshness not built yet)
 could: 0
 wont: 1 (R16 Whatnot CSV, excluded)
-rtm.orphaned_tests: 0
+rtm.orphaned_tests: 0 (providers-shared.test.ts traced to R7/R18 on 2026-09-02)
 personas.declared: 2
-personas.under_threshold: 1 (owner — draft-review flows are Shopify-side, manual in pilot)
+personas.under_threshold: 1 (owner 1/3 — draft review is Shopify-side; weekly correction rollup not built)
 journeys.declared: 3
-journeys.fully_covered: 1
-journeys.partial: 2
+journeys.fully_covered: 0
+journeys.partial: 3 (scanning 6/7, reviewing-drafts 2/3, correcting 3/4; only build-closable P0 is R19)
 
 ## Hash manifest
 

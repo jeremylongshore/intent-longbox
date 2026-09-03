@@ -22,13 +22,17 @@ Photo-to-listing pipeline for comic shops: a shop employee photographs a back-is
 
 All docs in `000-docs/` per /doc-filing; index at `000-docs/000-INDEX.md`.
 
-| Doc          | What                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| 002-PP-PRD   | Requirements R1 to R20, MoSCoW-tagged                                                      |
-| 003-AT-ARCH  | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate |
-| 004-PP-UJRN  | Employee, owner, and correction journeys in retailer language                              |
-| 005-AT-SPEC  | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks        |
-| 006-OD-STAT  | Live status: phase state, blockers, decision log (update this as things move)              |
+| Doc          | What                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| 002-PP-PRD   | Requirements R1 to R20, MoSCoW-tagged                                                          |
+| 003-AT-ARCH  | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate     |
+| 004-PP-UJRN  | Employee, owner, and correction journeys in retailer language                                  |
+| 005-AT-SPEC  | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks            |
+| 006-OD-STAT  | Live status: phase state, blockers, decision log (update this as things move)                  |
+
+**Bead graph (materialized 2026-09-02 from doc 014):** master `longbox-e5b`; E00 `longbox-6om`; E01–E15 `longbox-e5b.1`–`.15`; E16 = `longbox-adk` (reused); E17–E19 `longbox-e5b.16`–`.18`. Every bead's description carries `Alias: E##-B##` and a `Docs:` line; `bd show <id>` → read the cited doc rows before working it. Work the graph via `bd ready` (first ready leaf is E00-B01). Leaf beads are NOT mirrored to GitHub/Plane (014 §11.3) — only epics/gates get `bd-sync link`.
+
+**Project subagents (`.claude/agents/`, assignment table in 014 §22):** every bead carries `lbox.agent.build` + `lbox.agent.audit` metadata. Builders — `longbox-domain-builder` (E02/E04), `longbox-security-tenancy-builder` (E03), `longbox-mobile-builder` (E05), `longbox-resolution-ai-builder` (E06/E07), `longbox-valuation-commerce-builder` (E08–E11), `longbox-platform-delivery-builder` (E12–E15). Auditors (read-only) — `longbox-invariant-reviewer` before closing any code/test bead, `longbox-gate-auditor` before closing any decision/contract bead or gate. Builders and auditors never close beads; the session closes via `bd-sync close` after the audit verdict. Advisory PR review is the MiniMax workflow (`.github/workflows/minimax-review.yml`, dormant until `ENABLE_MINIMAX_REVIEW=true` + `MINIMAX_API_KEY`).
 
 ## Governance
 

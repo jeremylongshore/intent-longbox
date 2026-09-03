@@ -12,13 +12,18 @@ permissions:
 env:
   NODE_VERSION: "22"
 
+# Third-party actions are SHA-pinned (Dependabot github-actions bumps the pin + comment).
+#   actions/checkout    v4 -> 11d5960a326750d5838078e36cf38b85af677262
+#   actions/setup-node  v4 -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+#   gitleaks/gitleaks-action v2 -> ff98106e4c7b2bc287b24eaf42907196329070c7
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Enable corepack (pnpm pinned via package.json packageManager)
@@ -34,8 +39,8 @@ jobs:
     name: Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
@@ -47,8 +52,8 @@ jobs:
     name: Unit tests + coverage floor
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
@@ -74,49 +79,79 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: Integration lane (migrations, append-only triggers, scan-session flow, HTTP smoke)
+        # CI=true makes probeDb() throw instead of skip when Postgres is unreachable,
+        # so this job cannot go green with zero tests executed.
         run: pnpm test:integration
         env:
           TEST_DATABASE_ADMIN_URL: postgres://longbox:longbox@localhost:54329/postgres
 
-  # ── Advisory harness gates (gate-promotion policy: observe first, promote later) ──
-
-  harness-audit:
-    name: audit-harness verify + conform (advisory)
+  security:
+    name: Secret scan + dependency audit
     runs-on: ubuntu-latest
-    continue-on-error: true
+    # gitleaks-action lists the PR's commits via the API (needs pull-requests: read);
+    # PR comments are disabled so it never needs write.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks (secrets in history and working tree)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm audit (production deps, high+ blocks)
+        run: pnpm audit --prod --audit-level=high
+
+  # ── Harness gates ──
+  # verify + escape-scan are deterministic (hash manifest, policy-floor diff) and were
+  # promoted to blocking on 2026-09-02 after a clean observe window. conform stays advisory
+  # per the gate-promotion policy (docs/gate-promotion.md in @intentsolutions/audit-harness).
+
+  harness-verify:
+    name: audit-harness verify + escape-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: Verify hash-pinned artifacts
         run: pnpm exec audit-harness verify
-      - name: Conformance gates
-        run: pnpm exec audit-harness conform .
-
-  harness-scan:
-    name: audit-harness escape-scan (advisory)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
       - name: Escape-scan the branch range
         run: |
           git fetch origin main:refs/remotes/origin/main || true
           pnpm exec audit-harness escape-scan --range origin/main..HEAD
+
+  harness-conform:
+    name: audit-harness conform (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Conformance gates
+        run: pnpm exec audit-harness conform .

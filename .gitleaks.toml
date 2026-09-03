@@ -1,0 +1,14 @@
+# gitleaks config for intent-longbox. Real secrets never live in this repo
+# (SOPS + age only); the allowlist exists for test fixtures.
+title = "intent-longbox"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixture-only credentials in contract tests, and the one scaffolding commit that introduced realistic-looking placeholders before they were renamed"
+# Fixture values are always prefixed test- so a real key can never hide behind this.
+regexes = ['''test-[a-z0-9-]+(-key|-token|-secret)(-[a-z0-9]+)?''']
+# 192d632 (was 37441a7 before the rebase onto main) shipped shpat_7f3a91c2 / PRD-… placeholder strings in tests/contract;
+# renamed in the next commit. History is not rewritten on a shared PR branch.
+commits = ["192d632149113cb97a1c2793e19c2de315c333c7"]

@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.2] - 2026-09-03
+
+- docs(claude-md): refresh CLAUDE.md for v0.3.0 dual pricing, installed test system, and repo transfer (#8) (b6d04cd)
+
+
 ## [v0.3.1] - 2026-09-03
 
 - docs: file research docs and audit updates (#7) (3260fc7)

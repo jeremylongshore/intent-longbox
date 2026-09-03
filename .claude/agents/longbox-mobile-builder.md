@@ -3,7 +3,8 @@ name: longbox-mobile-builder
 description: "Use this agent when building the intent-longbox employee phone surface — capture flows, barcode/cert scanning, photo recipes, private uploads, the offline queue, and the candidate/abstain/condition/price/draft interaction shell in public/ — the work under blueprint epic E05 (employee mobile application). Trigger with 'build bead E05-Bxx', 'phone UI', 'offline queue', 'capture recipe', or any bead whose lbox.epic is LBOX-E05."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: sonnet
+effort: medium
 color: cyan
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: medium
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 50
 memory: project
 isolation: worktree

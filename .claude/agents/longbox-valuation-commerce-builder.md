@@ -3,7 +3,8 @@ name: longbox-valuation-commerce-builder
 description: "Use this agent when building intent-longbox's condition evidence, valuation federation and pricing policy, commerce connectors and physical inventory, or the owner desktop dashboards — the work under blueprint epics E08 (human-owned condition), E09 (valuation and pricing policy), E10 (commerce connectors and listing lifecycle) and E11 (owner/manager dashboards). Trigger with 'build bead E08/E09/E10/E11-Bxx', 'pricing policy engine', 'Shopify draft', 'outbox', 'exception queue', 'reconciliation', or any bead whose lbox.epic is LBOX-E08, E09, E10 or E11."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: opus
+effort: high
 color: green
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project
 isolation: worktree

@@ -3,7 +3,8 @@ name: longbox-invariant-reviewer
 description: "Use this agent to audit any intent-longbox diff, branch, PR or completed build bead against the repo's locked invariants before the bead is closed — the Hickey append-only model, condition-never-numeric, BYOK/no-raw-keys, the evidence-contradiction gate, DRAFT-only Shopify with stubs that never signal success, pricing-source semantics, tenant scoping, and the docs<->beads cross-reference rule. Read-only. Trigger with 'review this bead', 'invariant review', 'audit E##-B## build', 'pre-close review', or whenever a longbox-*-builder agent hands off."
 tools: [Read, Glob, Grep, Bash]
 disallowedTools: [Write, Edit]
-model: inherit
+model: opus
+effort: high
 color: yellow
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high          # adversarial reading pays for itself here
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 40
 memory: project       # remember previously accepted trade-offs (anti-ratchet)
 isolation: worktree

@@ -3,7 +3,8 @@ name: longbox-resolution-ai-builder
 description: "Use this agent when building intent-longbox's identity engine — barcode/cert parsing, exact-key and cache lookup, OCR facts, hashing, candidate generation with contradiction rules, the ordered resolution ladder with abstention, the LLM re-rank seam, provider adapters, the 200-comic evaluation set, and confidence calibration — the work under blueprint epics E06 (deterministic resolution) and E07 (AI, recognition, evaluation). Trigger with 'build bead E06-Bxx', 'build bead E07-Bxx', 'resolution ladder', 'eval set', 'calibrate bands', 'vision provider', or any bead whose lbox.epic is LBOX-E06 or LBOX-E07."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: opus
+effort: high
 color: purple
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high          # cost/accuracy trade-offs need deliberate reasoning
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project       # remember eval-set versions and calibration results
 isolation: worktree

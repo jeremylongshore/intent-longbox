@@ -3,7 +3,8 @@ name: longbox-platform-delivery-builder
 description: "Use this agent when building intent-longbox's unit-economics ledger, budgets and provider router, runtime platform (queue/workers, health, SLOs, storage, backup/restore, degraded modes), test architecture (invariant, contract, E2E, eval regression, load), or CI/CD and release controls — the work under blueprint epics E12 (economics and BYOP), E13 (runtime and reliability), E14 (quality engineering) and E15 (CI/CD and release). Trigger with 'build bead E12/E13/E14/E15-Bxx', 'cost ledger', 'provider router', 'readiness probe', 'restore drill', 'make CI blocking', 'SHA-pin actions', or any bead whose lbox.epic is LBOX-E12, E13, E14 or E15."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: opus
+effort: high
 color: orange
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: medium
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project
 isolation: worktree

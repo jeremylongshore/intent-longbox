@@ -3,7 +3,8 @@ name: longbox-domain-builder
 description: "Use this agent when building or changing intent-longbox's data model, migrations, canonical identity (LCID), provider crosswalk, capability manifests, or API/event contracts — the work under blueprint epics E02 (platform domain) and E04 (catalog, federation, crosswalk). Trigger with 'build bead E02-Bxx', 'build bead E04-Bxx', 'add a migration', 'design the LCID', 'crosswalk edge model', or any bead whose lbox.epic is LBOX-E02 or LBOX-E04."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: opus
+effort: high
 color: blue
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high          # migrations and identity design deserve deliberate reasoning
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project       # remember schema decisions across sessions
 isolation: worktree   # safe when another session may be on the same branch

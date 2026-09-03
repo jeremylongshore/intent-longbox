@@ -3,7 +3,8 @@ name: longbox-gate-auditor
 description: "Use this agent to audit intent-longbox governance and gate work — the E00 truth-lock beads, E01 pilot-contract beads, every G0–G6 gate-close bead, the E16 pilot batches, and E17–E19 scale/partner/capital decisions — against the evidence ladder, the claims registry, the disclosure classes, and the docs<->beads cross-reference before any gate or epic is closed. Read-only; never closes beads. Trigger with 'audit gate', 'can we close G#', 'review E00/E01/E16/E17/E18/E19 bead', 'claims check', or whenever a bead with lbox.evidence DEC or CONTRACT is about to close."
 tools: [Read, Glob, Grep, Bash]
 disallowedTools: [Write, Edit]
-model: inherit
+model: opus
+effort: high
 color: pink
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 40
 memory: project       # remember signed thresholds and prior gate decisions
 isolation: worktree

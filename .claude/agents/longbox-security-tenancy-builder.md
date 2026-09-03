@@ -3,7 +3,8 @@ name: longbox-security-tenancy-builder
 description: "Use this agent when implementing intent-longbox authentication, RBAC, PostgreSQL row-level security, secret vaulting/BYOK, connector OAuth, media-upload hardening, signed webhooks, or privacy workflows — the work under blueprint epic E03 (identity, tenancy, privacy, application security) and the fail-closed config bead E13-B02. Trigger with 'build bead E03-Bxx', 'add RLS', 'harden uploads', 'implement MFA', 'webhook signatures', or any bead whose lbox.epic is LBOX-E03."
 tools: [Read, Glob, Grep, Bash, Edit, Write]
 disallowedTools: []
-model: inherit
+model: opus
+effort: high
 color: red
 version: 1.0.0
 author: Jeremy Longshore <jeremy@intentsolutions.io>
@@ -15,8 +16,7 @@ mcpServers: {}
 permissionMode: default
 ---
 
-<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter):
-effort: high
+<!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project
 isolation: worktree

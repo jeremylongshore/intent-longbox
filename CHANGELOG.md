@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.1] - 2026-09-03
+
+- docs: file research docs and audit updates (#7) (3260fc7)
+
+
 ## [v0.3.0] - 2026-09-02
 
 - feat(pricing): plug-and-play dual pricing providers — eBay live asks vs PriceCharting historical FMV (#5) (89a6fdd)

@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.3] - 2026-09-03
+
+- docs(beads): file the nationwide blueprint (014/015) and materialize the full Longbox bead graph, one epic at a time (#9) (253d5bc)
+
+
 ## [v0.3.2] - 2026-09-03
 
 - docs(claude-md): refresh CLAUDE.md for v0.3.0 dual pricing, installed test system, and repo transfer (#8) (b6d04cd)

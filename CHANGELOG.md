@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.4] - 2026-09-03
+
+- docs(e00-b01): file the Longbox source register (016) and set model/effort on the project agents (#18) (e4d9ed1)
+
+
 ## [v0.3.3] - 2026-09-03
 
 - docs(beads): file the nationwide blueprint (014/015) and materialize the full Longbox bead graph, one epic at a time (#9) (253d5bc)

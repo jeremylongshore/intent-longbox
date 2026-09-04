@@ -298,6 +298,36 @@ module.exports = {
     },
 
     {
+      // E04-B02, 047 A8. THE HALF OF THE GUARD THE IMPORT GRAPH CAN SEE.
+      //
+      // `catalog-is-a-leaf` above already forbids catalog → workflow, so the
+      // signature function cannot reach `identityKey`. This rule closes the OTHER
+      // direction, which no existing rule forbids: workflow → catalog is an
+      // ALLOWED edge (029 §3.1), and `sessionApi.ts` uses it legitimately. What
+      // must never exist is `confirmationOutcome.ts` importing catalog — because
+      // the only thing it would import is the signature or its fields, and 047
+      // §9.3 rules that the two functions stay apart: merging them would move a
+      // 019 T1/T3 measurement rule that `019:57` makes non-editable without a
+      // 000-docs/006 row.
+      //
+      // Named, not an exemption. The non-graph half — no shared field-list
+      // constant, and a PR touching both without a 006 row fails — is rule 7 in
+      // `scripts/architectureRules.ts`, because neither is visible in the graph.
+      name: "identity-key-and-edition-signature-stay-apart",
+      severity: "error",
+      comment:
+        "047 §9.3 / A8: src/services/confirmationOutcome.ts (identityKey) must not import the " +
+        "catalog module. identityKey answers 'did this operator accept or correct' over two " +
+        "payloads in one session, using title+issue+variant and deliberately EXCLUDING publisher " +
+        "and year so a plain acceptance is not scored as a correction (019 T3); edition_signature " +
+        "answers 'which edition is this in the whole corpus' using series+issue+variant+printing " +
+        "(030 §3.3). Two questions, two owners, two versioning schemes. An import edge is the " +
+        "first step of the merge, and the merge is a change to a 019 measurement rule.",
+      from: { path: "^src/services/confirmationOutcome\\.ts$" },
+      to: { path: "^src/catalog/" },
+    },
+
+    {
       name: "platform-is-a-leaf",
       severity: "error",
       comment: "029 §2.9: if platform needs a domain fact, the design is wrong.",

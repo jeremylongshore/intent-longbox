@@ -74,6 +74,14 @@ jobs:
     # cost_log single-writer rule).
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # 047 A8's paired-edit rule is a property of the DIFF, so the gate needs
+          # real history to compute one — the merge base on a PR, and
+          # `github.event.before` on a push. Full depth here is what lets the step
+          # below fetch a base ref WITHOUT `--depth=1`: a shallow base plus a
+          # shallow HEAD can fail to find a merge base at all, and the failure
+          # mode is a diff that lists far more files than the change touched.
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -81,8 +89,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: dependency-cruiser (029 §3.3 module boundaries; every rule an error)
         run: pnpm depcruise
-      - name: Non-graph rules (029 N2, 042 I5, 042 I22, 040 §8.2 step 1)
+      - name: Non-graph rules (029 N2, 042 I5, 042 I22, 040 §8.2 step 1, 047 A8)
         run: pnpm arch
+      # 047 A8, second half: a change that edits BOTH `identityKey` and one of the
+      # catalog identity files without a 000-docs/006 row FAILS. Editing both
+      # sides in one diff is by construction a change to a 019 measurement rule,
+      # and `019:57` makes T1's field exclusion non-editable without that row.
+      #
+      # ⚠ RUN ON PUSH TO `main` AS WELL, and not only on pull_request. An earlier
+      # version of this comment claimed "a push to main has no diff to ask the
+      # question of", which is false: a push has `github.event.before`, and
+      # `main` accepts direct commits under CLAUDE.md's paperwork rule and an
+      # owner bypass (`enforce_admins` is off). A rule that only ever runs on the
+      # PR path is a rule with a documented way around it.
+      #
+      # The first push of a branch — and a force-push that rewrites history —
+      # reports `before` as all-zeros, which names no commit; there is no diff to
+      # take, so the step compares against the merge base instead and, failing
+      # that, skips loudly rather than failing the build on a ref that does not
+      # exist.
+      - name: Paired-edit rule over this change's diff (047 A8)
+        run: |
+          set -euo pipefail
+          ZERO=0000000000000000000000000000000000000000
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            RANGE="origin/${{ github.base_ref }}...HEAD"
+          elif [ "${{ github.event.before }}" != "$ZERO" ]; then
+            RANGE="${{ github.event.before }}...${{ github.sha }}"
+          else
+            echo "paired-edit rule: no previous commit on this ref (first push or history rewrite) — skipping"
+            exit 0
+          fi
+          git diff --name-only "$RANGE" > /tmp/changed-files.txt
+          pnpm arch --changed /tmp/changed-files.txt
 
   integration:
     name: Postgres integration + HTTP smoke

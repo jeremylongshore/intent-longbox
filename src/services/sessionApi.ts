@@ -63,6 +63,7 @@ import { fetchPricing, recordPricing } from "./pricingService.js";
 import { planIdentify, readLatestRerank, recordIdentify, toOutcome } from "./identify.js";
 import { insertConditionAssessment, readCurrentConditionAssessment, validGradeRange } from "./condition.js";
 import { decideOutcome, topCandidateOf } from "./confirmationOutcome.js";
+import { COMIC_VERTICAL, resolveConfirmationIdentity } from "./identityResolution.js";
 import { supersede } from "./supersession.js";
 import {
   addScanPhoto,
@@ -550,6 +551,28 @@ export async function confirm(
           sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
         });
     await setSessionStatus(tx, ctx.shopId, session.id, "confirmed");
+
+    // THE SECOND FACT (047 §9.1, E04-B02). The confirmation above is the
+    // PERSON'S act and is complete without this line — which is why this call
+    // comes after it, in the same transaction, and why its outcome does not
+    // reach the response body. What the catalog says the person picked is a
+    // separate, revisable statement: it may be absent (no corpus has been built
+    // yet), it may decline (the signature is a dedupe candidate, and 030 §3.3
+    // makes that a human-queue item rather than a merge), and a later corpus may
+    // answer differently by appending a second row. None of those is an error at
+    // the counter, so none of them changes what the operator sees.
+    //
+    // 041 §4.1 is satisfied because this is only reads and one INSERT: there is
+    // no provider call and no side effect inside the transaction body, so the
+    // retry stays sound.
+    await resolveConfirmationIdentity(tx, {
+      shopId: ctx.shopId,
+      humanConfirmationId: row.id,
+      confirmedIssue: body.issue,
+      vertical: COMIC_VERTICAL,
+      resolvedBy: "sessionApi.confirm",
+    });
+
     return {
       status: 201,
       body: { confirmation: { id: row.id, created_at: row.created_at, outcome } },

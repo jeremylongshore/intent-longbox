@@ -466,6 +466,232 @@ export function checkSupersedesWriters(files: readonly SourceFile[]): Finding[] 
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Rule 7 — 047 A8: `identityKey` and `edition_signature` stay two functions.
+// ---------------------------------------------------------------------------
+
+/**
+ * The two files A8 keeps apart, and it is worth restating WHY a lint rule guards
+ * two functions that both compile fine today.
+ *
+ * `identityKey` (workflow) answers "did this operator ACCEPT or CORRECT what was
+ * on the screen" for 019 T3 and T20, over two payloads within one session. It
+ * uses `title + issue + variant` and DELIBERATELY EXCLUDES publisher and year,
+ * with the reason written at `confirmationOutcome.ts:44-49`: including them
+ * "would score a plain acceptance as a correction and inflate T3". `019:57` makes
+ * that exclusion non-editable without a `000-docs/006` row.
+ *
+ * `edition_signature` (catalog) answers "which edition is this, in the whole
+ * corpus" for dedupe and the Q2/Q3 lookup. It uses `series + issue + variant +
+ * printing` (030 §3.3) and is versioned by `normalization_version` beside the
+ * pack version.
+ *
+ * They look alike. 047 §9.3: "Two functions with two names drift into one the
+ * first time a builder notices they look alike, and the drift is silent because
+ * both still compile." The drift has two shapes and this rule closes both:
+ *
+ *   MECHANICAL — one exported field-list constant imported by both, so a change
+ *   to the catalog's fields silently changes what T3 counts. Closed by
+ *   `checkIdentityFunctionSeparation`.
+ *
+ *   HUMAN — a PR that edits both functions in one diff. That is, by construction,
+ *   a change to a 019 measurement rule, and it is only legitimate with a 006 row.
+ *   Closed by `checkIdentityPairEdit`, which the gate runs over the PR's changed
+ *   files.
+ */
+export const IDENTITY_KEY_FILE = "src/services/confirmationOutcome.ts";
+export const EDITION_SIGNATURE_FILE = "src/catalog/editionSignature.ts";
+
+/**
+ * THE CATALOG SIDE IS A SET, NOT ONE FILE, and E04-B02's invariant review is why.
+ *
+ * A8 names `edition_signature` as a FUNCTION, and the first version of this rule
+ * read that as one file. But the comic field list does not live in one file: the
+ * signature function's own four-field literal is in `editionSignature.ts`, and
+ * `comicIdentity.ts` holds `comicSignatureInput` (which composes those same four
+ * fields across the definition and the edition) and `comicSignatureClaim` (which
+ * maps a flat payload onto them). Either of those is a field list, and a diff
+ * that edited `comicSignatureClaim` beside `identityKey` would have been the
+ * paired edit A8 forbids — passing a rule that only watched the other file.
+ *
+ * So both are subjects: neither may share an import with `identityKey`, and a PR
+ * touching `identityKey` and ANY of them needs the 006 row.
+ */
+export const CATALOG_IDENTITY_FILES: readonly string[] = [
+  EDITION_SIGNATURE_FILE,
+  "src/catalog/comicIdentity.ts",
+];
+
+/** `from "…"` / `require("…")`, capturing the specifier. */
+const IMPORT_SPECIFIER = /(?:from\s+|require\s*\(\s*)["']([^"']+)["']/g;
+
+function importSpecifiers(text: string): string[] {
+  return [...text.matchAll(IMPORT_SPECIFIER)].map((m) => m[1]!);
+}
+
+/** `import … from "./x.js"` resolved against the importing file's directory. */
+function resolveSpecifier(fromPath: string, specifier: string): string {
+  if (!specifier.startsWith(".")) return specifier;
+  const dir = fromPath.split("/").slice(0, -1);
+  const parts = specifier.split("/");
+  for (const part of parts) {
+    if (part === "." || part === "") continue;
+    else if (part === "..") dir.pop();
+    else dir.push(part);
+  }
+  return dir.join("/").replace(/\.js$/, ".ts");
+}
+
+/**
+ * A8's first half. Three assertions, and each one closes a different way the
+ * mechanical merge could be performed:
+ *
+ *  1. **Neither file imports the other.** The direct merge — `identityKey`
+ *     calling the signature function, or vice versa.
+ *  2. **They share no imported module.** The indirect merge, and the one A8
+ *     actually names: "one exported `FIELDS` array imported by both". A shared
+ *     field list REQUIRES a shared import, so forbidding the shared import
+ *     forbids the shared constant without having to guess what someone would
+ *     name it.
+ *  3. **Neither exports a field-list-shaped constant.** Belt and braces for the
+ *     case where the array is exported from one of the two and imported by a
+ *     third file that then feeds both.
+ *
+ * The rule is deliberately not "the field lists differ": two lists that happen to
+ * be equal today are still two decisions, and a rule that compared them would
+ * fire on a coincidence and stay silent on the merge.
+ */
+export function checkIdentityFunctionSeparation(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  const identity = byPath.get(IDENTITY_KEY_FILE);
+  const missing = [IDENTITY_KEY_FILE, ...CATALOG_IDENTITY_FILES].filter((p) => !byPath.has(p));
+
+  if (missing.length > 0) {
+    // A rule that silently passes when its subject is renamed is a rule that has
+    // stopped working. 047 §9.3 is about these functions; if a file moved, the
+    // rule must be moved with it deliberately.
+    return [
+      {
+        rule: "identity-key-and-edition-signature-stay-apart",
+        message:
+          `expected every A8 subject file to exist (047 §9.3); missing [${missing.join(", ")}]. ` +
+          `If a file was renamed, update IDENTITY_KEY_FILE / CATALOG_IDENTITY_FILES in the same PR ` +
+          `— and note that a rename touching both sides is itself the paired edit rule 7's second ` +
+          `half governs.`,
+      },
+    ];
+  }
+
+  const identityImports = importSpecifiers(identity!.text).map((sp) => resolveSpecifier(identity!.path, sp));
+
+  for (const catalogPath of CATALOG_IDENTITY_FILES) {
+    const catalog = byPath.get(catalogPath)!;
+    const catalogImports = importSpecifiers(catalog.text).map((sp) => resolveSpecifier(catalog.path, sp));
+
+    if (identityImports.includes(catalogPath) || catalogImports.includes(IDENTITY_KEY_FILE)) {
+      findings.push({
+        rule: "identity-key-and-edition-signature-stay-apart",
+        message:
+          `${IDENTITY_KEY_FILE} and ${catalogPath} import each other (047 §9.3, A8). They answer ` +
+          `different questions — "did this operator accept or correct" versus "which edition is ` +
+          `this in the whole corpus" — and an import edge is the first step of the merge that would ` +
+          `move a 019 T1/T3 measurement rule. Reuse the NORMALISATION by copying the rule, not the ` +
+          `field list; §9.3 says in terms that the normalisation "should be reused" and the field ` +
+          `list must not be.`,
+      });
+    }
+
+    // The indirect merge, and the one A8 actually names: "one exported FIELDS
+    // array imported by both". A shared field list REQUIRES a shared import, so
+    // forbidding the shared import forbids the shared constant without having to
+    // guess what someone would name it. Imports INSIDE the catalog subject set do
+    // not count — `comicIdentity.ts` imports `editionSignature.ts` on purpose,
+    // and that edge is the pack reusing its own normalisation.
+    const shared = identityImports
+      .filter((sp) => catalogImports.includes(sp))
+      .filter((sp) => !CATALOG_IDENTITY_FILES.includes(sp))
+      .sort();
+    if (shared.length > 0) {
+      findings.push({
+        rule: "identity-key-and-edition-signature-stay-apart",
+        message:
+          `${IDENTITY_KEY_FILE} and ${catalogPath} both import [${shared.join(", ")}] (047 §9.3, A8). ` +
+          `A shared field-list constant requires a shared import, so the shared import is what the ` +
+          `guard forbids: one exported FIELDS array with two importers is exactly the mechanical ` +
+          `merge A8 exists to make unavailable. If the shared module is genuinely field-list-free, ` +
+          `the honest fix is still to inline what each side needs — these functions are versioned ` +
+          `differently (one by 019, one by the pack) and cannot share a dependency that either ` +
+          `version could move.`,
+      });
+    }
+  }
+
+  // ⚠ `FIELDS` / `FIELD_LIST` ONLY, and NOT `KEYS`. The first version of this
+  // pattern included `KEYS` and immediately fired on `COPY_FACT_KEYS` in
+  // `comicIdentity.ts` — which is a DENYLIST of attribute names an edition may
+  // never carry (047 A6), the opposite of an identity field list and something
+  // that must stay exported so the write path and its tests can name it. The
+  // honest fix is to narrow the pattern rather than exempt the file: an exemption
+  // row would have switched the whole file off, and nothing is lost, because a
+  // denylist cannot become a shared identity field list without being renamed —
+  // and if either side ever imported it, the shared-import check above fires.
+  for (const path of [IDENTITY_KEY_FILE, ...CATALOG_IDENTITY_FILES]) {
+    const file = byPath.get(path)!;
+    if (/export\s+(?:const|let|var)\s+\w*(?:FIELDS|FIELD_LIST)\b/.test(file.text)) {
+      findings.push({
+        rule: "identity-key-and-edition-signature-stay-apart",
+        message:
+          `${file.path} exports a field-list-shaped constant (047 §9.3, A8). None of these files may ` +
+          `export its field list, because an exported list is one import away from being the SAME ` +
+          `list — and the two sides must be able to disagree about their fields forever. Keep the ` +
+          `list an inline literal inside the function.`,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * A8's second half: a PR that edits BOTH functions without a `000-docs/006` row
+ * FAILS.
+ *
+ * Pure over a changed-file list so it has a negative fixture like every other
+ * rule here; the gate feeds it `git diff --name-only` against the PR's merge
+ * base. `006-OD-STAT-status.md` is the decision log, and 047 §9.3 leans on
+ * `019:57` — T1's exclusion rule is "non-editable without a 006 row". A diff
+ * touching both functions IS an edit to that rule whether or not the author
+ * meant it to be, which is the whole reason the check is mechanical.
+ *
+ * ⚠ IT DOES NOT ASK WHAT THE 006 ROW SAYS. A gate that tried to would be reading
+ * prose and guessing; what it can prove is that the author was made to write one,
+ * in the same PR, where a reviewer will see it next to the diff. That is the
+ * property 019's non-editability rule actually needs.
+ */
+export const DECISION_LOG_FILE = "000-docs/006-OD-STAT-status.md";
+
+export function checkIdentityPairEdit(changedFiles: readonly string[]): Finding[] {
+  const changed = new Set(changedFiles.map((f) => f.trim()).filter((f) => f.length > 0));
+  if (!changed.has(IDENTITY_KEY_FILE)) return [];
+  const catalogTouched = CATALOG_IDENTITY_FILES.filter((p) => changed.has(p));
+  if (catalogTouched.length === 0) return [];
+  if (changed.has(DECISION_LOG_FILE)) return [];
+  return [
+    {
+      rule: "identity-pair-edit-needs-a-006-row",
+      message:
+        `this change edits ${IDENTITY_KEY_FILE} AND [${catalogTouched.join(", ")}] and adds no row to ` +
+        `${DECISION_LOG_FILE} (047 §9.3, A8). Editing both sides in one diff is, by construction, a ` +
+        `change to a 019 measurement rule: \`identityKey\` decides T3's confirm-versus-correct and ` +
+        `\`019:57\` makes T1's field exclusion non-editable without a 006 row. If the change really ` +
+        `is a measurement decision, file the row and say what moved and why. If it is not, split the ` +
+        `PR — the two sides are owned by different layers and versioned by different things, so a ` +
+        `change that needs to touch both is rarer than it looks.`,
+    },
+  ];
+}
+
 /**
  * Every `.ts` file under `dir`, repo-relative with forward slashes.
  *
@@ -499,5 +725,6 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkLockOrder(files),
     ...checkScanSessionStatusWriters(files),
     ...checkSupersedesWriters(files),
+    ...checkIdentityFunctionSeparation(files),
   ];
 }

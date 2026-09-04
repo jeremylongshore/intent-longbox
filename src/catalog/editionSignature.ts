@@ -57,7 +57,8 @@ export const NORMALIZATION_VERSION = 1;
  * ASCII unit separator. Chosen because it cannot occur in any normalised field,
  * so `a|b` and `a` + `|b` can never collide.
  */
-const SEP = "\u001f";
+export const SIGNATURE_SEPARATOR = "\u001f";
+const SEP = SIGNATURE_SEPARATOR;
 
 /**
  * One field, normalised. Missing, null, empty and whitespace-only are THE SAME
@@ -83,10 +84,16 @@ export function normalizeIssue(value: string | null | undefined): string {
  * manifest that declares either as an edition field fails pack certification.
  */
 export interface ComicEditionFields {
-  readonly series?: string | null;
-  readonly issue?: string | null;
-  readonly variant?: string | null;
-  readonly printing?: string | null;
+  // `| undefined` is spelled out because the repo runs `exactOptionalPropertyTypes`:
+  // under it an optional property may be ABSENT but not present-and-undefined, and
+  // every composer of these fields produces present-and-undefined for a field the
+  // source did not state. That is the right value to produce — missing, null and
+  // empty are one claim here — so the type admits it rather than making callers
+  // `delete` keys to satisfy it.
+  readonly series?: string | null | undefined;
+  readonly issue?: string | null | undefined;
+  readonly variant?: string | null | undefined;
+  readonly printing?: string | null | undefined;
 }
 
 /**

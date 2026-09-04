@@ -17,6 +17,8 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   checkCostLogWriters,
+  checkIdentityFunctionSeparation,
+  checkIdentityPairEdit,
   checkLockOrder,
   checkRouteDbAccess,
   checkScanSessionStatusWriters,
@@ -25,6 +27,10 @@ import {
   findSupersedesWriters,
   SUPERSEDES_WRITER,
   COST_LOG_WRITER,
+  CATALOG_IDENTITY_FILES,
+  DECISION_LOG_FILE,
+  EDITION_SIGNATURE_FILE,
+  IDENTITY_KEY_FILE,
   ROUTE_DB_ROWS,
   SELECT_STAR_ROWS,
   splitMutatingHandlers,
@@ -410,5 +416,182 @@ describe("042 I22 — the fixed lock order", () => {
       (chunk) => /\brunIdempotent\s*\(/.test(chunk) && /\blockOrRefuse\s*\(/.test(chunk)
     );
     expect(ordered.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule 7 — 047 A8: `identityKey` and `edition_signature` stay two functions.
+//
+// The rule exists because the two functions LOOK alike and the drift between
+// them is silent: both still compile. 047 §9.3 rules they stay apart because
+// merging them would move a 019 measurement rule — `identityKey` decides T3's
+// confirm-versus-correct and deliberately excludes publisher and year, and
+// `019:57` makes that exclusion non-editable without a 000-docs/006 row.
+//
+// Both halves are exercised twice, real tree and fixture, for this file's
+// standing reason: a rule that has never failed is indistinguishable from one
+// that cannot.
+// ---------------------------------------------------------------------------
+describe("rule 7 — identityKey and edition_signature stay apart (047 A8)", () => {
+  const identity = (text: string): SourceFile => ({ path: IDENTITY_KEY_FILE, text });
+  const signature = (text: string): SourceFile => ({ path: EDITION_SIGNATURE_FILE, text });
+  const comicIdentity = (text: string): SourceFile => ({ path: "src/catalog/comicIdentity.ts", text });
+  /** Every subject file present and inert, so a fixture can vary exactly one. */
+  const tree = (...overrides: SourceFile[]): SourceFile[] => {
+    const base = new Map<string, SourceFile>(
+      [IDENTITY_KEY_FILE, ...CATALOG_IDENTITY_FILES].map((path) => [path, { path, text: "const x = 1;" }])
+    );
+    for (const file of overrides) base.set(file.path, file);
+    return [...base.values()];
+  };
+
+  it("passes on the real tree", () => {
+    expect(checkIdentityFunctionSeparation(collectSources(join(repoRoot, "src")))).toEqual([]);
+  });
+
+  it("FAILS when the workflow function imports the catalog one", () => {
+    const findings = checkIdentityFunctionSeparation(
+      tree(identity('import { comicEditionSignature } from "../catalog/editionSignature.js";'))
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("import each other");
+  });
+
+  it("FAILS when the catalog function imports the workflow one", () => {
+    const findings = checkIdentityFunctionSeparation(
+      tree(signature('import { identityKey } from "../services/confirmationOutcome.js";'))
+    );
+    expect(findings).toHaveLength(1);
+  });
+
+  // THE FIXTURE A8 NAMES BY NAME: "one exported FIELDS array imported by both".
+  it("FAILS on a shared field-list module imported by both — the mechanical merge", () => {
+    const findings = checkIdentityFunctionSeparation(
+      tree(
+        identity('import { FIELDS } from "../identityFields.js";'),
+        signature('import { FIELDS } from "../identityFields.js";')
+      )
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/identityFields.ts");
+  });
+
+  it("FAILS when either file exports a field-list-shaped constant", () => {
+    expect(
+      checkIdentityFunctionSeparation(tree(identity('export const IDENTITY_FIELDS = ["title"];')))
+    ).toHaveLength(1);
+    expect(
+      checkIdentityFunctionSeparation(tree(signature('export const SIGNATURE_FIELDS = ["series"];')))
+    ).toHaveLength(1);
+  });
+
+  it("FAILS LOUDLY when either file is missing, rather than passing vacuously", () => {
+    // A rule whose subject was renamed must be moved deliberately. Silence here
+    // is the blind-rule failure `checkLockOrder`'s history records.
+    expect(checkIdentityFunctionSeparation([identity("const x = 1;")])).toHaveLength(1);
+    // Dropping the SECOND catalog subject is just as blinding as dropping the first.
+    expect(
+      checkIdentityFunctionSeparation([identity("const x = 1;"), signature("const x = 1;")])
+    ).toHaveLength(1);
+  });
+
+  it("FAILS on an import edge to the SECOND catalog subject, comicIdentity.ts", () => {
+    // `comicSignatureInput` and `comicSignatureClaim` carry the same four-field
+    // list, so an edge to that file is the same merge by another route.
+    const findings = checkIdentityFunctionSeparation(
+      tree(identity('import { comicSignatureClaim } from "../catalog/comicIdentity.js";'))
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/catalog/comicIdentity.ts");
+  });
+
+  it("FAILS on a field list shared with comicIdentity.ts", () => {
+    const findings = checkIdentityFunctionSeparation(
+      tree(
+        identity('import { FIELDS } from "../identityFields.js";'),
+        comicIdentity('import { FIELDS } from "../identityFields.js";')
+      )
+    );
+    expect(findings).toHaveLength(1);
+  });
+
+  it("does NOT fire on the catalog subjects importing each other", () => {
+    // `comicIdentity.ts` imports `editionSignature.ts` on purpose — that edge is
+    // the pack reusing its OWN normalisation, which 047 §9.3 says to reuse. Only
+    // an edge crossing to the workflow side is the merge.
+    expect(
+      checkIdentityFunctionSeparation(
+        tree(comicIdentity('import { normalizeField } from "./editionSignature.js";'))
+      )
+    ).toEqual([]);
+  });
+
+  it("does NOT fire on a denylist export like COPY_FACT_KEYS", () => {
+    // The regression the gate itself caught during this bead: `COPY_FACT_KEYS` is
+    // a list of attribute names an edition may NEVER carry (047 A6) — the
+    // opposite of an identity field list, and it must stay exported.
+    expect(
+      checkIdentityFunctionSeparation(tree(comicIdentity('export const COPY_FACT_KEYS = ["grader"];')))
+    ).toEqual([]);
+  });
+
+  it("permits an unrelated import on one side only", () => {
+    expect(
+      checkIdentityFunctionSeparation(tree(identity('import type { Queryable } from "../db.js";')))
+    ).toEqual([]);
+  });
+});
+
+describe("rule 7's second half — a paired edit needs a 006 row (047 A8)", () => {
+  it("FAILS when identityKey and comicIdentity.ts are edited without a 006 row", () => {
+    // The gap the invariant review found: a diff editing `comicSignatureClaim`
+    // beside `identityKey` is the same paired edit, and the first version of this
+    // rule watched only `editionSignature.ts`.
+    const findings = checkIdentityPairEdit([IDENTITY_KEY_FILE, "src/catalog/comicIdentity.ts"]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/catalog/comicIdentity.ts");
+  });
+
+  it("passes when that pair IS accompanied by a 006 row", () => {
+    expect(
+      checkIdentityPairEdit([IDENTITY_KEY_FILE, "src/catalog/comicIdentity.ts", DECISION_LOG_FILE])
+    ).toEqual([]);
+  });
+
+  it("passes when two CATALOG subjects are edited together without the workflow one", () => {
+    // Both sit inside the pack and are versioned together; only a diff crossing
+    // to `identityKey` is a measurement change.
+    expect(checkIdentityPairEdit(CATALOG_IDENTITY_FILES)).toEqual([]);
+  });
+
+  it("passes when only ONE of the two functions is edited", () => {
+    expect(checkIdentityPairEdit([IDENTITY_KEY_FILE, "src/routes/scanSessions.ts"])).toEqual([]);
+    expect(checkIdentityPairEdit([EDITION_SIGNATURE_FILE])).toEqual([]);
+  });
+
+  it("FAILS when BOTH are edited and no 006 row is filed", () => {
+    const findings = checkIdentityPairEdit([IDENTITY_KEY_FILE, EDITION_SIGNATURE_FILE]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("identity-pair-edit-needs-a-006-row");
+  });
+
+  it("passes when BOTH are edited AND the decision log is amended in the same diff", () => {
+    expect(checkIdentityPairEdit([IDENTITY_KEY_FILE, EDITION_SIGNATURE_FILE, DECISION_LOG_FILE])).toEqual([]);
+  });
+
+  it("tolerates the whitespace a `git diff --name-only` pipe leaves behind", () => {
+    expect(
+      checkIdentityPairEdit([`  ${IDENTITY_KEY_FILE}  `, `${EDITION_SIGNATURE_FILE}\r`, ""])
+    ).toHaveLength(1);
+  });
+
+  it("names files that exist, so a rename cannot quietly retire the rule", () => {
+    // The paired-edit check compares strings; if a path constant drifts from the
+    // tree it would stop matching any real diff and never fire again.
+    const paths = collectSources(join(repoRoot, "src")).map((f) => f.path);
+    expect(paths).toContain(IDENTITY_KEY_FILE);
+    for (const path of CATALOG_IDENTITY_FILES) expect(paths).toContain(path);
+    expect(CATALOG_IDENTITY_FILES).toContain(EDITION_SIGNATURE_FILE);
+    expect(existsSync(join(repoRoot, DECISION_LOG_FILE))).toBe(true);
   });
 });

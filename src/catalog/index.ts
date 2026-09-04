@@ -21,19 +21,25 @@
 //           projection's rebuild; and the comic SIGNATURE FUNCTION, seeded from
 //           030 §3.3's ratified `series + issue + variant + printing` verbatim.
 //
-//   ⚠ THE SIGNATURE IS SEEDED HERE AND OWNED BY E04-B02, which is a division
-//   worth stating because the export below makes it look settled. 047 §9.3 gives
-//   this bead the field-list RULING and the normalisation to reuse; what it does
-//   not give is the comic identity SCHEMA that `attributes` validates against, or
-//   A8's static guard that `identityKey` and `edition_signature` share no
-//   field-list constant and that a PR touching both without a 000-docs/006 row
-//   FAILS. Both are E04-B02's, and it extends `editionSignature.ts` rather than
-//   replacing it. What is shipped here is the property that guard protects: two
-//   functions, two modules, no shared constant, asserted by
-//   tests/edition-signature.test.ts.
+//   HERE SINCE E04-B02 — the comic IDENTITY SCHEMA the signature reads from
+//           (`comicIdentity.ts`: two Zod schemas, 030 §5.3's field split, unknown
+//           preserved as distinct from absent, copy facts and provider keys
+//           refused by name); the WRITE PATH that computes the signature in a
+//           service rather than a trigger and asserts 030 I7 at the data level
+//           (`editionWrite.ts`); and the Q2/Q3 lookup with its dedupe CANDIDATE —
+//           never an automatic merge (`dedupe.ts`).
+//
+//   ⚠ THE SIGNATURE WAS SEEDED AT E04-D01 AND COMPLETED AT E04-B02, and the two
+//   halves are worth keeping distinguishable. E04-D01 shipped the function and
+//   the property A8 protects — two functions, two modules, no shared constant,
+//   asserted by tests/edition-signature.test.ts. E04-B02 added the identity
+//   SCHEMA `attributes` validates against, the write path, the dedupe candidate,
+//   and A8's static guard itself: `checkIdentityFunctionSeparation` and
+//   `checkIdentityPairEdit` in `scripts/architectureRules.ts` (rule 7), plus the
+//   `identity-key-and-edition-signature-stay-apart` dependency-cruiser rule.
+//   `editionSignature.ts` was extended, never replaced.
 //
 //   NOT HERE, by 047 §12.3's assignment —
-//     * the comic identity schema, and A8's static guard over the signature  E04-B02
 //     * the card identity schema                                 E04-B03 (gated by E19-B06)
 //     * the pack manifest as shipped code                        E04-B04
 //     * the rights registry and any licence analysis             E04-B05 (+ counsel)
@@ -56,6 +62,7 @@ export {
 
 export {
   NORMALIZATION_VERSION,
+  SIGNATURE_SEPARATOR,
   UnregisteredVerticalError,
   comicEditionSignature,
   editionSignature,
@@ -63,6 +70,48 @@ export {
   normalizeIssue,
   type ComicEditionFields,
 } from "./editionSignature.js";
+
+export {
+  COMIC_IDENTITY_SCHEMA_VERSION,
+  COPY_FACT_KEYS,
+  CopyFactInEditionError,
+  ProviderKeyInAttributesError,
+  comicDefinitionAttributes,
+  comicDefinitionSignature,
+  comicEditionAttributes,
+  comicSignatureClaim,
+  comicSignatureInput,
+  definitionSignature,
+  parseIdentityAttributes,
+  signatureClaim,
+  signatureInput,
+  type ComicDefinitionAttributes,
+  type ComicEditionAttributes,
+  type SignatureFields,
+} from "./comicIdentity.js";
+
+export {
+  UnattachedDefinitionError,
+  VerticalMismatchError,
+  insertDefinition,
+  insertEdition,
+  type DefinitionWrite,
+  type EditionWrite,
+  type EditionWritten,
+} from "./editionWrite.js";
+
+export {
+  findAllDedupeCandidates,
+  findDedupeCandidate,
+  findEditionsBySignature,
+  lookupByExternalId,
+  lookupBySignature,
+  type AliasLookup,
+  type DedupeCandidate,
+  type ExternalIdQuery,
+  type SignatureLookup,
+  type SignatureQuery,
+} from "./dedupe.js";
 
 export { MINT_ATTEMPTS, mint, type MintRequest } from "./mint.js";
 
@@ -79,6 +128,12 @@ export {
   type LifecycleFact,
 } from "./lifecycle.js";
 
-export { READ_CHAIN_BOUND, resolve, resolveCurrent, type ResolveOutcome } from "./resolve.js";
+export {
+  READ_CHAIN_BOUND,
+  newestCorpusVersionId,
+  resolve,
+  resolveCurrent,
+  type ResolveOutcome,
+} from "./resolve.js";
 
 export { rebuildSurvivorProjection, type RebuildResult } from "./projection.js";

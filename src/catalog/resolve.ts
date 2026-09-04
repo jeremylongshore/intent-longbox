@@ -126,10 +126,20 @@ export const READ_CHAIN_BOUND = 64;
  * So the as-of is always the corpus version's ID and the comparison is a
  * row-valued scalar subquery.
  */
-const AS_OF = `(SELECT c2.built_at, c2.id FROM corpus_version c2 WHERE c2.id = $2)`;
+export const AS_OF = `(SELECT c2.built_at, c2.id FROM corpus_version c2 WHERE c2.id = $2)`;
 
-/** `(built_at, id) <= asOf`, for a `corpus_version` aliased `c`. */
-const AT_OR_BEFORE_AS_OF = `(c.built_at, c.id) <= ${AS_OF}`;
+/**
+ * `(built_at, id) <= asOf`, for a `corpus_version` aliased `c`, with the as-of id
+ * bound to `$2`.
+ *
+ * EXPORTED WITHIN THE MODULE, and deliberately not restated anywhere. This file's
+ * own header says why the comparison is a tuple and why it is evaluated in SQL,
+ * and both properties were bugs before they were rules — so a second copy in
+ * `dedupe.ts` would be a second definition of "at or before", drifting silently
+ * the next time one of them is corrected. It is not re-exported from `index.ts`:
+ * outside `catalog` nobody composes catalog SQL.
+ */
+export const AT_OR_BEFORE_AS_OF = `(c.built_at, c.id) <= ${AS_OF}`;
 
 /**
  * A syntactically valid uuid. Checked in JS so that a MALFORMED id is a caller
@@ -148,6 +158,21 @@ async function corpusExists(db: Queryable, corpusVersionId: string): Promise<boo
   if (!UUID_RE.test(corpusVersionId)) return false;
   const res = await db.query(`SELECT 1 FROM corpus_version WHERE id = $1`, [corpusVersionId]);
   return res.rows.length > 0;
+}
+
+/**
+ * The newest corpus version by the SAME tuple the as-of predicate compares.
+ *
+ * Exported (and re-exported from `index.ts` as `newestCorpusVersionId`) because a
+ * caller outside the module needs an as-of to pass — `resolve` requires one
+ * (A11) — and the only honest source of "the world as it is now" is this
+ * ordering. A caller that computed its own `ORDER BY built_at DESC LIMIT 1` would
+ * disagree with `resolve` on exactly the tied pair the tuple exists to order.
+ * `null` means no corpus has ever been built, which callers answer by declining
+ * to write rather than by inventing one.
+ */
+export async function newestCorpusVersionId(db: Queryable): Promise<string | null> {
+  return newestCorpusId(db);
 }
 
 async function newestCorpusId(db: Queryable): Promise<string | null> {

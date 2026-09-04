@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.4.0] - 2026-09-04
+
+- feat(domain): reserve every schema slot the workplace principles depend on (003) (#27) (2b6f14a)
+
+
 ## [v0.3.12] - 2026-09-04
 
 - docs(e01): prepare the pilot authority confirmation and discovery-call script (028) (#26) (46d9910)

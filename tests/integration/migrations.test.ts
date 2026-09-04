@@ -28,6 +28,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "002_ebay_credential_kind.sql",
       "003_reserve_principle_slots.sql",
       "004_human_confirmation_outcome.sql",
+      "005_listing_status_observation.sql",
     ]);
 
     const tables = await pool.query(
@@ -54,6 +55,8 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "retention_policy",
       "retention_hold",
       "retention_hold_release",
+      // 005 (E02-D02): the observed listing lifecycle T19's detector reads.
+      "listing_status_observation",
     ]) {
       expect(names).toContain(expected);
     }
@@ -64,8 +67,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  002_ebay_credential_kind.sql");
     expect(secondRun).toContain("skip  003_reserve_principle_slots.sql");
     expect(secondRun).toContain("skip  004_human_confirmation_outcome.sql");
+    expect(secondRun).toContain("skip  005_listing_status_observation.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(4);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(5);
   });
 
   // 003 is written to survive a hand re-run (IF NOT EXISTS / DROP-then-ADD),
@@ -94,6 +98,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "corpus_version",
       "cost_log",
       "human_confirmation",
+      "listing_status_observation",
       "llm_rerank",
       "media_deletion",
       "pricing_snapshot",

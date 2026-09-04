@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.12] - 2026-09-04
+
+- docs(e01): prepare the pilot authority confirmation and discovery-call script (028) (#26) (46d9910)
+
+
 ## [v0.3.11] - 2026-09-04
 
 - docs(status): record that MiniMax advisory review is live on the repo (#25) (bd07321)

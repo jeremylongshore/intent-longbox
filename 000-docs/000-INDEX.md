@@ -1,6 +1,6 @@
 # 000-docs Index: intent-longbox
 
-**Version:** 1.10.0
+**Version:** 1.11.0
 **Last Updated:** 2026-09-03
 
 | # | Doc | Hook |
@@ -15,3 +15,4 @@
 | 023 | [023-OD-STND-longbox-beads-configuration-routing-and-evidence-closure.md](023-OD-STND-longbox-beads-configuration-routing-and-evidence-closure.md) | Beads configuration, routing and evidence-closure standard (E00-B07): store/hooks/backup facts, alias + metadata rules, 014 §11.3 routing, the eight formulas, the close-with-evidence rule, restore drill, per-environment checklist. Restricted internal. |
 | 024 | [024-AT-ARCH-longbox-stack-and-artifact-map-2026-09-03.md](024-AT-ARCH-longbox-stack-and-artifact-map-2026-09-03.md) | Stack and artifact map (first draft of the E13-B01 topology ADR): where every artifact lives today vs planned, backup/retention per artifact, runtime topology, why Immich is not a stack component, six gaps with owning beads. MAPPED, NOT BUILT. Restricted internal. |
 | 026 | [026-AT-DECR-longbox-g0-truth-lock-sign-off-2026-09-03.md](026-AT-DECR-longbox-g0-truth-lock-sign-off-2026-09-03.md) | G0 Truth Lock sign-off (E00-B08): the dated decision, the G0 criteria ↔ artifacts table, the restorable baseline manifest (git tag `g0-truth-lock`, Dolt backup commit, doc hashes), what G0 does not assert. Restricted internal. |
+| 027 | [027-AA-AUDT-longbox-repository-truth-audit-addendum-to-013-2026-09-03.md](027-AA-AUDT-longbox-repository-truth-audit-addendum-to-013-2026-09-03.md) | Repository truth audit (E02-B01), an addendum to 013 at pinned commit `46d9910`: all 176 of 013's EXISTS citations resolved and re-read, every claim in 013, 005, 006 and the 014 §2.2 gap map re-stated as VERIFIED / CONTRADICTED / OPEN with file:line, 23 contradictions (11 substance, 12 citation-only), the 016/000-INDEX drift list, the docs-to-correct queue, and the in-repo identity repair. Restricted internal. |

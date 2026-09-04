@@ -3,8 +3,8 @@
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 
 [![License](https://img.shields.io/badge/license-Apache-2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/intent-solutions-io/intent-longbox/actions/workflows/ci.yml/badge.svg)](https://github.com/intent-solutions-io/intent-longbox/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/intent-solutions-io/intent-longbox)](https://github.com/intent-solutions-io/intent-longbox/releases)
+[![CI](https://github.com/jeremylongshore/intent-longbox/actions/workflows/ci.yml/badge.svg)](https://github.com/jeremylongshore/intent-longbox/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/jeremylongshore/intent-longbox)](https://github.com/jeremylongshore/intent-longbox/releases)
 
 ## Overview
 
@@ -51,4 +51,4 @@ This project is licensed under the Apache-2.0 License — see [LICENSE](LICENSE)
 
 ## Author
 
-**Jeremy Longshore** — [intent-solutions-io](https://github.com/intent-solutions-io)
+**Jeremy Longshore** — [jeremylongshore](https://github.com/jeremylongshore) · [intentsolutions.io](https://intentsolutions.io)

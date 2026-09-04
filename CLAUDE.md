@@ -4,7 +4,7 @@
 
 Photo-to-listing pipeline for comic shops: a shop employee photographs a back-issue comic on a phone browser, the system identifies title/issue/variant (barcode first, then LLM re-rank with an evidence gate), the employee confirms, condition (grade range + defects) and pricing (dual sources: PriceCharting historical FMV + eBay live asks, filtered through shop policy) are captured, and a DRAFT product lands in Shopify for owner review. Nothing publishes without a human.
 
-- **Repo:** `jeremylongshore/intent-longbox` (PRIVATE, deliberately; transferred from `intent-solutions-io` — README badges and other docs still carry the old org, tracked as blueprint bead E15-B01)
+- **Repo:** `jeremylongshore/intent-longbox` (PRIVATE, deliberately; transferred from the old org. In-repo prose and URLs were repaired under E02-B01 — see 000-docs/027 §8. What still carries the old org: four bead records in `.beads/issues.jsonl` (seven occurrences), GitHub issue bodies #3/#6, the 016/021 register rows that deliberately record the transfer as history, and lines in 006/008/013/014 queued in 027 §7. Remaining cleanup is blueprint bead E15-B01)
 - **Stack:** TypeScript/Node + Postgres, deployed on the `intentsolutions` VPS behind Caddy per intent-os ops deploy contracts
 - **First shop:** Gotham City Limit (Jacksonville), the first shop to roll out
 

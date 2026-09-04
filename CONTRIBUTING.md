@@ -16,7 +16,7 @@ Thank you for your interest in contributing to **intent-longbox**! This guide wi
 
 ```bash
 # Clone the repository
-git clone https://github.com/intent-solutions-io/intent-longbox.git
+git clone https://github.com/jeremylongshore/intent-longbox.git
 cd intent-longbox
 
 # Set up your development environment
@@ -27,14 +27,14 @@ cd intent-longbox
 
 ### Reporting Bugs
 
-1. Search [existing issues](https://github.com/intent-solutions-io/intent-longbox/issues) first
-2. Open a [bug report](https://github.com/intent-solutions-io/intent-longbox/issues/new?template=bug_report.md)
+1. Search [existing issues](https://github.com/jeremylongshore/intent-longbox/issues) first
+2. Open a [bug report](https://github.com/jeremylongshore/intent-longbox/issues/new?template=bug_report.md)
 3. Include reproduction steps, expected vs actual behavior, and environment details
 
 ### Suggesting Enhancements
 
-1. Check [existing feature requests](https://github.com/intent-solutions-io/intent-longbox/issues?q=label%3Aenhancement)
-2. Open a [feature request](https://github.com/intent-solutions-io/intent-longbox/issues/new?template=feature_request.md)
+1. Check [existing feature requests](https://github.com/jeremylongshore/intent-longbox/issues?q=label%3Aenhancement)
+2. Open a [feature request](https://github.com/jeremylongshore/intent-longbox/issues/new?template=feature_request.md)
 
 ### Pull Requests
 
@@ -109,8 +109,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Community
 
-- **Questions**: [GitHub Discussions](https://github.com/intent-solutions-io/intent-longbox/discussions)
-- **Bugs**: [Issue Tracker](https://github.com/intent-solutions-io/intent-longbox/issues)
+- **Questions**: [GitHub Discussions](https://github.com/jeremylongshore/intent-longbox/discussions)
+- **Bugs**: [Issue Tracker](https://github.com/jeremylongshore/intent-longbox/issues)
 - **Email**: jeremy@intentsolutions.io
 
 ## License

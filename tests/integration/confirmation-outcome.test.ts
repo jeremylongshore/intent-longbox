@@ -6,6 +6,7 @@
 // Bead longbox-e5b.2.13 (E02-D03). Docs: 019 §3.0 / T3 / T20, 035 §4.3, 030 A1.
 import { readFile } from "node:fs/promises";
 import { mkdirSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -63,7 +64,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   });
 
   it("admits NULL — the pre-G2 row that 030 A1 forbids backfilling", async () => {
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     const r = await pool.query(
       `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
        VALUES ($1,$2,$3,'grid_pick') RETURNING outcome`,
@@ -73,7 +74,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   });
 
   it("admits confirm and correct", async () => {
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     for (const outcome of ["confirm", "correct"]) {
       const r = await pool.query(
         `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, outcome)
@@ -85,7 +86,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   });
 
   it("rejects any other value — the CHECK is the guard on T3's arithmetic", async () => {
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     for (const bad of ["Confirm", "corrected", "unknown", "", "confirm "]) {
       await expect(
         pool.query(
@@ -98,7 +99,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   });
 
   it("keeps human_confirmation append-only: outcome cannot be updated after the fact", async () => {
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     const r = await pool.query(
       `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, outcome)
        VALUES ($1,$2,$3,'one_tap','confirm') RETURNING id`,
@@ -114,7 +115,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   });
 
   it("exposes outcome through human_confirmation_current, so the read model matches the table", async () => {
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     const first = await pool.query(
       `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, outcome)
        VALUES ($1,$2,$3,'one_tap','confirm') RETURNING id`,
@@ -144,7 +145,12 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   // --- the confirm route ------------------------------------------------------
 
   async function newSession(): Promise<string> {
-    const res = await app.inject({ method: "POST", url: `/api/shops/${shopId}/scan-sessions`, payload: {} });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/shops/${shopId}/scan-sessions`,
+      payload: {},
+      headers: { "idempotency-key": randomUUID() },
+    });
     return (res.json() as { session: { id: string } }).session.id;
   }
 
@@ -182,8 +188,9 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   ): Promise<string | null> {
     const res = await app.inject({
       method: "POST",
-      url: `/api/shops/${shopId}/scan-sessions/${sessionId}/confirm`,
+      url: `/api/v1/shops/${shopId}/scan-sessions/${sessionId}/confirm`,
       payload: body,
+      headers: { "idempotency-key": randomUUID() },
     });
     expect(res.statusCode).toBe(201);
     return (res.json() as { confirmation: { outcome: string | null } }).confirmation.outcome;

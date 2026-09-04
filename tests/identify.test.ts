@@ -35,6 +35,9 @@ function identifyPool(photos: Array<{ id: string; kind: string; storage_url: str
   let csCount = 0;
   return fakePool((text) => {
     if (text.includes("INSERT INTO candidate_set")) return { rows: [{ id: `cs-${++csCount}` }] };
+    // 042 §6.3 / I13: the rerank INSERT now carries `RETURNING id`, because a
+    // client instructed to send the record it was shown needs that id.
+    if (text.includes("INSERT INTO llm_rerank")) return { rows: [{ id: "rr-1" }] };
     if (text.includes("FROM scan_photo")) return { rows: photos };
     return undefined;
   });
@@ -54,6 +57,7 @@ describe("runIdentify", () => {
       barcodeDigits: VALID_UPC_SUPP,
     });
     expect(out.candidateSetIds).toEqual(["cs-1", "cs-2"]);
+    expect(out.llmRerankId).toBe("rr-1");
     expect(out.barcode).toMatchObject({
       ok: true,
       upc: "036000291452",

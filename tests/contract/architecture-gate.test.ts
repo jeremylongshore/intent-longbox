@@ -134,15 +134,18 @@ describe("the non-graph rules, against the real tree", () => {
   });
 
   // 044 §6's THIRD defect row — the `scanSessions.ts` exemptions inside
-  // `.dependency-cruiser.cjs` — was prose in the doc and nothing anywhere else. A
-  // count nobody asserts is a count that drifts: a fourth exemption could be added
-  // to that file and every other gate here would stay green. This is the assertion
-  // that makes the doc's row mean something.
-  it("declares exactly three scanSessions.ts exemptions in the depcruise config", () => {
+  // `.dependency-cruiser.cjs` — was prose in the doc and nothing anywhere else,
+  // and it counted THREE. E02-D08 removed all three with the statements that
+  // needed them, so the assertion inverts: the config must name that file in NO
+  // `pathNot` at all. Kept rather than deleted, because the row it guards is the
+  // one that would silently come back — a future author who needs "just one"
+  // exemption fails here.
+  it("names src/routes/scanSessions.ts in no depcruise pathNot exemption (E02-D08)", () => {
     const config = readFileSync(join(repoRoot, ".dependency-cruiser.cjs"), "utf8");
     const occurrences = config.match(/\^src\/routes\/scanSessions\\\\\.ts\$/g) ?? [];
-    expect(occurrences).toHaveLength(3);
-    // And each one sits in a `pathNot`, not in a `path` — an exemption, never a rule.
+    expect(occurrences).toHaveLength(0);
+    // The three rules that carried them still exist and still apply — to every
+    // route file now, with no exception.
     for (const rule of [
       "providers-are-contained",
       "routes-do-not-import-the-db-module",
@@ -181,12 +184,12 @@ describe("the non-graph rules, against fixtures that violate them", () => {
         'from "../providers/registry.js"\n'.repeat(r.providerImports) +
         'import type pg from "pg"\n'.repeat(r.pgImports),
     })),
-    { path: "src/services/scanSession.ts", text: "SELECT * SELECT * SELECT * UPDATE scan_session SET" },
+    { path: "src/services/scanSession.ts", text: "SELECT * UPDATE scan_session SET" },
   ];
 
   it("the fixture baseline is itself clean, so each negative below isolates one rule", () => {
     // scanSession.ts appears twice above (once from SELECT_STAR_ROWS); keep the
-    // richer one, which carries both the SELECT *s and the status writer.
+    // richer one, which carries both the trail read and the status writer.
     const deduped = [...new Map(clean.map((f) => [f.path, f])).values()];
     expect(checkSelectStar(deduped)).toEqual([]);
     expect(checkRouteDbAccess(deduped)).toEqual([]);
@@ -203,10 +206,8 @@ describe("the non-graph rules, against fixtures that violate them", () => {
   });
 
   it("042 I5(b): a declared file that gains one is a violation, and so is a stale row", () => {
-    const grew = checkSelectStar([
-      { path: "src/services/scanSession.ts", text: "SELECT * SELECT * SELECT * SELECT *" },
-    ]);
-    expect(grew[0]!.message).toContain("declared 3");
+    const grew = checkSelectStar([{ path: "src/services/scanSession.ts", text: "SELECT * SELECT *" }]);
+    expect(grew[0]!.message).toContain("declared 1");
     const stale = checkSelectStar([{ path: "src/services/scanSession.ts", text: "no star here" }]);
     expect(stale.some((f) => f.message.includes("Remove the stale row"))).toBe(true);
   });
@@ -312,6 +313,18 @@ describe("042 I22 — the fixed lock order", () => {
     expect(chunks[0]).toContain('"/b"');
   });
 
+  it("also splits a SERVICE file into one chunk per exported handler", () => {
+    // The reach the rule was missing. Handlers moved out of `src/routes/` at
+    // E02-D08, and a rule keyed on `.post(` sees nothing in the file they moved
+    // to — which is how a gate stays green while the property it guards stops
+    // holding.
+    const chunks = splitMutatingHandlers(
+      "export async function confirm(a) { return 1; } export async function price(b) { return 2; }"
+    );
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toContain("confirm");
+  });
+
   // 042 §5.3(b): idempotency row FIRST, anchor second, in every handler, always.
   it("passes when the idempotency INSERT precedes the anchor lock", () => {
     expect(
@@ -339,14 +352,63 @@ describe("042 I22 — the fixed lock order", () => {
     expect(findings[0]!.message).toContain("BEFORE its request_idempotency INSERT");
   });
 
-  // Today's tree: migrations/009 landed the table, no handler writes it yet (that
-  // wiring is E02-B08's). The rule is in place BEFORE the first handler that could
-  // violate it, which is the whole reason it exists.
-  it("passes vacuously on a handler that has no idempotency row yet", () => {
+  it("passes on a handler that takes only one of the two locks", () => {
+    // Nothing to order. This is not the same as a rule with nothing to see: the
+    // case below is.
     expect(
       checkLockOrder([
         { path: "src/routes/x.ts", text: 'app.post("/x", async () => { await lockScanSession(tx); });' },
       ])
     ).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The BLIND-RULE regression, which is the reason this section grew.
+  //
+  // Until E02-D08 widened it, `checkLockOrder` scanned `src/routes/` and split on
+  // `.post(`. This PR moved every handler into `src/services/sessionApi.ts` and
+  // reached both locks through helpers, so the rule read ZERO markers and a
+  // reversed-order handler produced ZERO findings while the gate stayed green.
+  // Each assertion below fails if any part of that reach is lost again.
+  // ---------------------------------------------------------------------------
+
+  it("SEES the service layer: a reversed-order SERVICE handler fails the rule", () => {
+    const findings = checkLockOrder([
+      {
+        path: "src/services/sessionApi.ts",
+        text:
+          "export async function confirm(deps, ctx, body) {\n" +
+          "  await lockOrRefuse(tx, ctx.shopId, session.id);\n" +
+          "  return runIdempotent(deps.pool, idem, async (tx) => ({ status: 201 }));\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/sessionApi.ts");
+  });
+
+  it("recognises each lock through its HELPER, not only through its SQL", () => {
+    // `runIdempotent` holds the INSERT and `lockOrRefuse` holds the `FOR UPDATE`;
+    // a rule that reads only SQL is one refactor away from blind.
+    expect(
+      checkLockOrder([
+        {
+          path: "src/services/sessionApi.ts",
+          text: "export async function ok() { await runIdempotent(p, r, async (tx) => { await lockOrRefuse(tx); }); }",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("finds REAL handlers in the shipped tree, so the green above is not vacuous", () => {
+    // The assertion that would have caught the blindness: the file the handlers
+    // live in must contain chunks carrying BOTH markers. If this drops to zero,
+    // `checkLockOrder(files) === []` above stops being evidence of anything.
+    const tree = collectSources(join(repoRoot, "src"));
+    const api = tree.find((f) => f.path === "src/services/sessionApi.ts")!;
+    const ordered = splitMutatingHandlers(api.text).filter(
+      (chunk) => /\brunIdempotent\s*\(/.test(chunk) && /\blockOrRefuse\s*\(/.test(chunk)
+    );
+    expect(ordered.length).toBeGreaterThanOrEqual(5);
   });
 });

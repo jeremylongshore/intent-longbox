@@ -21,6 +21,7 @@
 //      `src/` wrote that column at all (041 §1 E5/E22) — the correction was
 //      appended beside the original and the view chose between them by coin flip.
 import { mkdirSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -316,25 +317,31 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
   // The point of the whole bead: the two ratified callers write the column.
   describe("the routes write supersedes_id (041 §3.3's two callers)", () => {
     async function post(path: string, body: unknown): Promise<{ status: number; json: any }> {
-      const res = await app.inject({ method: "POST", url: path, payload: body as object });
+      const res = await app.inject({
+        method: "POST",
+        url: path,
+        payload: body as object,
+        // 042 §5.1 — required on every mutating route. A fresh key per call
+        // because each of these is a different ACT: a correction is not a retry
+        // of the record it supersedes.
+        headers: { "idempotency-key": randomUUID() },
+      });
       return { status: res.statusCode, json: res.json() };
     }
 
     it("POST …/confirm: a second confirmation SUPERSEDES the first (040 S15, 037 §4.4)", async () => {
-      const created = await post(`/api/shops/${shopId}/scan-sessions`, { created_by: "employee" });
+      const created = await post(`/api/v1/shops/${shopId}/scan-sessions`, {});
       const sid = created.json.session.id as string;
 
-      const first = await post(`/api/shops/${shopId}/scan-sessions/${sid}/confirm`, {
+      const first = await post(`/api/v1/shops/${shopId}/scan-sessions/${sid}/confirm`, {
         issue: { title: "Hulk", issue: "180" },
         source: "one_tap",
-        confirmed_by: "employee",
       });
       expect(first.status).toBe(201);
 
-      const second = await post(`/api/shops/${shopId}/scan-sessions/${sid}/confirm`, {
+      const second = await post(`/api/v1/shops/${shopId}/scan-sessions/${sid}/confirm`, {
         issue: { title: "Hulk", issue: "181" },
         source: "owner_review",
-        confirmed_by: "owner",
       });
       expect(second.status).toBe(201);
 
@@ -361,16 +368,16 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
     });
 
     it("POST …/condition: an owner's corrected grade SUPERSEDES the employee's (037 §4.4)", async () => {
-      const created = await post(`/api/shops/${shopId}/scan-sessions`, { created_by: "employee" });
+      const created = await post(`/api/v1/shops/${shopId}/scan-sessions`, {});
       const sid = created.json.session.id as string;
 
-      const first = await post(`/api/shops/${shopId}/scan-sessions/${sid}/condition`, {
+      const first = await post(`/api/v1/shops/${shopId}/scan-sessions/${sid}/condition`, {
         grade_range_low: "GD",
         grade_range_high: "VG",
         defects: ["spine_ticks"],
       });
       expect(first.status).toBe(201);
-      const second = await post(`/api/shops/${shopId}/scan-sessions/${sid}/condition`, {
+      const second = await post(`/api/v1/shops/${shopId}/scan-sessions/${sid}/condition`, {
         grade_range_low: "FN",
         grade_range_high: "VF",
         defects: [],
@@ -396,7 +403,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
     it("404s a condition write on a session that does not exist, without writing", async () => {
       const res = await post(
-        `/api/shops/${shopId}/scan-sessions/00000000-0000-4000-8000-000000000000/condition`,
+        `/api/v1/shops/${shopId}/scan-sessions/00000000-0000-4000-8000-000000000000/condition`,
         { grade_range_low: "VG", grade_range_high: "FN", defects: [] }
       );
       expect(res.status).toBe(404);

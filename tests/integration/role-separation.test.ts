@@ -236,7 +236,7 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
     // would mean the outbox runtime cannot run as the least-privileged role.
     // 041 §9.2 item 1's ranking, made concrete: a trigger does not consult
     // privileges.
-    const sessionId = (await createScanSession(ownerPool, shopId, "employee")).id;
+    const sessionId = (await createScanSession(ownerPool, shopId)).id;
     const outboxId = randomUUID();
     await ownerPool.query(
       `INSERT INTO outbox (id, shop_id, scan_session_id, event, ref_table, ref_id, authored_by)

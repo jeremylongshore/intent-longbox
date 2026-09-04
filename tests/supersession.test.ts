@@ -61,7 +61,6 @@ const confirmationRow = {
   values: {
     confirmedIssue: { title: "X" },
     source: "owner_review",
-    confirmedBy: "owner",
     outcome: "correct",
   },
 };
@@ -99,9 +98,12 @@ describe("supersede()", () => {
     ]);
     const insert = calls[3]!;
     expect(insert.text).toContain("supersedes_id");
-    // …$7 session_seq, $8 supersedes_id — the predecessor's id, not the caller's.
-    expect(insert.values?.[7]).toBe(PRIOR);
-    expect(insert.values?.[6]).toBe(5); // max(4) + 1
+    // …$6 session_seq, $7 supersedes_id — the predecessor's id, not the caller's.
+    // (One column earlier than before E02-D08: `confirmed_by` has no writer any
+    // more — 041 §8.4, 042 I1.)
+    expect(insert.text).not.toContain("confirmed_by");
+    expect(insert.values?.[6]).toBe(PRIOR);
+    expect(insert.values?.[5]).toBe(5); // max(4) + 1
     expect(insert.values?.[0]).toBe(SESSION);
     expect(insert.values?.[1]).toBe(SHOP);
   });

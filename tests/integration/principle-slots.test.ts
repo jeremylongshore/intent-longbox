@@ -30,7 +30,7 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
     shopId = await seedShop(pool);
-    sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    sessionId = (await createScanSession(pool, shopId)).id;
   });
 
   afterAll(async () => {
@@ -85,7 +85,7 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
 
   // --- P2: supersession + current read model --------------------------------
   it("supersedes a condition_assessment with a new row; only the newer one is current", async () => {
-    const session = (await createScanSession(pool, shopId, "tester")).id;
+    const session = (await createScanSession(pool, shopId)).id;
     const first = await pool.query(
       `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high)
        VALUES ($1,$2,'GD','VG') RETURNING id`,
@@ -123,7 +123,7 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
   });
 
   it("lets a row be superseded at most once", async () => {
-    const session = (await createScanSession(pool, shopId, "tester")).id;
+    const session = (await createScanSession(pool, shopId)).id;
     const first = await pool.query(
       `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents)
        VALUES ($1,$2,'q',100) RETURNING id`,
@@ -154,7 +154,7 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
   });
 
   it("resolves a supersession chain deeper than one hop: A <- B <- C returns C only", async () => {
-    const session = (await createScanSession(pool, shopId, "tester")).id;
+    const session = (await createScanSession(pool, shopId)).id;
     const insert = async (source: string, supersedes: string | null): Promise<string> => {
       const r = await pool.query(
         `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, supersedes_id, session_seq)

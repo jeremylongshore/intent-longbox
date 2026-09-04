@@ -49,7 +49,6 @@ export type SupersedableTable = (typeof SUPERSEDABLE_TABLES)[number];
 export interface HumanConfirmationValues {
   readonly confirmedIssue: unknown;
   readonly source: string;
-  readonly confirmedBy: string;
   readonly outcome: string;
 }
 
@@ -142,9 +141,13 @@ const SUCCESSOR_SQL: Record<SupersedableTable, string> = {
 };
 
 const INSERT_SQL: Record<SupersedableTable, string> = {
+  // `confirmed_by` IS ABSENT AND STAYS ABSENT (041 §8.4, 042 I1). The column
+  // still exists with its DEFAULT; what stops is a writer putting a person's
+  // identifier into an append-only row that can never be corrected. 019 T35
+  // signs per-operator rendering at zero, non-waivable.
   human_confirmation: `INSERT INTO human_confirmation
-      (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome, session_seq, supersedes_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at, session_seq`,
+      (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq, supersedes_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at, session_seq`,
   condition_assessment: `INSERT INTO condition_assessment
       (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq, supersedes_id)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at, session_seq`,
@@ -161,7 +164,6 @@ function successorValues(row: SupersedingRow, sessionSeq: number, priorId: strin
       return [
         JSON.stringify(row.values.confirmedIssue),
         row.values.source,
-        row.values.confirmedBy,
         row.values.outcome,
         sessionSeq,
         priorId,

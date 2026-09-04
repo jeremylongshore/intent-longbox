@@ -53,26 +53,29 @@ export interface SelectStarRow {
  * exemption list, each row carrying a reason; the list is expected to hold
  * `getSessionEvents`'s trail read and nothing else."
  *
- * It holds two more than that, and they are declared as DEFECTS rather than
- * quietly folded in — 042 I5 says in the same breath that the invariant "fails on
- * the current tree" at `scanSession.ts:31` and `:85`, and turning a named defect
- * into an exemption to make a gate green is the move this file exists to prevent.
+ * At E02-B10 it held two more than that, declared as DEFECTS rather than quietly
+ * folded in. **E02-D08 removed both** — `getScanSession` and `lockScanSession` now
+ * name their columns — so the list is back to the one row 042 predicted, and its
+ * kind is `exemption` because that is what it now is. Turning a named defect into
+ * an exemption to make a gate green is still the move this file exists to prevent;
+ * what makes this legitimate is that the occurrences are GONE, not reclassified.
  */
 export const SELECT_STAR_ROWS: readonly SelectStarRow[] = [
   {
     path: "src/services/scanSession.ts",
-    count: 3,
-    kind: "defect",
-    closingBead: "E02-D08 `longbox-e5b.2.18` (029 §5 move 6; 042 I5, 040 A8/I20)",
+    count: 1,
+    kind: "exemption",
     reason:
-      "Three reads: `getScanSession` and `lockScanSession` select the whole scan_session row " +
-      "(so `routes:111` returns `status`, which 040 retires), and `getSessionEvents` selects " +
-      "the whole row of each of seven trail tables. The THIRD is legitimate and 042 I5 says " +
-      "so — the trail is the complete unfiltered history (041 I9) and a column list there " +
-      "would silently drop a column a later migration adds. The first two are the defect. " +
-      "The count is 3 and not 1 because separating them means splitting the file, which is " +
-      "E02-D09's read-per-owning-module work; until then the honest record is one row " +
-      "that says which of the three is which.",
+      "`getSessionEvents`'s trail read, and 042 I5 names it in advance: the list \"is expected to " +
+      "hold `getSessionEvents`'s trail read and nothing else\". It is legitimate because 041 I9 " +
+      "makes the trail COMPLETE — a column list there would silently drop a column a later " +
+      "migration adds, which is the opposite defect. **The bound belongs on the PROJECTION, not " +
+      "on the read**: `src/contracts/v1/schemas.ts` declares a per-table DTO and " +
+      "`getSessionDetail` projects onto it, so a new column reaches the log and does not reach a " +
+      "response body. E02-D08 removed the other two — `getScanSession` and `lockScanSession` now " +
+      "name `id, shop_id, created_at`, which is what stops `scan_session.status` leaking from a " +
+      "projection that does not select it (040 A8, 042 E15). The kind flipped from `defect` to " +
+      "`exemption` with them.",
   },
 ];
 
@@ -141,50 +144,32 @@ export interface RouteDbRow {
 }
 
 /**
- * The declared, dated inventory of route-layer database access.
+ * The declared inventory of route-layer database access — **now empty**.
  *
- * 029 §5 move 8 obliges this bead to add "a lint or test assertion that no file
- * under `src/routes/` contains `db.query` or `INSERT INTO`". The tree does not
- * satisfy that today and cannot be made to by this bead: `src/routes/scanSessions.ts`
- * owns six `db.query` calls and one `INSERT INTO`, and moving them is 029 §5 moves
- * 2 and 6, executed by E02-D08 `longbox-e5b.2.18` and E02-D09 `longbox-e5b.2.19`
- * and explicitly fenced away from this one ("this bead does not re-litigate record
- * ownership"). Those two beads exist because E02-B07 and E02-B08 are CLOSED
- * decision beads — they produced 041 and 042 — and a closed bead cannot close a
- * defect row.
+ * 029 §5 move 8 obliges the gate to assert "that no file under `src/routes/`
+ * contains `db.query` or `INSERT INTO`". E02-B10 could not satisfy that and said
+ * so: the route file owned the calls, and moving them was 029 §5 moves 2 and 6,
+ * fenced to E02-D09 and E02-D08. Both have now run. E02-D09 took `insertInto` to
+ * zero; E02-D08 took `dbQuery`, `providerImports` and `pgImports` there.
  *
- * So the rule ships as an EXACT COUNT rather than as a zero. A new call fails the
- * gate; a removed call also fails it, until someone lowers the number — which is
- * what makes the inventory shrink deliberately instead of drifting. The row is
- * kind=defect with its closing beads named, and 042 A8's ruling applies: **no
- * defect-kind row may exist at G2.**
+ * The rule still ships as an EXACT COUNT and not as a bare zero, because the
+ * shape is what makes an inventory shrink DELIBERATELY: a new call fails the
+ * gate, and a removed call also fails it until someone lowers the number. With
+ * no rows, the default below (zero of everything) governs every route file, so
+ * the first reintroduced statement fails with no row to hide behind.
  */
 export const ROUTE_DB_ROWS: readonly RouteDbRow[] = [
-  {
-    path: "src/routes/scanSessions.ts",
-    dbQuery: 3,
-    insertInto: 0,
-    providerImports: 1,
-    pgImports: 1,
-    kind: "defect",
-    closingBead:
-      "E02-D08 `longbox-e5b.2.18` (029 §5 move 6 — the three remaining reads). E02-D09 " +
-      "`longbox-e5b.2.19` closed move 2's half: `insertInto` reached 0.",
-    reason:
-      "V1 and the `db.query` calls 029 §5 move 8 note N2 names. THE CLOSING BEADS ARE E02-D08 AND " +
-      "E02-D09, NOT E02-B07/E02-B08: those two are CLOSED decision beads (they produced 041 and 042); a " +
-      "closed bead cannot close a defect row, and naming one would make this row unclosable by construction. " +
-      "The gate audit of this bead caught that, and 015 carries the two new rows.  The counts are 3 and 0, not the " +
-      "six and three N2 recorded at `fb3f706`: E02-D04 moved the confirmation and draft INSERTs into " +
-      "`scanSession.ts` behind the request transaction, and E02-D09 moved the last one — the " +
-      "`condition_assessment` INSERT — into the condition module that owns the table (029 §5 move 2), " +
-      "wrapping `POST …/condition` in the request transaction on the way, because 041 §3.3's " +
-      "supersession writer needs the anchor lock. **`insertInto` is now 0 and stays 0**; the row " +
-      "survives for the three `db.query` reads that remain — `requireShop`'s `shop` SELECT (one " +
-      "call site, two callers), `latestPolicy`'s `shop_pricing_policy` SELECT, and the shop list " +
-      "at `/api/shops`. Move 6 removes those and puts the provider registry behind workflow's " +
-      "public API, which is E02-D08's.",
-  },
+  // EMPTY, AND THAT IS THE POINT. E02-D08 executed 029 §5 move 6: the three
+  // remaining `db.query` reads (`requireShop`, `latestPolicy`, the shop list),
+  // the `pg` type import and the provider import all moved into
+  // `src/services/sessionApi.ts`, and `src/routes/scanSessions.ts` now validates
+  // and calls one function per route. The default row below — zero of
+  // everything — therefore governs every file under `src/routes/`, so a single
+  // reintroduced `db.query` fails the gate with no row to hide behind.
+  //
+  // The three `.dependency-cruiser.cjs` `pathNot` exemptions that named this file
+  // went with them, and `tests/contract/architecture-gate.test.ts` asserts the
+  // config no longer names it anywhere.
 ];
 
 const DB_QUERY = /\bdb\.query\s*[(<]/g;
@@ -283,22 +268,52 @@ export function checkCostLogWriters(files: readonly SourceFile[]): Finding[] {
  * concurrency, Postgres kills one with `40P01`, and the symptom is an intermittent
  * failure at the counter that reproduces on nobody's laptop.
  *
- * **This rule PASSES VACUOUSLY TODAY** — `migrations/009` lands the table and no
- * handler writes to it yet (the wiring is E02-D08's). That is deliberate and it is
- * the point: the rule exists for "a handler written six months from now by someone
- * who has not read this section", so it has to be in place BEFORE the first handler
- * that could violate it. `tests/contract/architecture-gate.test.ts` proves it can
- * fail against a reversed-order fixture, because a rule that has never failed is
- * indistinguishable from a rule that cannot.
+ * **WIDENED AT E02-D08, AFTER THE RULE WAS FOUND BLIND.** The first version scanned
+ * `src/routes/` only and split on `.post(` / `.put(` registrations, which was right
+ * for the tree it was written against. E02-D08 then moved every handler body into
+ * `src/services/sessionApi.ts` (029 §5 move 6) and reached the two locks through
+ * `runIdempotent()` and `lockOrRefuse()` rather than by spelling the SQL — so the
+ * rule had **zero markers to see** and a reversed-order handler produced zero
+ * findings. A rule that cannot see the code it governs is worse than no rule,
+ * because the gate stays green while the property stops holding.
+ *
+ * Two changes close it, and both are about REACH rather than strictness:
+ *   - the scan covers `src/routes/` **and** `src/services/`, split on exported
+ *     function declarations as well as route registrations, because a handler is
+ *     wherever the two locks are taken and not wherever Fastify is called;
+ *   - each lock is recognised through its HELPER as well as its SQL —
+ *     `runIdempotent` / `beginIdempotency` for the identity, `lockScanSession` /
+ *     `lockOrRefuse` for the anchor. A rule that only reads SQL is one refactor
+ *     away from blind, which is exactly what happened here.
  *
  * **No exceptions and no opt-out comment** (042 I22(a), literally). There is no
- * escape hatch in this function on purpose.
+ * escape hatch in this function on purpose, and
+ * `tests/contract/architecture-gate.test.ts` asserts BOTH directions: the real
+ * `sessionApi.ts` passes, and a synthetic handler that locks before it inserts
+ * FAILS — because a rule that has never failed is indistinguishable from one that
+ * cannot.
  */
-const HANDLER_SPLIT = /\.(post|put|patch|delete)\s*[(<]/g;
-const IDEMPOTENCY_INSERT = /INSERT\s+INTO\s+request_idempotency\b/i;
-const ANCHOR_LOCK = /(FROM\s+scan_session[\s\S]{0,200}?FOR\s+UPDATE)|(\blockScanSession\s*\()/i;
+const HANDLER_SPLIT =
+  /\.(post|put|patch|delete)\s*[(<]|(?:export\s+)?(?:async\s+)?function\s+\w+|(?:export\s+)?const\s+\w+\s*=\s*async\s*\(/g;
 
-/** Split a route file into one chunk per mutating handler registration. */
+/**
+ * The identity lock, however it is spelled. `runIdempotent` is the only caller of
+ * `beginIdempotency`, which holds the INSERT — so a handler that goes through it
+ * takes the row first by construction, and one that inlines the SQL is still seen.
+ */
+const IDEMPOTENCY_INSERT =
+  /INSERT\s+INTO\s+request_idempotency\b|\brunIdempotent\s*\(|\bbeginIdempotency\s*\(/i;
+
+/** The anchor lock, however it is spelled. */
+const ANCHOR_LOCK = /(FROM\s+scan_session[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockScanSession|lockOrRefuse)\s*\(/i;
+
+/** The layers where a handler can live. A rule keyed on one layout goes blind on the next. */
+const HANDLER_LAYERS = ["src/routes/", "src/services/"];
+
+/**
+ * Split a file into one chunk per handler — a route registration OR an exported
+ * function, since E02-D08 the two are different files.
+ */
 export function splitMutatingHandlers(text: string): string[] {
   const starts: number[] = [];
   for (const m of text.matchAll(HANDLER_SPLIT)) starts.push(m.index);
@@ -308,11 +323,11 @@ export function splitMutatingHandlers(text: string): string[] {
 export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
   const findings: Finding[] = [];
   for (const file of files) {
-    if (!file.path.startsWith("src/routes/")) continue;
+    if (!HANDLER_LAYERS.some((layer) => file.path.startsWith(layer))) continue;
     for (const [i, body] of splitMutatingHandlers(file.text).entries()) {
       const insert = body.search(IDEMPOTENCY_INSERT);
       const lock = body.search(ANCHOR_LOCK);
-      if (insert === -1 || lock === -1) continue; // nothing to order yet
+      if (insert === -1 || lock === -1) continue; // this chunk takes at most one of them
       if (insert > lock) {
         findings.push({
           rule: "fixed-lock-order",

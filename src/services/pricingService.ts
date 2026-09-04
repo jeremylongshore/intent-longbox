@@ -4,7 +4,7 @@
 // the suggested price from shop policy with a fixed precedence:
 //   real historical FMV (PriceCharting) → else live-ask median (eBay) → else
 //   empty comps (policy floor wins).
-import type pg from "pg";
+import type { Queryable } from "../db.js";
 import {
   applyPricingPolicy,
   buildCompsQueryString,
@@ -46,18 +46,34 @@ export function pickDrivingResult(results: PricingResult[]): PricingResult | und
   );
 }
 
-export async function priceWithProviders(
-  db: pg.Pool,
-  args: {
-    sessionId: string;
-    shopId: string;
-    providers: PricingProvider[];
-    policy: PricingPolicy;
-    policyId: string;
-    query: PricingQuery;
-    overrideCents?: number;
-  }
-): Promise<MultiSourcePricing> {
+export interface PricingArgs {
+  sessionId: string;
+  shopId: string;
+  providers: PricingProvider[];
+  policy: PricingPolicy;
+  policyId: string;
+  query: PricingQuery;
+  overrideCents?: number;
+}
+
+/**
+ * Everything the provider fan-out decides, before anything is written.
+ *
+ * SPLIT FROM THE WRITE BY E02-D08, for the reason 041 §4.1 gives and 042 §5
+ * needs: the snapshot rows must commit in the same transaction as the request's
+ * `request_idempotency` row, and an HTTP call to eBay must not be inside that
+ * transaction — a retried attempt would re-fetch, and a held connection would
+ * wait on somebody else's server.
+ */
+export interface PricingPlan {
+  fulfilled: PricingResult[];
+  outcomes: SourceOutcome[];
+  suggested: number;
+  queryText: string;
+  drivenBy: string;
+}
+
+export async function fetchPricing(args: PricingArgs): Promise<PricingPlan> {
   const shopCtx = { shopId: args.shopId };
   const settled = await Promise.allSettled(args.providers.map((p) => p.getComps(args.query, shopCtx)));
 
@@ -94,10 +110,23 @@ export async function priceWithProviders(
   const suggested = applyPricingPolicy(drivingComps, args.policy);
   const queryText = buildCompsQueryString(args.query);
 
-  // One immutable snapshot row per fetched source. suggested_cents on every
-  // row is the OVERALL policy-applied suggestion of this pricing event (the
-  // per-source medians live in that row's comps) — so the draft step can read
-  // any latest row and get the price of record.
+  return { fulfilled, outcomes, suggested, queryText, drivenBy: driving?.source ?? "policy_floor" };
+}
+
+/**
+ * The write half: one immutable snapshot row per FETCHED source, on the handle
+ * the caller owns (a held `Tx` inside a request, the pool outside one).
+ *
+ * `suggested_cents` on every row is the OVERALL policy-applied suggestion of
+ * this pricing event — the per-source medians live in that row's comps — so the
+ * draft step can read any latest row and get the price of record.
+ */
+export async function recordPricing(
+  db: Queryable,
+  args: PricingArgs,
+  plan: PricingPlan
+): Promise<MultiSourcePricing> {
+  const { fulfilled, outcomes, suggested, queryText } = plan;
   for (const result of fulfilled) {
     const res = await db.query(
       `INSERT INTO pricing_snapshot
@@ -122,8 +151,13 @@ export async function priceWithProviders(
   return {
     sources: outcomes,
     suggested_cents: suggested,
-    driven_by: driving?.source ?? "policy_floor",
+    driven_by: plan.drivenBy,
     override_cents: args.overrideCents ?? null,
     snapshot_count: fulfilled.length,
   };
+}
+
+/** Fetch then record on one handle, for callers with no transaction to join. */
+export async function priceWithProviders(db: Queryable, args: PricingArgs): Promise<MultiSourcePricing> {
+  return recordPricing(db, args, await fetchPricing(args));
 }

@@ -34,7 +34,7 @@ describe.skipIf(!dbUp)("listing_status_observation (E02-D02)", () => {
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
     shopId = await seedShop(pool);
-    const sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     const draft = await pool.query(
       `INSERT INTO shopify_draft (scan_session_id, shop_id, status) VALUES ($1,$2,'draft') RETURNING id`,
       [sessionId, shopId]
@@ -88,7 +88,7 @@ describe.skipIf(!dbUp)("listing_status_observation (E02-D02)", () => {
   });
 
   it("returns null for a draft nothing has ever observed", async () => {
-    const session = (await createScanSession(pool, shopId, "tester")).id;
+    const session = (await createScanSession(pool, shopId)).id;
     const other = await pool.query(
       `INSERT INTO shopify_draft (scan_session_id, shop_id, status) VALUES ($1,$2,'draft') RETURNING id`,
       [session, shopId]
@@ -135,7 +135,7 @@ describe.skipIf(!dbUp)("listing_status_observation (E02-D02)", () => {
   });
 
   it("finds an app-published row through the T19 predicate", async () => {
-    const session = (await createScanSession(pool, shopId, "tester")).id;
+    const session = (await createScanSession(pool, shopId)).id;
     const draft = await pool.query(
       `INSERT INTO shopify_draft (scan_session_id, shop_id, status) VALUES ($1,$2,'draft') RETURNING id`,
       [session, shopId]

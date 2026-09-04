@@ -1,0 +1,5215 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Longbox API",
+    "version": "1.0.0",
+    "description": "The versioned Longbox surface. Within v1, change is ADDITIVE ONLY: a new optional request field, a new response field, a new error code or a new route stays in v1; removing or renaming a field, making an optional field required, tightening a validation rule, or changing what an error code means is v2. A retired code is retired forever."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Same-origin"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Liveness probe (unversioned by declaration).",
+        "parameters": [
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops": {
+      "get": {
+        "summary": "List shops. DECLARED DEFECT: returns every shop to any caller (042 E4).",
+        "parameters": [
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "shops": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "slug"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "shops"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions": {
+      "post": {
+        "summary": "Open a scan session.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "shop_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "shop_id",
+                        "created_at"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND, SHOP_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}": {
+      "get": {
+        "summary": "The session, its derived state, its transitions and its full event trail.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "shop_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "shop_id",
+                        "created_at"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "intake",
+                        "captured",
+                        "proposed",
+                        "confirmed",
+                        "conditioned",
+                        "priced",
+                        "drafted",
+                        "parked",
+                        "voided"
+                      ]
+                    },
+                    "transitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "parked",
+                              "resumed",
+                              "voided",
+                              "reopened"
+                            ]
+                          },
+                          "reopened_to_rung": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "reopened_to_rung",
+                          "created_at"
+                        ]
+                      }
+                    },
+                    "events": {
+                      "type": "object",
+                      "properties": {
+                        "scan_photo": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "taken_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "taken_at"
+                            ]
+                          }
+                        },
+                        "candidate_set": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "method": {
+                                "type": "string"
+                              },
+                              "candidates": {},
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "method",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "llm_rerank": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "candidate_set_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "band": {
+                                "type": "string"
+                              },
+                              "contradiction": {
+                                "type": "boolean"
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "candidate_set_id",
+                              "band",
+                              "contradiction",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "human_confirmation": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "confirmed_issue": {},
+                              "source": {
+                                "type": "string"
+                              },
+                              "outcome": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "supersedes_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "source",
+                              "outcome",
+                              "supersedes_id",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "condition_assessment": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "grade_range_low": {
+                                "type": "string"
+                              },
+                              "grade_range_high": {
+                                "type": "string"
+                              },
+                              "defects": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "notes": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "supersedes_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "grade_range_low",
+                              "grade_range_high",
+                              "defects",
+                              "notes",
+                              "supersedes_id",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "pricing_snapshot": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "source": {
+                                "type": "string"
+                              },
+                              "query": {
+                                "type": "string"
+                              },
+                              "comps": {},
+                              "suggested_cents": {
+                                "type": "number"
+                              },
+                              "override_cents": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "source",
+                              "query",
+                              "suggested_cents",
+                              "override_cents",
+                              "created_at"
+                            ]
+                          }
+                        },
+                        "shopify_draft": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "product_gid": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "outbox_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "created_at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "product_gid",
+                              "status",
+                              "outbox_id",
+                              "created_at"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "scan_photo",
+                        "candidate_set",
+                        "llm_rerank",
+                        "human_confirmation",
+                        "condition_assessment",
+                        "pricing_snapshot",
+                        "shopify_draft"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "session",
+                    "state",
+                    "transitions",
+                    "events"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/photos": {
+      "post": {
+        "summary": "Upload one photo (multipart).",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "photo": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "cover",
+                            "barcode",
+                            "defect"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "photo"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED, PHOTO_FIELD_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "PHOTO_TOO_LARGE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/identify": {
+      "post": {
+        "summary": "Identify the book. Returns the ids of every record it wrote (042 §6.3).",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "candidate_set_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "llm_rerank_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "band": {
+                      "type": "string",
+                      "enum": [
+                        "high",
+                        "medium",
+                        "low"
+                      ]
+                    },
+                    "contradiction": {
+                      "type": "boolean"
+                    },
+                    "contradiction_reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "barcode": {},
+                    "manual_path": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "candidate_set_ids",
+                    "llm_rerank_id",
+                    "candidates",
+                    "band",
+                    "contradiction",
+                    "contradiction_reasons",
+                    "manual_path"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "IDENTIFY_FAILED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IDENTIFY_PROVIDER_UNAVAILABLE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "barcode_digits": {
+                    "type": "string"
+                  },
+                  "against": {
+                    "type": "object",
+                    "properties": {
+                      "table": {
+                        "type": "string",
+                        "enum": [
+                          "scan_photo",
+                          "candidate_set",
+                          "llm_rerank",
+                          "human_confirmation",
+                          "condition_assessment",
+                          "pricing_snapshot",
+                          "shopify_draft"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "table",
+                      "id"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/confirm": {
+      "post": {
+        "summary": "Record the operator's identification.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "confirmation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "created_at",
+                        "outcome"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "confirmation"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW, CONTRADICTION_BLOCKS_ONE_TAP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "issue": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "one_tap",
+                      "grid_pick",
+                      "manual_search",
+                      "owner_review"
+                    ]
+                  },
+                  "against": {
+                    "type": "object",
+                    "properties": {
+                      "table": {
+                        "type": "string",
+                        "enum": [
+                          "scan_photo",
+                          "candidate_set",
+                          "llm_rerank",
+                          "human_confirmation",
+                          "condition_assessment",
+                          "pricing_snapshot",
+                          "shopify_draft"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "table",
+                      "id"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "issue",
+                  "source"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/condition": {
+      "post": {
+        "summary": "Record the condition: a grade RANGE and defect callouts, never a number.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "assessment": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "created_at"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "assessment"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "grade_range_low": {
+                    "type": "string",
+                    "enum": [
+                      "PR",
+                      "FR",
+                      "GD",
+                      "VG",
+                      "FN",
+                      "VF",
+                      "NM"
+                    ]
+                  },
+                  "grade_range_high": {
+                    "type": "string",
+                    "enum": [
+                      "PR",
+                      "FR",
+                      "GD",
+                      "VG",
+                      "FN",
+                      "VF",
+                      "NM"
+                    ]
+                  },
+                  "defects": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    }
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "against": {
+                    "type": "object",
+                    "properties": {
+                      "table": {
+                        "type": "string",
+                        "enum": [
+                          "scan_photo",
+                          "candidate_set",
+                          "llm_rerank",
+                          "human_confirmation",
+                          "condition_assessment",
+                          "pricing_snapshot",
+                          "shopify_draft"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "table",
+                      "id"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "grade_range_low",
+                  "grade_range_high"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/price": {
+      "post": {
+        "summary": "Price the book from every configured source.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "ok",
+                              "failed"
+                            ]
+                          },
+                          "stub": {
+                            "type": "boolean"
+                          },
+                          "comps_count": {
+                            "type": "number"
+                          },
+                          "summary": {},
+                          "snapshot_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "kind",
+                          "status",
+                          "stub",
+                          "comps_count"
+                        ]
+                      }
+                    },
+                    "suggested_cents": {
+                      "type": "number"
+                    },
+                    "driven_by": {
+                      "type": "string"
+                    },
+                    "override_cents": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_count": {
+                      "type": "number"
+                    },
+                    "stub": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "sources",
+                    "suggested_cents",
+                    "driven_by",
+                    "override_cents",
+                    "snapshot_count",
+                    "stub"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW, SHOP_HAS_NO_PRICING_POLICY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "issue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "variant": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "grade": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "upc": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "override_cents": {
+                    "type": "integer"
+                  },
+                  "against": {
+                    "type": "object",
+                    "properties": {
+                      "table": {
+                        "type": "string",
+                        "enum": [
+                          "scan_photo",
+                          "candidate_set",
+                          "llm_rerank",
+                          "human_confirmation",
+                          "condition_assessment",
+                          "pricing_snapshot",
+                          "shopify_draft"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "table",
+                      "id"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shops/{shopId}/scan-sessions/{id}/draft": {
+      "post": {
+        "summary": "Owe the Shopify draft: appends the job inside the request transaction, answers 202.",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    },
+                    "outbox_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "already_requested": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "outbox_id",
+                    "already_requested"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SESSION_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WRITE_CONFLICT_RETRY_EXHAUSTED, STALE_WORLD_VIEW, SESSION_HAS_NO_CONFIRMATION, SESSION_HAS_NO_PRICING",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "against": {
+                    "type": "object",
+                    "properties": {
+                      "table": {
+                        "type": "string",
+                        "enum": [
+                          "scan_photo",
+                          "candidate_set",
+                          "llm_rerank",
+                          "human_confirmation",
+                          "condition_assessment",
+                          "pricing_snapshot",
+                          "shopify_draft"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "table",
+                      "id"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message",
+              "details",
+              "correlation_id",
+              "retryable"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "VALIDATION_FAILED",
+                  "IDEMPOTENCY_KEY_REQUIRED",
+                  "PHOTO_FIELD_REQUIRED",
+                  "SHOP_NOT_FOUND",
+                  "SESSION_NOT_FOUND",
+                  "ROUTE_NOT_FOUND",
+                  "UNSUPPORTED_MEDIA_TYPE",
+                  "PHOTO_TOO_LARGE",
+                  "SHOP_HAS_NO_PRICING_POLICY",
+                  "SESSION_HAS_NO_CONFIRMATION",
+                  "SESSION_HAS_NO_PRICING",
+                  "SESSION_HAS_NO_CONDITION",
+                  "CONTRADICTION_BLOCKS_ONE_TAP",
+                  "STALE_WORLD_VIEW",
+                  "SESSION_IS_TERMINAL",
+                  "BLOCKED_BY_RETENTION_HOLD",
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "IDENTIFY_FAILED",
+                  "IDENTIFY_PROVIDER_UNAVAILABLE",
+                  "RATE_LIMITED",
+                  "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              },
+              "correlation_id": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-longbox-error-registry": {
+    "VALIDATION_FAILED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "IDEMPOTENCY_KEY_REQUIRED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "PHOTO_FIELD_REQUIRED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "SHOP_NOT_FOUND": {
+      "status": 404,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "SESSION_NOT_FOUND": {
+      "status": 404,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "ROUTE_NOT_FOUND": {
+      "status": 404,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "UNSUPPORTED_MEDIA_TYPE": {
+      "status": 415,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "PHOTO_TOO_LARGE": {
+      "status": 413,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string (042 §4.5)"
+    },
+    "SHOP_HAS_NO_PRICING_POLICY": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "SESSION_HAS_NO_CONFIRMATION": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "SESSION_HAS_NO_PRICING": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "SESSION_HAS_NO_CONDITION": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "CONTRADICTION_BLOCKS_ONE_TAP": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 C3 — the contradiction sentence"
+    },
+    "STALE_WORLD_VIEW": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes 040 A9's 'Someone else answered this one.'"
+    },
+    "SESSION_IS_TERMINAL": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "BLOCKED_BY_RETENTION_HOLD": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "IDEMPOTENCY_KEY_REUSED": {
+      "status": 422,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "IDENTIFY_FAILED": {
+      "status": 502,
+      "retryable": true,
+      "operator_renderable": true,
+      "copy_row": "021 C3 — the manual-search path"
+    },
+    "IDENTIFY_PROVIDER_UNAVAILABLE": {
+      "status": 503,
+      "retryable": true,
+      "operator_renderable": true,
+      "copy_row": "021 C3 — the manual-search path"
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "retryable": true,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "WRITE_CONFLICT_RETRY_EXHAUSTED": {
+      "status": 409,
+      "retryable": true,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "INTERNAL_ERROR": {
+      "status": 500,
+      "retryable": true,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    }
+  },
+  "x-longbox-route-allowlist": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "kind": "exemption",
+      "reason": "liveness probe; returns {ok:true}, reads nothing, has no tenant, and is deliberately UNVERSIONED (042 §3.1 R0 — it is a probe for E13-B04, not an API call)",
+      "closing_bead": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/shops",
+      "kind": "defect",
+      "reason": "THE SHOP PICKER RETURNS EVERY SHOP TO ANY CALLER (042 E4, 034 E9). A live 019 T24 exposure — cross-tenant access = 0, NON-WAIVABLE, any → K1. It is not exempt from anything; it is broken, and the phone client depends on it until an authenticated session exists. E02-D08 did not close it and must not: closing it means deciding who the caller is, which is E03's. 042 A8: no defect-kind row may exist at G2.",
+      "closing_bead": "E03-B02 / E03-B03 (authn, RBAC)"
+    },
+    {
+      "method": "ALL",
+      "path": "/api/shops",
+      "kind": "exemption",
+      "reason": "308 alias onto /api/v1/shops with Deprecation and Sunset headers (042 §2.3). A deliberate, dated, method-preserving redirect is not a defect: it is the deprecation window doing its job, and it is removed by a contract step rather than by silence.",
+      "closing_bead": "E02-B10 (042 §9.1 row 5)"
+    },
+    {
+      "method": "ALL",
+      "path": "/api/shops/*",
+      "kind": "exemption",
+      "reason": "as above, for the shop-scoped surface: a 308 alias onto /api/v1/shops/:shopId/… with Deprecation and Sunset headers, removed by E02-B10's contract step rather than by silence",
+      "closing_bead": "E02-B10 (042 §9.1 row 5)"
+    }
+  ]
+}

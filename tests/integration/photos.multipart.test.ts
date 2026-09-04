@@ -1,9 +1,10 @@
 // Contract: multipart photo upload (R2 — phone-browser photo capture attaches
 // to a scan session). HTTP-level via fastify inject against a real Postgres:
 // a PNG attaches (201, row + file on disk), the kind field is honored,
-// a missing file / bad kind is 400, non-multipart is 406, and a payload over
+// a missing file / bad kind is 400, non-multipart is 415, and a payload over
 // the 25 MiB limit is 413. Integration lane only (INTEGRATION=1).
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -48,18 +49,30 @@ function multipart(parts: Part[]): { payload: Buffer; headers: Record<string, st
   chunks.push(Buffer.from(`--${BOUNDARY}--\r\n`));
   return {
     payload: Buffer.concat(chunks),
-    headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+    headers: {
+      "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+      // 042 §5.1: every mutating route REQUIRES the header, multipart included.
+      // §5.5 is why it works here without buffering — the hash covers the
+      // non-file fields plus the SHA-256 of the bytes already being streamed to
+      // disk. A fresh key per call, because each of these is a different ACT.
+      "idempotency-key": randomUUID(),
+    },
   };
 }
 
-describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (multipart)", () => {
+describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photos (multipart)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
   let shopId: string;
   let base: string;
 
   async function newSession(): Promise<string> {
-    const res = await app.inject({ method: "POST", url: base, payload: { created_by: "photo-contract" } });
+    const res = await app.inject({
+      method: "POST",
+      url: base,
+      payload: {},
+      headers: { "idempotency-key": randomUUID() },
+    });
     expect(res.statusCode).toBe(201);
     return res.json().session.id as string;
   }
@@ -69,7 +82,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
     shopId = await seedShop(pool, { name: "Gotham City Limit", slug: "gotham-photos" });
-    base = `/api/shops/${shopId}/scan-sessions`;
+    base = `/api/v1/shops/${shopId}/scan-sessions`;
     mkdirSync(UPLOADS_DIR, { recursive: true });
     app = await buildApp(pool, {
       port: 0,
@@ -93,14 +106,19 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     ]);
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
-    const photo = res.json().photo as { id: string; kind: string; storage_url: string };
-    expect(photo.kind).toBe("cover");
-    expect(photo.storage_url).toMatch(new RegExp(`^${UPLOADS_DIR}/${sessionId}/\\d{13}-cover\\.png$`));
-    expect(existsSync(photo.storage_url)).toBe(true);
-    expect(readFileSync(photo.storage_url)).toEqual(PNG_BYTES);
-
-    const rows = await listSessionPhotos(pool, shopId, sessionId);
-    expect(rows).toEqual([{ id: photo.id, kind: "cover", storage_url: photo.storage_url }]);
+    // 042 §3.5: `storage_url` is an INTERNAL reference and is never a response
+    // field — a photo is addressed by a shop-scoped, time-bounded signed URL
+    // issued by the owning module (E03-B07). The path is still asserted, from
+    // the row rather than from the wire.
+    const photo = res.json().photo as { id: string; kind: string };
+    expect(photo).toEqual({ id: photo.id, kind: "cover" });
+    const [row] = await listSessionPhotos(pool, shopId, sessionId);
+    expect(row!.storage_url).toMatch(new RegExp(`^${UPLOADS_DIR}/${sessionId}/\\d{13}-cover\\.png$`));
+    expect(existsSync(row!.storage_url)).toBe(true);
+    expect(readFileSync(row!.storage_url)).toEqual(PNG_BYTES);
+    expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([
+      { id: photo.id, kind: "cover", storage_url: row!.storage_url },
+    ]);
   });
 
   it("honors kind=barcode and maps image/jpeg to a .jpg extension", async () => {
@@ -113,7 +131,9 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
     expect(res.json().photo.kind).toBe("barcode");
-    expect(res.json().photo.storage_url).toMatch(/-barcode\.jpg$/);
+    expect(res.json().photo).not.toHaveProperty("storage_url");
+    const [row] = await listSessionPhotos(pool, shopId, sessionId);
+    expect(row!.storage_url).toMatch(/-barcode\.jpg$/);
   });
 
   it("defaults kind to cover when the field is absent", async () => {
@@ -132,7 +152,10 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     ]);
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "kind must be cover|barcode|defect" });
+    // One envelope, everywhere (042 §4.1). The prose that used to be the whole
+    // body is now a developer `message` nobody renders, and the branchable part
+    // is `code`.
+    expect(res.json().error.code).toBe("VALIDATION_FAILED");
     expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([]);
   });
 
@@ -141,18 +164,23 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     const req = multipart([{ name: "kind", value: "cover" }]);
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "multipart file field required" });
+    expect(res.json().error.code).toBe("PHOTO_FIELD_REQUIRED");
   });
 
-  it("rejects a non-multipart JSON body with 406", async () => {
+  it("rejects a non-multipart JSON body with 415 UNSUPPORTED_MEDIA_TYPE", async () => {
     const sessionId = await newSession();
     const res = await app.inject({
       method: "POST",
       url: `${base}/${sessionId}/photos`,
       payload: { kind: "cover", file: PNG_BYTES.toString("base64") },
     });
-    expect(res.statusCode).toBe(406);
-    expect(res.json().code).toBe("FST_INVALID_MULTIPART_CONTENT_TYPE");
+    expect(res.statusCode).toBe(415);
+    // A framework error joins the envelope through the one handler (042 §4.5),
+    // and it keeps a MEANING rather than leaking a framework identifier a client
+    // would branch on. Fastify answered this 406; the registry states 415, which
+    // is what the condition actually is — the request's media type is not one
+    // this route accepts.
+    expect(res.json().error.code).toBe("UNSUPPORTED_MEDIA_TYPE");
   });
 
   // Regression for E03-B07-D1: @fastify/multipart enforces `limits.fileSize`
@@ -169,7 +197,11 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     ]);
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(413);
-    expect(res.json().code).toBe("FST_REQ_FILE_TOO_LARGE");
+    // 042 §4.5, named in the record rather than discovered here: this was the
+    // ONE machine-readable code in the API and no handler composed it — it was
+    // Fastify's serializer shape, because the handler threw. It now arrives
+    // through the same envelope as everything else.
+    expect(res.json().error.code).toBe("PHOTO_TOO_LARGE");
     expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([]);
     // No partial bytes survive the rejection: the session's upload dir is
     // either absent or empty (no `.part` leftovers either).
@@ -188,11 +220,10 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     ]);
     const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
-    const photo = res.json().photo as { id: string; storage_url: string };
-    expect(statSync(photo.storage_url).size).toBe(atLimit.length);
-    expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([
-      { id: photo.id, kind: "cover", storage_url: photo.storage_url },
-    ]);
+    const photo = res.json().photo as { id: string };
+    const rows = await listSessionPhotos(pool, shopId, sessionId);
+    expect(rows).toEqual([{ id: photo.id, kind: "cover", storage_url: rows[0]!.storage_url }]);
+    expect(statSync(rows[0]!.storage_url).size).toBe(atLimit.length);
   });
 
   it("404s for a session that belongs to a different shop", async () => {
@@ -201,10 +232,13 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     const req = multipart([{ name: "file", value: PNG_BYTES, filename: "c.png", contentType: "image/png" }]);
     const res = await app.inject({
       method: "POST",
-      url: `/api/shops/${otherShop}/scan-sessions/${sessionId}/photos`,
+      url: `/api/v1/shops/${otherShop}/scan-sessions/${sessionId}/photos`,
       ...req,
     });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ error: "scan session not found" });
+    // One envelope (042 §4.1), and a code a client can branch on — where the
+    // whole body used to be an untyped `error` key holding sometimes a string
+    // and sometimes a validation object (042 E9).
+    expect(res.json().error.code).toBe("SESSION_NOT_FOUND");
   });
 });

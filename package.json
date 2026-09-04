@@ -26,6 +26,7 @@
     "register-shop": "tsx scripts/register-shop.ts",
     "fixture:schema": "tsx scripts/makeSchemaFixture.ts",
     "arch": "tsx scripts/architectureGate.ts",
+    "contracts:emit": "tsx scripts/emitOpenapi.ts",
     "depcruise": "depcruise src --config .dependency-cruiser.cjs"
   },
   "lint-staged": {

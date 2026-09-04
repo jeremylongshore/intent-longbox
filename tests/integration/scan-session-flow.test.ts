@@ -32,9 +32,12 @@ describe.skipIf(!dbUp)("scan-session event flow (service layer)", () => {
   });
 
   it("creates a session, appends events, and reads the full trail back", async () => {
-    const session = await createScanSession(pool, shopId, "counter-employee");
+    const session = await createScanSession(pool, shopId);
     expect(session.shop_id).toBe(shopId);
-    expect(session.status).toBe("in_progress");
+    // `status` is NOT a field of the projection any more (042 §3.3 / 040 A8):
+    // state is derived from the log, and the read model stopped selecting the
+    // column 040 retires.
+    expect(session).not.toHaveProperty("status");
 
     // Photos append in order.
     await addScanPhoto(pool, { sessionId: session.id, shopId, kind: "cover", storageUrl: "uploads/a.jpg" });
@@ -78,11 +81,15 @@ describe.skipIf(!dbUp)("scan-session event flow (service layer)", () => {
       label: "flow-status",
     });
     const reread = await getScanSession(pool, shopId, session.id);
-    expect(reread?.status).toBe("confirmed");
+    expect(reread?.id).toBe(session.id);
+    // The write still lands on the column (E02-B10 owns its contract step); what
+    // changed is that no read model and no response carries it.
+    const raw = await pool.query(`SELECT status FROM scan_session WHERE id = $1`, [session.id]);
+    expect((raw.rows[0] as { status: string }).status).toBe("confirmed");
   });
 
   it("scopes reads by shop_id (R17 multi-shop schema)", async () => {
-    const session = await createScanSession(pool, shopId, "employee");
+    const session = await createScanSession(pool, shopId);
     const otherShop = await seedShop(pool, { slug: `other-shop-${Date.now()}` });
     expect(await getScanSession(pool, otherShop, session.id)).toBeUndefined();
     expect(await getScanSession(pool, shopId, session.id)).toBeDefined();

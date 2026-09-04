@@ -10,23 +10,37 @@ import type { Queryable, Tx } from "../db.js";
 import { SESSION_SEQ_TABLE_NAMES } from "../db/appendOnlyTables.js";
 import { assertSafeIdentifier } from "../db/appRoleGrants.js";
 
+/**
+ * THE PROJECTION, NOT THE ROW (042 §3.3, 040 A8).
+ *
+ * `status` and `created_by` are columns of `scan_session` and are NOT columns of
+ * this type. `status` is the column 040 retires — state is DERIVED from the log
+ * (`src/services/worldView.ts`), and an unbounded star projection here is what
+ * put it in a response body in the first place (042 E15). `created_by` is a
+ * personal identifier 041 §8.4 stopped writing.
+ *
+ * A named column list is the whole of the fix, and it generalises: a star
+ * projection in a read model is a standing commitment to publish every future
+ * column, and nobody would write that commitment down.
+ */
 export interface ScanSessionRow {
   id: string;
   shop_id: string;
-  created_by: string;
-  status: string;
   created_at: string;
 }
 
-export async function createScanSession(
-  db: Queryable,
-  shopId: string,
-  createdBy: string
-): Promise<ScanSessionRow> {
-  const res = await db.query(`INSERT INTO scan_session (shop_id, created_by) VALUES ($1, $2) RETURNING *`, [
-    shopId,
-    createdBy,
-  ]);
+const SCAN_SESSION_COLUMNS = "id, shop_id, created_at";
+
+/**
+ * 041 §8.4 / 042 I1: `created_by` IS NOT WRITTEN. The column keeps its DEFAULT
+ * so existing rows and the deploy are undisturbed; what stops is a writer
+ * putting a person's identifier into a row nothing can correct.
+ */
+export async function createScanSession(db: Queryable, shopId: string): Promise<ScanSessionRow> {
+  const res = await db.query(
+    `INSERT INTO scan_session (shop_id) VALUES ($1) RETURNING ${SCAN_SESSION_COLUMNS}`,
+    [shopId]
+  );
   return res.rows[0] as ScanSessionRow;
 }
 
@@ -35,7 +49,10 @@ export async function getScanSession(
   shopId: string,
   id: string
 ): Promise<ScanSessionRow | undefined> {
-  const res = await db.query(`SELECT * FROM scan_session WHERE id = $1 AND shop_id = $2`, [id, shopId]);
+  const res = await db.query(
+    `SELECT ${SCAN_SESSION_COLUMNS} FROM scan_session WHERE id = $1 AND shop_id = $2`,
+    [id, shopId]
+  );
   return res.rows[0] as ScanSessionRow | undefined;
 }
 
@@ -69,10 +86,10 @@ export async function lockScanSession(
   shopId: string,
   sessionId: string
 ): Promise<ScanSessionRow | undefined> {
-  const res = await tx.query(`SELECT * FROM scan_session WHERE id = $1 AND shop_id = $2 FOR UPDATE`, [
-    sessionId,
-    shopId,
-  ]);
+  const res = await tx.query(
+    `SELECT ${SCAN_SESSION_COLUMNS} FROM scan_session WHERE id = $1 AND shop_id = $2 FOR UPDATE`,
+    [sessionId, shopId]
+  );
   return res.rows[0] as ScanSessionRow | undefined;
 }
 
@@ -223,7 +240,6 @@ export async function insertHumanConfirmation(
     shopId: string;
     confirmedIssue: unknown;
     source: string;
-    confirmedBy: string;
     outcome: string;
     /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
     sessionSeq: number;
@@ -231,14 +247,13 @@ export async function insertHumanConfirmation(
 ): Promise<HumanConfirmationRow> {
   const res = await tx.query(
     `INSERT INTO human_confirmation
-       (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome, session_seq)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at, outcome, session_seq`,
+       (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at, outcome, session_seq`,
     [
       args.sessionId,
       args.shopId,
       JSON.stringify(args.confirmedIssue),
       args.source,
-      args.confirmedBy,
       args.outcome,
       args.sessionSeq,
     ]
@@ -333,19 +348,26 @@ export async function readDraftFacts(
   coverUrls: string[];
 }> {
   const [confirmation, pricing, assessment, photos] = await Promise.all([
+    // 041 §3.4, I8: EVERY READ THAT DRIVES A DECISION GOES THROUGH `_current`.
+    // These three drive what a listing SAYS — the identity, the price and the
+    // condition — and the newest inserted row is the current row only until
+    // somebody corrects one. After one correction they are different rows, and a
+    // draft composed from the newest INSERT would publish a record the operator
+    // was never shown. The views also carry 041 §5's canonical order
+    // (`session_seq` first), which `ORDER BY created_at DESC` does not.
     db.query(
-      `SELECT confirmed_issue FROM human_confirmation
-        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT confirmed_issue FROM human_confirmation_current
+        WHERE scan_session_id = $1 AND shop_id = $2`,
       [sessionId, shopId]
     ),
     db.query(
-      `SELECT suggested_cents, override_cents FROM pricing_snapshot
-        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT suggested_cents, override_cents FROM pricing_snapshot_current
+        WHERE scan_session_id = $1 AND shop_id = $2`,
       [sessionId, shopId]
     ),
     db.query(
-      `SELECT grade_range_low, grade_range_high, defects FROM condition_assessment
-        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT grade_range_low, grade_range_high, defects FROM condition_assessment_current
+        WHERE scan_session_id = $1 AND shop_id = $2`,
       [sessionId, shopId]
     ),
     db.query(

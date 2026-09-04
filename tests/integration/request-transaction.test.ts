@@ -63,7 +63,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     await pool?.end();
   });
 
-  const newSession = async () => (await createScanSession(pool, shopId, "employee")).id;
+  const newSession = async () => (await createScanSession(pool, shopId)).id;
 
   const countConfirmations = async (sessionId: string) =>
     Number(
@@ -91,7 +91,6 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           shopId,
           confirmedIssue: ISSUE,
           source: "one_tap",
-          confirmedBy: "employee",
           outcome: "confirm",
           sessionSeq: 1,
         });
@@ -114,7 +113,6 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         shopId,
         confirmedIssue: ISSUE,
         source: "one_tap",
-        confirmedBy: "employee",
         outcome: "confirm",
         sessionSeq: 2,
       });
@@ -148,7 +146,6 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           shopId,
           confirmedIssue: { ...ISSUE, by: tag },
           source: "grid_pick",
-          confirmedBy: tag,
           outcome: prior.rowCount === 0 ? "correct" : "confirm",
           // 041 §5.3, assigned under the anchor lock taken above. A literal here
           // COLLIDES on `human_confirmation_session_seq_idx` once both writers land
@@ -292,7 +289,6 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         shopId,
         confirmedIssue: ISSUE,
         source: "one_tap",
-        confirmedBy: "employee",
         outcome: "confirm",
         sessionSeq: 6,
       });
@@ -325,7 +321,6 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           shopId,
           confirmedIssue: ISSUE,
           source: "one_tap",
-          confirmedBy: "employee",
           outcome: "not_a_valid_outcome", // trips the CHECK: 23514, not retryable
           sessionSeq: 7,
         });

@@ -68,7 +68,7 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
   });
 
   async function seedJob(): Promise<string> {
-    const sessionId = (await createScanSession(pool, shopId, "employee")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     const res = await withTransaction(pool, (tx) =>
       enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })
     );

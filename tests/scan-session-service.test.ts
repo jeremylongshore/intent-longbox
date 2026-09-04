@@ -20,22 +20,27 @@ import { fakePool } from "./fakes.js";
 /** The writing helpers take the held connection; the pool fake stands in for it. */
 const asTx = (pool: unknown): Tx => pool as Tx;
 
+// The PROJECTION, not the row: `status` and `created_by` are columns of
+// `scan_session` and are not fields of `ScanSessionRow` any more (042 §3.3,
+// 040 A8, 041 §8.4).
 const sessionRow = {
   id: "s-1",
   shop_id: "shop-1",
-  created_by: "employee",
-  status: "in_progress",
   created_at: "2026-09-01T00:00:00Z",
 };
 
 describe("createScanSession", () => {
-  it("inserts shop_id + created_by and returns the row", async () => {
+  it("inserts shop_id ALONE — `created_by` has no writer (041 §8.4, 042 I1)", async () => {
     const { pool, calls } = fakePool((text) =>
       text.includes("INSERT INTO scan_session") ? { rows: [sessionRow] } : undefined
     );
-    const row = await createScanSession(pool, "shop-1", "counter");
+    const row = await createScanSession(pool, "shop-1");
     expect(row).toEqual(sessionRow);
-    expect(calls[0]?.values).toEqual(["shop-1", "counter"]);
+    expect(calls[0]?.values).toEqual(["shop-1"]);
+    expect(calls[0]?.text).not.toMatch(/created_by/);
+    // The read model names its columns; a star projection here is what put the
+    // retired `status` column into a response body (042 E15).
+    expect(calls[0]?.text).toContain("RETURNING id, shop_id, created_at");
   });
 });
 
@@ -132,18 +137,18 @@ describe("insertHumanConfirmation", () => {
       shopId: "shop-1",
       confirmedIssue: { title: "Hulk", issue: "181" },
       source: "one_tap",
-      confirmedBy: "employee",
       outcome: "confirm",
       sessionSeq: 1,
     });
     expect(row.outcome).toBe("confirm");
     expect(calls[0]?.text).toMatch(/INSERT INTO human_confirmation/);
+    // 041 §8.4 / 042 I1: no personal identifier is written into the log.
+    expect(calls[0]?.text).not.toMatch(/confirmed_by/);
     expect(calls[0]?.values).toEqual([
       "s-1",
       "shop-1",
       JSON.stringify({ title: "Hulk", issue: "181" }),
       "one_tap",
-      "employee",
       "confirm",
       // 041 §5.3: the per-session commit counter travels on the INSERT, assigned by
       // `assignSessionSeq` under the anchor lock the caller already holds.
@@ -157,7 +162,7 @@ describe("readDraftFacts", () => {
   // helper returns every row of seven tables so a GET can render a trail, and a
   // job that pulled all of it to use three rows would make the read cost grow
   // with the session's history.
-  it("reads the NEWEST confirmation, price and condition, plus the cover photos", async () => {
+  it("reads the CURRENT confirmation, price and condition through the views (041 I8)", async () => {
     const { pool, calls } = fakePool((text) => {
       if (text.includes("FROM human_confirmation")) {
         return { rows: [{ confirmed_issue: { title: "Bone" } }] };
@@ -178,9 +183,14 @@ describe("readDraftFacts", () => {
     // Prefixed with "/" so the URL is site-absolute, as the route did before the
     // block moved into the consumer.
     expect(facts.coverUrls).toEqual(["/uploads/a/cover.jpg"]);
-    // Every read is shop-scoped (T24, non-waivable) and newest-first.
+    // Every read is shop-scoped (T24, non-waivable) and goes through `_current`
+    // (041 §3.4: "every read that drives a decision goes through `_current`").
+    // The newest INSERTED row and the CURRENT row are the same row only until
+    // somebody corrects one — after a correction, a draft composed from the
+    // newest insert publishes a record the operator was never shown.
     for (const call of calls) expect(call.values).toEqual(["s-1", "shop-1"]);
-    expect(calls.filter((c) => c.text.includes("ORDER BY created_at DESC"))).toHaveLength(3);
+    expect(calls.filter((c) => c.text.includes("_current"))).toHaveLength(3);
+    expect(calls.filter((c) => c.text.includes("ORDER BY created_at DESC"))).toHaveLength(0);
     // Only cover photos reach a listing.
     expect(calls.find((c) => c.text.includes("FROM scan_photo"))!.text).toContain("kind = 'cover'");
   });

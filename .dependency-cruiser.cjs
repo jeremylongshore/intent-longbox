@@ -149,14 +149,12 @@ module.exports = {
           // or pricing adapter imported directly by a job handler is still an
           // error, which is a tighter boundary than the flat exemption alone.
           "^src/consumers/",
-          // DECLARED DEFECT, kind=defect, closing bead E02-D08 `longbox-e5b.2.18` (029 §5 move 6, V1).
-          // `src/routes/scanSessions.ts:14` imports `providers/registry.js` today. The
-          // route is supposed to reach it behind workflow's public API; move 6 does
-          // that. Exempted BY NAME so the rule still catches a SECOND route doing it,
-          // and inventoried with an exact count in scripts/architectureRules.ts so a
-          // second import inside THIS file is caught too. 042 A8: no defect-kind row
-          // may exist at G2.
-          "^src/routes/scanSessions\\.ts$",
+          // THE ROUTE EXEMPTION IS GONE (E02-D08, 029 §5 move 6). It read
+          // "`src/routes/scanSessions.ts:14` imports `providers/registry.js`
+          // today", kind=defect. The provider resolution moved into
+          // `src/services/sessionApi.ts`, so `^src/routes/` is covered by this
+          // rule with no exception at all — which is what 042 A8's "no
+          // defect-kind row may exist at G2" asks for, one row at a time.
         ],
       },
       to: { path: "^src/providers/" },
@@ -228,12 +226,11 @@ module.exports = {
       severity: "error",
       comment:
         "029 §3.1: the HTTP edge is thin. Raw pg in a route is how src/routes/scanSessions.ts " +
-        "came to own five tables it does not own. DECLARED DEFECT: that file imports pg " +
-        "(`import type pg` at :8) today and is exempted BY NAME, kind=defect, closing bead " +
-        "E02-D08 `longbox-e5b.2.18` (029 §5 move 6) — with an exact `pgImports` count in " +
-        "scripts/architectureRules.ts so a SECOND import inside that same file is still caught. " +
-        "042 A8: no defect-kind row may exist at G2.",
-      from: { path: "^src/routes/", pathNot: ["^src/routes/scanSessions\\.ts$"] },
+        "came to own five tables it does not own. THE DEFECT EXEMPTION IS GONE (E02-D08): that " +
+        "file's `import type pg` moved into src/services/sessionApi.ts with the statements that " +
+        "needed it, so the rule now covers every route file with no exception, and the exact " +
+        "`pgImports` count in scripts/architectureRules.ts is zero for the same reason.",
+      from: { path: "^src/routes/" },
       // DEFECT N3, found by E02-B10 while installing this file and fixed here: the
       // specified `path: "^pg$"` never matches. dependency-cruiser matches `to.path`
       // against a dependency's RESOLVED path, which for an npm module is
@@ -251,16 +248,15 @@ module.exports = {
       name: "routes-do-not-import-the-db-module",
       severity: "error",
       comment:
-        "029 §5 move 8, defect N2 — the SECOND rule this bead owes. The specified rule above " +
+        "029 §5 move 8, defect N2 — the SECOND rule E02-B10 owed. The specified rule above " +
         "catches only `import type pg`; this one forbids the route layer from reaching the " +
         "platform persistence module at all, which is the edge an author would actually " +
-        "write. DECLARED DEFECT, not a clean pass: src/routes/scanSessions.ts imports " +
-        "`withTransaction` from ../db.js today and is exempted BY NAME below. That exemption " +
-        "is kind=defect with closing bead E02-D08 `longbox-e5b.2.18` (029 §5 move 6), it is inventoried with an " +
-        "exact count in scripts/architectureRules.ts, and 042 A8 rules that no defect-kind " +
-        "row may exist at G2 — so this comment is also the statement that G2 does not close " +
-        "until it is deleted.",
-      from: { path: "^src/routes/", pathNot: ["^src/routes/scanSessions\\.ts$"] },
+        "write. IT IS NOW A CLEAN PASS (E02-D08): src/routes/scanSessions.ts imported " +
+        "`withTransaction` from ../db.js and no longer does — the request transaction, the " +
+        "idempotency INSERT and the anchor lock all live in src/services/sessionApi.ts, and a " +
+        "handler that wants one calls a service. The by-name exemption that stood here is " +
+        "deleted, which is the sentence 042 A8 wanted someone to be able to write.",
+      from: { path: "^src/routes/" },
       to: { path: "^src/(db\\.ts|db/|modules/platform/)" },
     },
 

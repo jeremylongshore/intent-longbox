@@ -51,7 +51,7 @@ interface Scenario {
 const SCENARIOS: Record<string, Scenario> = {
   [DRAFT_REQUESTED]: {
     async seed(pool, shopId) {
-      const sessionId = (await createScanSession(pool, shopId, "employee")).id;
+      const sessionId = (await createScanSession(pool, shopId)).id;
       await pool.query(
         `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
          VALUES ($1,$2,$3,'one_tap')`,
@@ -176,7 +176,7 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
     // The uniqueness is PARTIAL for a reason: many rows legitimately carry NULL
     // (043 §8.1's one-meaning rule — "written by a request, not a job"), and a
     // total unique index would let exactly one of them exist in the whole table.
-    const sessionId = (await createScanSession(pool, shopId, "employee")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     for (const gid of ["gid://p", "gid://q"]) {
       await pool.query(
         `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status) VALUES ($1,$2,$3,'draft')`,

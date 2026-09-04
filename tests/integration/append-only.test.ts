@@ -22,7 +22,7 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     pool = new pg.Pool({ connectionString: url });
     superuserPool = new pg.Pool({ connectionString: superuserUrl(url) });
     shopId = await seedShop(pool);
-    sessionId = (await createScanSession(pool, shopId, "tester")).id;
+    sessionId = (await createScanSession(pool, shopId)).id;
   });
 
   afterAll(async () => {

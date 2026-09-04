@@ -17,3 +17,8 @@ TEST_AUDIT.md
 # the skill's own gates signed off. Added by E02-B10 because it broke `pnpm lint`
 # on main, which is a required check this branch has to pass.
 .arch/
+# The GENERATED OpenAPI artifact (042 §2.5(c), E02-D08). Its bytes are the
+# contract: `pnpm contracts:emit` writes it and a contract test asserts the
+# committed file equals a regeneration, so a formatter rewriting it would fail
+# that gate on every commit while changing nothing anybody declared.
+contracts/openapi.v1.json

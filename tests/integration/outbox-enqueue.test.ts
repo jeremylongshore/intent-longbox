@@ -37,7 +37,7 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
     await pool?.end();
   });
 
-  const newSession = async () => (await createScanSession(pool, shopId, "employee")).id;
+  const newSession = async () => (await createScanSession(pool, shopId)).id;
   const countOutbox = async (sessionId: string) =>
     Number(
       (await pool.query(`SELECT count(*)::int AS n FROM outbox WHERE scan_session_id = $1`, [sessionId]))
@@ -137,7 +137,7 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: appUrl(url), max: 4 });
     shopId = await seedShop(pool, { name: "Outbox Immutability Shop" });
-    const sessionId = (await createScanSession(pool, shopId, "employee")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     outboxId = (
       await withTransaction(pool, (tx) =>
         enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })

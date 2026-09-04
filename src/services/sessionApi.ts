@@ -1,0 +1,631 @@
+// The application service behind the HTTP edge — one function per route, each
+// returning the wire status and a DTO-shaped body, each throwing `LongboxError`
+// with a registry code (042 §4).
+//
+// WHY THIS FILE EXISTS (029 §5 move 6, defect N2; 042 I20). The route file
+// reached the database directly: three `db.query` calls, a `pg` import and a
+// provider import, on a layer 029 §3.1 says is thin — "a route validates and
+// calls one function". Import-graph analysis cannot see most of that, because
+// the damage was `db.query` on a Pool passed as a PARAMETER. Moving the
+// statements is what closes it; the gate's exact-count inventory is what keeps
+// it closed, and `ROUTE_DB_ROWS` is now empty rather than a declared defect.
+//
+// THE SHAPE OF EVERY MUTATING FUNCTION IS THE SAME, and it is the shape 042 §5
+// and §6 require rather than a style:
+//
+//   1. do the non-transactional work first — a provider call, a file write —
+//      because 041 §4.1 forbids a side effect inside the transaction body and
+//      that rule is what makes the retry sound;
+//   2. `runIdempotent`, which opens ONE transaction on ONE held connection and
+//      INSERTs `request_idempotency` as its FIRST statement (042 I22's fixed
+//      lock order: identity before subject);
+//   3. `lockScanSession` — the anchor (041 §4.2);
+//   4. `assertWorldViewIsCurrent` — the causal check, under that lock, which is
+//      what makes the refusal deterministic rather than racy (042 §6);
+//   5. the appends;
+//   6. the response, stored on the idempotency row in the same commit.
+import type pg from "pg";
+import { createWriteStream } from "node:fs";
+import { mkdir, rename, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { AppConfig } from "../config.js";
+import type { Queryable, Tx } from "../db.js";
+import { LongboxError } from "../contracts/v1/errors.js";
+import {
+  EVENT_PROJECTIONS,
+  EVENT_TABLES,
+  type Against,
+  type conditionRequest,
+  type confirmRequest,
+  type draftRequest,
+  type EventTable,
+  type identifyRequest,
+  type priceRequest,
+  type SessionDetail,
+} from "../contracts/v1/schemas.js";
+import type { z } from "zod";
+import { DRAFT_REQUESTED } from "../events/catalogue.js";
+import { resolveEbayCredentials, resolveShopToken, resolveVisionProvider } from "../providers/registry.js";
+import type { VisionProvider } from "../providers/types.js";
+import { enqueue } from "./outbox.js";
+import { replayIfSettled, runIdempotent, type IdempotentOutcome } from "./idempotency.js";
+import { createEbayProvider, createStubEbayProvider } from "./ebay.js";
+import {
+  createPriceChartingProvider,
+  type PricingPolicy,
+  type PricingProvider,
+  type PricingQuery,
+} from "./pricing.js";
+import { fetchPricing, recordPricing } from "./pricingService.js";
+import { planIdentify, readLatestRerank, recordIdentify, toOutcome } from "./identify.js";
+import { insertConditionAssessment, readCurrentConditionAssessment, validGradeRange } from "./condition.js";
+import { decideOutcome, topCandidateOf } from "./confirmationOutcome.js";
+import { supersede } from "./supersession.js";
+import {
+  addScanPhoto,
+  assignSessionSeq,
+  createScanSession,
+  getScanSession,
+  getSessionEvents,
+  insertHumanConfirmation,
+  lockScanSession,
+  readConfirmationBaseline,
+  setSessionStatus,
+} from "./scanSession.js";
+import type { ShopRateLimiter } from "./rateLimit.js";
+import { assertWorldViewIsCurrent, deriveState, readTransitions, readWitnessFlags } from "./worldView.js";
+
+export interface ApiDeps {
+  pool: pg.Pool;
+  config: AppConfig;
+  limiter: ShopRateLimiter;
+}
+
+/** What every route hands the service beyond its validated body. */
+export interface CallContext {
+  shopId: string;
+  sessionId?: string;
+  idempotencyKey: string;
+  /** The route TEMPLATE (042 §5.2), never the resolved path. */
+  route: string;
+  method: string;
+}
+
+interface ShopRow {
+  id: string;
+  name: string;
+  shopify_domain: string | null;
+}
+
+async function requireShop(db: Queryable, shopId: string): Promise<ShopRow> {
+  const res = await db.query(`SELECT id, name, shopify_domain FROM shop WHERE id = $1`, [shopId]);
+  const shop = res.rows[0] as ShopRow | undefined;
+  if (!shop) throw new LongboxError("SHOP_NOT_FOUND");
+  return shop;
+}
+
+async function requireSession(db: Queryable, shopId: string, sessionId: string): Promise<{ id: string }> {
+  const session = await getScanSession(db, shopId, sessionId);
+  if (!session) throw new LongboxError("SESSION_NOT_FOUND");
+  return session;
+}
+
+/** The anchor lock, refusing in the contract's vocabulary. */
+async function lockOrRefuse(tx: Tx, shopId: string, sessionId: string): Promise<void> {
+  const locked = await lockScanSession(tx, shopId, sessionId);
+  if (!locked) throw new LongboxError("SESSION_NOT_FOUND");
+}
+
+function idempotentRequest(ctx: CallContext, body: unknown) {
+  return {
+    shopId: ctx.shopId,
+    idempotencyKey: ctx.idempotencyKey,
+    route: ctx.route,
+    method: ctx.method,
+    params: ctx.sessionId ? { shopId: ctx.shopId, id: ctx.sessionId } : { shopId: ctx.shopId },
+    body,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+export async function listShops(db: Queryable): Promise<{ shops: unknown[] }> {
+  const res = await db.query(`SELECT id, name, slug FROM shop ORDER BY created_at`);
+  return { shops: res.rows };
+}
+
+/** Keep only the keys the DTO declares (042 §3.3). */
+function project<T extends Record<string, unknown>>(
+  row: T,
+  keys: readonly string[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) out[key] = row[key] ?? null;
+  return out;
+}
+
+export async function getSessionDetail(
+  db: Queryable,
+  shopId: string,
+  sessionId: string
+): Promise<SessionDetail> {
+  const session = await getScanSession(db, shopId, sessionId);
+  if (!session) throw new LongboxError("SESSION_NOT_FOUND");
+  const [raw, transitions, flags] = await Promise.all([
+    getSessionEvents(db, shopId, sessionId),
+    readTransitions(db, shopId, sessionId),
+    readWitnessFlags(db, shopId, sessionId),
+  ]);
+
+  // The trail READ stays complete (041 I9) and the PROJECTION is declared. E16
+  // is why the two are different properties: without this, every column a future
+  // migration adds to a witness table lands in a response body on the day that
+  // migration applies, with no route, test or reviewer involved.
+  const events = Object.fromEntries(
+    EVENT_TABLES.map((table: EventTable) => [
+      table,
+      (raw[table] ?? []).map((row) => project(row as Record<string, unknown>, EVENT_PROJECTIONS[table])),
+    ])
+  );
+
+  return {
+    session: { id: session.id, shop_id: session.shop_id, created_at: session.created_at },
+    state: deriveState(flags, transitions),
+    transitions: transitions.map((t) => ({
+      id: t.id,
+      kind: t.kind,
+      reopened_to_rung: t.reopened_to_rung,
+      created_at: t.created_at,
+    })),
+    events,
+  } as SessionDetail;
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+export async function createSession(deps: ApiDeps, ctx: CallContext): Promise<IdempotentOutcome> {
+  const shop = await requireShop(deps.pool, ctx.shopId);
+  return runIdempotent(deps.pool, idempotentRequest(ctx, {}), async (tx) => {
+    // 041 §8.4 / 042 I1: `created_by` is NOT passed. A personal identifier is not
+    // a value in the log, and a comment saying a column is deprecated with
+    // nothing asserting it stopped being written is a note rather than a
+    // deprecation (041 A8).
+    const session = await createScanSession(tx, shop.id);
+    return {
+      status: 201,
+      body: { session: { id: session.id, shop_id: session.shop_id, created_at: session.created_at } },
+    };
+  });
+}
+
+export interface PhotoUpload {
+  stream: NodeJS.ReadableStream & { truncated?: boolean };
+  mimetype: string;
+  kind: "cover" | "barcode" | "defect";
+}
+
+/**
+ * 042 §5.5 — the multipart case.
+ *
+ * `request_hash` covers the non-file fields plus the SHA-256 of the file bytes,
+ * **computed on the stream that is already being written to disk**: no second
+ * read, no buffering, and the digest is the same one `scan_photo.content_hash`
+ * will want (003 §35-36), so it is computed once and used twice.
+ *
+ * The ordering already in the tree is preserved and is load-bearing: write to a
+ * `.part` path, rename on success, remove the bytes if the row insert fails. The
+ * filesystem write stays OUTSIDE the transaction and the idempotency row stays
+ * inside it (041 §8.2's rule for an operation spanning a transactional store and
+ * a non-transactional one), which means a replayed photo POST can re-write bytes
+ * it then discards — cheap and correct — and can never double-append a row.
+ */
+export async function uploadPhoto(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  upload: PhotoUpload,
+  against: Against | undefined
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+
+  const ext = upload.mimetype === "image/png" ? "png" : upload.mimetype === "image/webp" ? "webp" : "jpg";
+  const dir = join(deps.config.uploadsDir, session.id);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, `${Date.now()}-${upload.kind}.${ext}`);
+  const tmpPath = `${path}.part`;
+
+  const digest = createHash("sha256");
+  const tap = new Transform({
+    transform(chunk, _enc, cb) {
+      digest.update(chunk as Buffer);
+      cb(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(upload.stream, tap, createWriteStream(tmpPath));
+    // @fastify/multipart enforces `limits.fileSize` by TRUNCATING the busboy
+    // stream, not by erroring: without this check an oversize upload yields a
+    // silently clipped file plus a 201.
+    if (upload.stream.truncated === true) throw fileTooLarge();
+    await rename(tmpPath, path);
+  } catch (err) {
+    await rm(tmpPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
+
+  const contentHash = digest.digest("hex");
+  try {
+    const outcome = await runIdempotent(
+      deps.pool,
+      idempotentRequest(ctx, { kind: upload.kind, content_sha256: contentHash, against }),
+      async (tx) => {
+        await lockOrRefuse(tx, ctx.shopId, session.id);
+        await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, against);
+        const photo = await addScanPhoto(tx, {
+          sessionId: session.id,
+          shopId: ctx.shopId,
+          kind: upload.kind,
+          storageUrl: path,
+        });
+        // `storage_url` is DELIBERATELY not in the body (042 §3.5): a photo is
+        // addressed by a shop-scoped, time-bounded signed URL issued by the
+        // owning module, and `scan_photo.storage_key` is an internal reference.
+        return { status: 201, body: { photo: { id: photo.id, kind: upload.kind } } };
+      }
+    );
+    if (outcome.replayed) await rm(path, { force: true }).catch(() => undefined);
+    return outcome;
+  } catch (err) {
+    // No row means no owner for the bytes — do not leave them on disk.
+    await rm(path, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
+function fileTooLarge(): Error & { code: string; statusCode: number } {
+  const err = new Error("request file too large") as Error & { code: string; statusCode: number };
+  err.code = "FST_REQ_FILE_TOO_LARGE";
+  err.statusCode = 413;
+  return err;
+}
+
+/**
+ * The stand-in used when the metered budget is spent (§8.3).
+ *
+ * It exists so the manual path needs no credential at all. `identify` never
+ * calls it — the plan is short-circuited — and it throws rather than returning
+ * an empty answer, because a silent "no candidates" from a provider nobody
+ * configured would be indistinguishable from a model that abstained.
+ */
+const MANUAL_PATH_PROVIDER = {
+  id: "manual",
+  model: "none",
+  identify: (): never => {
+    throw new Error("the manual path calls no provider");
+  },
+} as unknown as VisionProvider;
+
+export async function identify(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  body: z.infer<typeof identifyRequest>
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const idem = idempotentRequest(ctx, {
+    barcode_digits: body.barcode_digits ?? null,
+    against: body.against,
+  });
+
+  // THE REPLAY IS RECOGNISED BEFORE ANYTHING IS SPENT, and this is the one route
+  // where that ordering is not a nicety. `runIdempotent` pre-reads too, but it
+  // only gets the chance AFTER the caller's non-transactional work — and here
+  // that work is a PAID model call and a decrement of the metered budget. A
+  // retried identify over the counter's bad Wi-Fi would otherwise cost the shop
+  // a second call to answer with the first call's stored response. 042 §5.3's
+  // "the cheapest possible rejection path" applied where it costs money.
+  const replay = await replayIfSettled(deps.pool, idem);
+  if (replay) return replay;
+
+  // 042 §8.3 — THE METERED CLASS FAILS CLOSED TO THE MANUAL PATH, NEVER TO AN
+  // ERROR. 019 K4 is "the pipeline never blocks on a provider", and a throttle we
+  // impose on ourselves is a provider outage we caused; handling it worse than
+  // one we did not would be incoherent. So an exhausted budget takes the same
+  // route a model that errors or abstains already takes — "not a failure; a
+  // different route to the same rung" (040 §4.6) — and the operator keeps
+  // working on manual entry. The ORDINARY bucket still covers this route at the
+  // edge, so a runaway loop is still refused with a 429.
+  //
+  // The budget is taken BEFORE the provider is resolved, deliberately: a shop
+  // that has spent its budget needs no credential, and resolving one first would
+  // answer 503 to a call that was never going to reach a provider.
+  const budget = deps.limiter.takeMetered(ctx.shopId);
+
+  let provider = MANUAL_PATH_PROVIDER;
+  if (budget.allowed) {
+    try {
+      provider = await resolveVisionProvider(deps.pool, ctx.shopId);
+    } catch {
+      // The adapter's exception message STOPS being the body (042 E10): a
+      // provider library's throw is not a sentence a caller may branch on, and
+      // it is one 503 away from an operator's screen.
+      throw new LongboxError("IDENTIFY_PROVIDER_UNAVAILABLE");
+    }
+  }
+
+  const args = {
+    shopId: ctx.shopId,
+    sessionId: session.id,
+    provider,
+    bands: deps.config.bands,
+    uploadsDir: deps.config.uploadsDir,
+    ...(body.barcode_digits !== undefined ? { barcodeDigits: body.barcode_digits } : {}),
+  };
+
+  const plan = budget.allowed
+    ? await planIdentify(deps.pool, args)
+    : { band: "low" as const, contradiction: false, contradictionReasons: [], error: "metered budget spent" };
+
+  return runIdempotent(deps.pool, idem, async (tx) => {
+    await lockOrRefuse(tx, ctx.shopId, session.id);
+    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    const written = await recordIdentify(tx, args, plan);
+    const outcome = toOutcome(args, plan, written);
+    if (budget.allowed && outcome.error) {
+      // A provider that answered badly is a 502 with a code, not a success body
+      // with an `error` string inside it beside `confidence`, `provider`,
+      // `model` and `costUsd` (042 E10). The rows the call DID write are rolled
+      // back with it; the retry is a fresh act under a fresh key.
+      throw new LongboxError("IDENTIFY_FAILED");
+    }
+    return {
+      status: 200,
+      body: {
+        candidate_set_ids: outcome.candidateSetIds,
+        llm_rerank_id: outcome.llmRerankId,
+        candidates: outcome.candidates,
+        band: outcome.band,
+        contradiction: outcome.contradiction,
+        contradiction_reasons: outcome.contradictionReasons,
+        ...(outcome.barcode !== undefined ? { barcode: outcome.barcode } : {}),
+        manual_path: !budget.allowed,
+      },
+    };
+  });
+}
+
+export async function confirm(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  body: z.infer<typeof confirmRequest>
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+
+  return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
+    await lockOrRefuse(tx, ctx.shopId, session.id);
+    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+
+    // 040 F3 / locked decision 7, as a CODE and not a sentence (042 §4.6). A
+    // rejection whose only content is English prose is a UI convention with
+    // extra steps: the client has to parse it, and a second client will parse it
+    // differently. `reasons` are evidence strings about the BOOK, not prose
+    // about the person, and they are already in `llm_rerank.response`.
+    if (body.source === "one_tap") {
+      const rerank = await readLatestRerank(tx, ctx.shopId, session.id);
+      if (rerank?.contradiction) {
+        throw new LongboxError("CONTRADICTION_BLOCKS_ONE_TAP", {
+          band: rerank.band,
+          reasons: rerank.contradiction_reasons,
+        });
+      }
+    }
+
+    const baseline = await readConfirmationBaseline(tx, ctx.shopId, session.id);
+    const outcome = decideOutcome({
+      source: body.source,
+      confirmed: body.issue,
+      topProposal: topCandidateOf(baseline.topProposalSource),
+      priorConfirmation: baseline.priorConfirmation,
+    });
+
+    const row = baseline.priorConfirmationId
+      ? await supersede(tx, {
+          shopId: ctx.shopId,
+          sessionId: session.id,
+          priorId: baseline.priorConfirmationId,
+          row: {
+            table: "human_confirmation",
+            values: { confirmedIssue: body.issue, source: body.source, outcome },
+          },
+        })
+      : await insertHumanConfirmation(tx, {
+          sessionId: session.id,
+          shopId: ctx.shopId,
+          confirmedIssue: body.issue,
+          source: body.source,
+          outcome,
+          sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
+        });
+    await setSessionStatus(tx, ctx.shopId, session.id, "confirmed");
+    return {
+      status: 201,
+      body: { confirmation: { id: row.id, created_at: row.created_at, outcome } },
+    };
+  });
+}
+
+export async function assessCondition(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  body: z.infer<typeof conditionRequest>
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  if (!validGradeRange(body.grade_range_low, body.grade_range_high)) {
+    throw new LongboxError("VALIDATION_FAILED", {
+      fieldErrors: { grade_range_low: ["must not exceed grade_range_high"] },
+    });
+  }
+
+  return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
+    await lockOrRefuse(tx, ctx.shopId, session.id);
+    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    const prior = await readCurrentConditionAssessment(tx, ctx.shopId, session.id);
+    const values = {
+      gradeRangeLow: body.grade_range_low,
+      gradeRangeHigh: body.grade_range_high,
+      defects: body.defects,
+      notes: body.notes ?? null,
+    };
+    const row = prior
+      ? await supersede(tx, {
+          shopId: ctx.shopId,
+          sessionId: session.id,
+          priorId: prior.id,
+          row: { table: "condition_assessment", values },
+        })
+      : await insertConditionAssessment(tx, {
+          sessionId: session.id,
+          shopId: ctx.shopId,
+          ...values,
+          sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
+        });
+    return { status: 201, body: { assessment: { id: row.id, created_at: row.created_at } } };
+  });
+}
+
+interface PolicyRow {
+  id: string;
+  comp_percent: number;
+  floor_cents: number;
+  rounding_rule: PricingPolicy["roundingRule"];
+}
+
+async function latestPolicy(db: Queryable, shopId: string): Promise<{ id: string; policy: PricingPolicy }> {
+  const res = await db.query(
+    `SELECT id, comp_percent, floor_cents, rounding_rule FROM shop_pricing_policy
+      WHERE shop_id = $1 ORDER BY effective_from DESC LIMIT 1`,
+    [shopId]
+  );
+  const row = res.rows[0] as PolicyRow | undefined;
+  if (!row) {
+    throw new LongboxError("SHOP_HAS_NO_PRICING_POLICY");
+  }
+  return {
+    id: row.id,
+    policy: { compPercent: row.comp_percent, floorCents: row.floor_cents, roundingRule: row.rounding_rule },
+  };
+}
+
+export async function price(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  body: z.infer<typeof priceRequest>
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  // Same reasoning as `identify`, one layer cheaper: this route calls eBay and
+  // PriceCharting before its transaction, and a replay should not re-ask
+  // somebody else's server for an answer it already stored.
+  const idem = idempotentRequest(ctx, body);
+  const replay = await replayIfSettled(deps.pool, idem);
+  if (replay) return replay;
+  const found = await latestPolicy(deps.pool, ctx.shopId);
+
+  const query: PricingQuery = {
+    title: body.title ?? body.query!,
+    ...(body.issue !== undefined ? { issue: body.issue } : {}),
+    ...(body.variant !== undefined ? { variant: body.variant } : {}),
+    ...(body.grade !== undefined ? { grade: body.grade } : {}),
+    ...(body.upc !== undefined ? { upc: body.upc } : {}),
+  };
+
+  // ALL configured pricing providers run; each falls back to a clearly flagged
+  // stub when its creds are missing (per-shop `key_ref` override, global env
+  // fallback — the same resolution as every other credential).
+  const pcToken = await resolveShopToken(deps.pool, ctx.shopId, "pricecharting", "PRICECHARTING_TOKEN");
+  const ebayCreds = await resolveEbayCredentials(deps.pool, ctx.shopId);
+  const providers: PricingProvider[] = [
+    pcToken ? createPriceChartingProvider({ token: pcToken }) : createPriceChartingProvider({}),
+    ebayCreds ? createEbayProvider(ebayCreds) : createStubEbayProvider(),
+  ];
+
+  const args = {
+    sessionId: session.id,
+    shopId: ctx.shopId,
+    providers,
+    policy: found.policy,
+    policyId: found.id,
+    query,
+    ...(body.override_cents !== undefined ? { overrideCents: body.override_cents } : {}),
+  };
+  // Outside the transaction, for 041 §4.1's reason: a retried attempt must not
+  // re-fetch from eBay, and a held connection must not wait on somebody else's
+  // server.
+  const plan = await fetchPricing(args);
+
+  return runIdempotent(deps.pool, idem, async (tx) => {
+    await lockOrRefuse(tx, ctx.shopId, session.id);
+    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    const result = await recordPricing(tx, args, plan);
+    return {
+      status: 201,
+      body: {
+        ...result,
+        // 033 D5: part of the DTO, not a convenience key.
+        stub: result.sources.every((s) => s.status !== "ok" || s.stub),
+      },
+    };
+  });
+}
+
+/**
+ * `POST …/draft` OWES the effect (043 §4.1): it runs its gates, appends
+ * `longbox.commerce.draft_requested` inside the request transaction, and answers
+ * 202 with the outbox row's id. A worker claims the row and calls Shopify in its
+ * own transaction.
+ *
+ * THE GATES READ `_current`, NOT THE LAST ROW (041 §3.4, I8). Reading the newest
+ * inserted row makes "the current answer" and "the newest row" the same row only
+ * by coincidence: after one correction they are different rows, and a draft
+ * would be gated on a record the operator was never shown.
+ */
+export async function requestDraft(
+  deps: ApiDeps,
+  ctx: CallContext & { sessionId: string },
+  body: z.infer<typeof draftRequest>
+): Promise<IdempotentOutcome> {
+  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const flags = await readWitnessFlags(deps.pool, ctx.shopId, session.id);
+  if (!flags.confirmed) {
+    throw new LongboxError("SESSION_HAS_NO_CONFIRMATION");
+  }
+  if (!flags.priced) {
+    throw new LongboxError("SESSION_HAS_NO_PRICING");
+  }
+
+  return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
+    await lockOrRefuse(tx, ctx.shopId, session.id);
+    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    const sessionSeq = await assignSessionSeq(tx, ctx.shopId, session.id);
+    const enqueued = await enqueue(tx, {
+      shopId: ctx.shopId,
+      event: DRAFT_REQUESTED,
+      scanSessionId: session.id,
+      sessionSeq,
+      // A person tapped the button, and nothing verified who: 041 §2.3's
+      // `authored_by` says a human decided it and `actor_verified` (false by
+      // default) says nobody checked. Recording it as a system act would be the
+      // cheaper lie.
+      authoredBy: "human",
+    });
+    return {
+      status: 202,
+      body: { status: "accepted", outbox_id: enqueued.id, already_requested: enqueued.alreadyEnqueued },
+    };
+  });
+}

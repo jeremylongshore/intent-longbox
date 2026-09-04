@@ -1,4 +1,26 @@
-/* Longbox minimal phone UI. Ugly is fine; working flow matters. */
+/* Longbox minimal phone UI. Ugly is fine; working flow matters.
+ *
+ * E02-D08 moved this client onto the v1 contract, in the SAME PR as the server
+ * change, because 042 A4 makes that a constraint rather than a courtesy: split
+ * across two PRs, either the client reads fields the server no longer sends, or
+ * the server keeps sending `confidence`, `provider`, `model` and `costUsd`
+ * "because the client still needs them" — and the second is how a temporary
+ * state becomes permanent.
+ *
+ * FOUR THINGS CHANGED HERE:
+ *   1. every path carries `/api/v1`;
+ *   2. every write carries an `Idempotency-Key`, MINTED WHEN THE OPERATOR ACTS
+ *      and replayed unchanged (042 §5.6) — the key is a fact about the act, not
+ *      about the attempt;
+ *   3. every write carries `against`: the id of the record the operator was
+ *      actually looking at (042 §6). A `409 STALE_WORLD_VIEW` re-reads the
+ *      session and mints a NEW key, because a retry that changes its mind is a
+ *      new act (042 A9);
+ *   4. no error body is rendered. The server emits DEVELOPER English and this
+ *      screen selects its own words from `error.code` (042 §4.3, 022 P6) — so a
+ *      validation blob and a provider exception can no longer reach a person
+ *      standing at a long box.
+ */
 const $ = (id) => document.getElementById(id);
 const GRADES = ["PR", "FR", "GD", "VG", "FN", "VF", "NM"];
 const DEFECTS = [
@@ -20,12 +42,110 @@ let shopId = null;
 let sessionId = null;
 let candidates = [];
 let selectedCandidate = null;
+/**
+ * The highest-witness record this screen has shown the operator (042 §6.1):
+ * `{table, id}`, sent with every write so the server can refuse one made against
+ * a world that has moved. Updated when a write succeeds and when identify
+ * returns the row it wrote.
+ */
+let against = null;
+
+/**
+ * Operator-facing copy, selected from the envelope's `code`. Every string here
+ * is the client's, never the server's `message` — 042 §4.3 makes that
+ * structural, and 022 P6 is the rule underneath it: errors say what to do next,
+ * and a screen never blames the person.
+ *
+ * These are MINIMAL truthful wordings, not 021-registered copy. The registered
+ * strings are E05's under 021's T26 pre-send step; what this table fixes is that
+ * the server has no say in them.
+ */
+const ERROR_COPY = {
+  STALE_WORLD_VIEW: "Someone else answered this one. Reloading what the shop has now.",
+  SESSION_IS_TERMINAL: "This scan is closed. Start a new one for this book.",
+  WRITE_CONFLICT_RETRY_EXHAUSTED: "The shop was busy. Try that again.",
+  CONTRADICTION_BLOCKS_ONE_TAP: "The barcode and the cover don't agree. Pick the book from the list.",
+  SESSION_HAS_NO_CONFIRMATION: "Confirm the book first.",
+  SESSION_HAS_NO_PRICING: "Price the book first.",
+  SESSION_HAS_NO_CONDITION: "Record the condition first.",
+  SHOP_HAS_NO_PRICING_POLICY: "This shop has no pricing rules set up yet.",
+  PHOTO_TOO_LARGE: "That photo is too big. Take it again.",
+  RATE_LIMITED: "Too many requests just now. Try again in a moment.",
+  IDENTIFY_FAILED: "Couldn't read that one. Search for it instead.",
+  IDENTIFY_PROVIDER_UNAVAILABLE: "Couldn't read that one. Search for it instead.",
+  IDEMPOTENCY_KEY_REUSED: "That looked like a repeat of something different. Start the step again.",
+  VALIDATION_FAILED: "Something in that entry didn't fit. Check it and try again.",
+  SESSION_NOT_FOUND: "That scan isn't there any more.",
+  SHOP_NOT_FOUND: "That shop isn't there any more.",
+  INTERNAL_ERROR: "Something went wrong on our side. Try again.",
+};
+const FALLBACK_COPY = "Something went wrong. Try again.";
+
+/** `error.code` to this screen's words. The body itself is never rendered. */
+function copyFor(data) {
+  const code = data && data.error && data.error.code;
+  return ERROR_COPY[code] || FALLBACK_COPY;
+}
+
+/**
+ * A key is minted per ACT and reused for every retry OF THAT ACT (042 §5.6). A
+ * key minted at replay would make two replays of one act two different requests,
+ * which is exactly the duplication 019 T23 signs at zero.
+ */
+function newKey() {
+  return crypto.randomUUID();
+}
+
+/** Every write goes through here: one key, one `against`, one error path. */
+async function write(path, body, opts = {}) {
+  const res = await fetch(api(path), {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": opts.key || newKey() },
+    body: JSON.stringify(against && !opts.noAgainst ? { ...body, against } : body),
+  });
+  const data = res.status === 204 ? null : await res.json();
+  if (res.ok) return { ok: true, data };
+  if (data && data.error && data.error.code === "STALE_WORLD_VIEW") {
+    // 042 A9: refreshing and re-submitting is a NEW ACT under a NEW key, and
+    // this is the one path where getting that wrong hands the operator a 422 for
+    // doing exactly the right thing.
+    await refreshWorldView();
+  }
+  status(copyFor(data));
+  return { ok: false, data };
+}
+
+/** Re-read the session and adopt its current highest witness as `against`. */
+async function refreshWorldView() {
+  if (!sessionId) return;
+  const res = await fetch(api(`/scan-sessions/${sessionId}`));
+  if (!res.ok) return;
+  const body = await res.json();
+  const events = body.events || {};
+  const ladder = [
+    "shopify_draft",
+    "pricing_snapshot",
+    "condition_assessment",
+    "human_confirmation",
+    "llm_rerank",
+    "candidate_set",
+    "scan_photo",
+  ];
+  against = null;
+  for (const table of ladder) {
+    const rows = events[table] || [];
+    if (rows.length > 0) {
+      against = { table, id: rows[rows.length - 1].id };
+      break;
+    }
+  }
+}
 
 function status(msg) {
   $("status").textContent = msg;
 }
 function api(path) {
-  return `/api/shops/${shopId}${path}`;
+  return `/api/v1/shops/${shopId}${path}`;
 }
 function show(id) {
   $(id).classList.remove("hidden");
@@ -35,7 +155,7 @@ function hide(id) {
 }
 
 async function loadShops() {
-  const res = await fetch("/api/shops");
+  const res = await fetch("/api/v1/shops");
   const data = await res.json();
   const sel = $("shop-select");
   sel.innerHTML = "";
@@ -51,16 +171,12 @@ async function loadShops() {
 $("start-btn").onclick = async () => {
   shopId = $("shop-select").value;
   if (!shopId) return status("Pick a shop first.");
-  const res = await fetch(api("/scan-sessions"), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  });
-  const data = await res.json();
-  if (!res.ok) return status(JSON.stringify(data));
-  sessionId = data.session.id;
+  against = null;
+  const out = await write("/scan-sessions", {}, { noAgainst: true });
+  if (!out.ok) return;
+  sessionId = out.data.session.id;
   show("photo-section");
-  status(`Session ${sessionId} started.`);
+  status("Scan started.");
 };
 
 async function uploadPhoto(input, kind) {
@@ -68,9 +184,15 @@ async function uploadPhoto(input, kind) {
   const fd = new FormData();
   fd.append("kind", kind);
   fd.append("file", input.files[0]);
-  const res = await fetch(api(`/scan-sessions/${sessionId}/photos`), { method: "POST", body: fd });
+  const res = await fetch(api(`/scan-sessions/${sessionId}/photos`), {
+    method: "POST",
+    headers: { "idempotency-key": newKey() },
+    body: fd,
+  });
   if (!res.ok) {
-    status(`photo upload failed: ${await res.text()}`);
+    // Never render the raw body: that was the path a provider's exception and a
+    // validation blob reached an operator (042 E12).
+    status(copyFor(await res.json().catch(() => null)));
     return false;
   }
   return true;
@@ -81,17 +203,19 @@ $("identify-btn").onclick = async () => {
   const haveCover = await uploadPhoto($("cover-input"), "cover");
   await uploadPhoto($("barcode-input"), "barcode");
   if (!haveCover) return status("A cover photo is required.");
-  status("Identifying… (model call)");
+  status("Looking it up…");
   const body = {};
   const digits = $("barcode-digits").value.trim();
   if (digits) body.barcode_digits = digits;
-  const res = await fetch(api(`/scan-sessions/${sessionId}/identify`), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) return status(`identify failed: ${JSON.stringify(data)}`);
+  const out = await write(`/scan-sessions/${sessionId}/identify`, body);
+  if (!out.ok) return;
+  // 042 §6.3: the response carries the id of the record the operator is about to
+  // be shown, which is what lets the confirm below say what it answered.
+  const data = out.data;
+  if (data.llm_rerank_id) against = { table: "llm_rerank", id: data.llm_rerank_id };
+  else if (data.candidate_set_ids.length > 0) {
+    against = { table: "candidate_set", id: data.candidate_set_ids[data.candidate_set_ids.length - 1] };
+  }
   renderCandidates(data);
 };
 
@@ -107,6 +231,7 @@ const CONTRADICTION_TEXT =
 
 function renderCandidates(data) {
   candidates = data.candidates || [];
+  if (data.manual_path) status("Working from manual entry for now.");
   selectedCandidate = null;
   show("candidates-section");
   const copy = BAND_COPY[data.band] || BAND_COPY.low;
@@ -205,13 +330,17 @@ function renderCandidateGrid(data, confirmSource) {
 }
 
 async function confirmIssue(issue, source) {
-  const res = await fetch(api(`/scan-sessions/${sessionId}/confirm`), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ issue, source }),
-  });
-  const data = await res.json();
-  if (!res.ok) return status(`confirm failed: ${JSON.stringify(data)}`);
+  const out = await write(`/scan-sessions/${sessionId}/confirm`, { issue, source });
+  if (!out.ok) {
+    // A contradiction refuses the one-tap and forces the grid (040 F3). The
+    // server states it as a CODE, and this screen turns the code into the forced
+    // pick rather than parsing a sentence.
+    if (out.data && out.data.error && out.data.error.code === "CONTRADICTION_BLOCKS_ONE_TAP") {
+      renderCandidateGrid({ band: "medium", contradiction: true }, "grid_pick");
+    }
+    return;
+  }
+  against = { table: "human_confirmation", id: out.data.confirmation.id };
   selectedCandidate = issue;
   status("Confirmed.");
   initCondition();
@@ -244,17 +373,13 @@ function initCondition() {
 
 $("condition-btn").onclick = async () => {
   const defects = [...document.querySelectorAll("#defect-boxes input:checked")].map((i) => i.value);
-  const res = await fetch(api(`/scan-sessions/${sessionId}/condition`), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      grade_range_low: $("grade-low").value,
-      grade_range_high: $("grade-high").value,
-      defects,
-    }),
+  const out = await write(`/scan-sessions/${sessionId}/condition`, {
+    grade_range_low: $("grade-low").value,
+    grade_range_high: $("grade-high").value,
+    defects,
   });
-  const data = await res.json();
-  if (!res.ok) return status(`condition failed: ${JSON.stringify(data)}`);
+  if (!out.ok) return;
+  against = { table: "condition_assessment", id: out.data.assessment.id };
   status("Condition saved.");
   show("price-section");
 };
@@ -276,13 +401,11 @@ $("price-btn").onclick = async () => {
   if (selectedCandidate && selectedCandidate.variant) body.variant = String(selectedCandidate.variant);
   const overrideDollars = parseFloat($("price-override").value);
   if (!Number.isNaN(overrideDollars)) body.override_cents = Math.round(overrideDollars * 100);
-  const res = await fetch(api(`/scan-sessions/${sessionId}/price`), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) return status(`price failed: ${JSON.stringify(data)}`);
+  const out = await write(`/scan-sessions/${sessionId}/price`, body);
+  if (!out.ok) return;
+  const data = out.data;
+  const driving = (data.sources || []).find((s) => s.source === data.driven_by);
+  if (driving && driving.snapshot_id) against = { table: "pricing_snapshot", id: driving.snapshot_id };
 
   // Side-by-side source cards: eBay live asks vs PriceCharting historical.
   const wrap = $("price-sources");
@@ -336,9 +459,8 @@ $("price-btn").onclick = async () => {
 // operator at a long box wants the next book, not a Shopify product id.
 $("draft-btn").onclick = async () => {
   status("Requesting the listing…");
-  const res = await fetch(api(`/scan-sessions/${sessionId}/draft`), { method: "POST" });
-  const data = await res.json();
-  if (!res.ok) return status(`draft request failed: ${JSON.stringify(data)}`);
+  const out = await write(`/scan-sessions/${sessionId}/draft`, {});
+  if (!out.ok) return;
   $("draft-result").textContent =
     "Requested. The listing is being created — it will appear in Shopify as a draft for the owner to review.";
   status("Done. Start another scan when ready.");

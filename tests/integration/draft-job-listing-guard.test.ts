@@ -42,7 +42,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 Â
 
   /** A session with the two facts the route's 409 gates require. */
   async function draftableSession(): Promise<string> {
-    const sessionId = (await createScanSession(pool, shopId, "employee")).id;
+    const sessionId = (await createScanSession(pool, shopId)).id;
     await pool.query(
       `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
        VALUES ($1,$2,$3,'one_tap')`,

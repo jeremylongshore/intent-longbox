@@ -1,0 +1,139 @@
+// The rate and abuse posture for v0 (042 §8), executed by E02-D08.
+//
+// PER SHOP, NEVER PER IP (§8.1), and the second reason is what makes it a
+// decision rather than a default. It does not work: every operator in a shop is
+// behind one counter's Wi-Fi (033 §5.1), so a per-IP bucket throttles the shop
+// as a unit anyway while ALSO mistaking two shops behind one carrier for one
+// shop. And it is a per-operator surface by the back door: a per-device bucket
+// that fires is a record that THIS DEVICE exceeded a limit, and a device is one
+// operator at a counter (034 §2.8). 019 T35 signs per-operator rendering at 0,
+// NON-WAIVABLE. **A rate-limit dashboard is a speed dashboard with a different
+// title.**
+//
+// TWO CLASSES, BECAUSE ONLY ONE OF THEM COSTS MONEY (§8.2). `POST …/identify`
+// calls a paid provider; everything else is a database write.
+//
+// THE METERED CLASS FAILS CLOSED TO THE MANUAL PATH, NEVER TO AN ERROR (§8.3).
+// 019 K4 is "the pipeline never blocks on a provider", and **a throttle we
+// impose on ourselves is a provider outage we caused** — it would be incoherent
+// to handle it worse than one we did not. So a shop that spends its metered
+// budget gets the manual-search flow, which already exists and is already
+// tested, and the ordinary class gets `429 RATE_LIMITED` with `Retry-After`.
+//
+// ⚠ EVERY NUMBER HERE IS A PROVISIONAL CIRCUIT-BREAKER FLOOR (042 A3), NOT A
+// MEASUREMENT. 018 A3 caps claims of FACT; it says nothing about what may be
+// CONFIGURED as a safety floor, and a system with no limit at all is not
+// epistemically humble — it is unprotected, and it ships that way to a shop.
+// These values are **explicitly NON-EVIDENTIARY**: they are never quoted as
+// capacity, throughput or performance in any artifact at any class (021 B16),
+// and they support no claim of fact whatsoever. A floor may be RAISED freely;
+// LOWERING one after seeing a result it would change requires a 006 row saying
+// so in those words (018 C3).
+
+/**
+ * PROVISIONAL 120 requests/min/shop.
+ *
+ * The derivation, stated so a reader can check that it is a CEILING and not an
+ * estimate: take 035's largest batch (Pilot C's ≥300 items) and compress the
+ * whole batch into one four-hour session — roughly a shop's entire month of
+ * back-issue time (034 §4.6) spent at once — which is 75 items/hour. Each item
+ * costs at most about ten mutating calls. That is ≈13 requests/minute for the
+ * entire shop at a load no pilot shop will ever produce, and this floor is ≈9×
+ * it. **A shop cannot reach it by working; a loop reaches it in seconds.**
+ */
+export const PROVISIONAL_SHOP_ORDINARY_RATE = 120;
+
+/**
+ * PROVISIONAL 500 paid identify calls/shop/day. Identify is one call per item,
+ * so this is more than 1.5× the ENTIRE Pilot C batch in a single day.
+ */
+export const PROVISIONAL_SHOP_METERED_BUDGET = 500;
+
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface RateDecision {
+  allowed: boolean;
+  /** Only meaningful when refused; feeds `Retry-After` and `details`. */
+  retryAfterSeconds: number;
+}
+
+interface Bucket {
+  windowStart: number;
+  count: number;
+}
+
+export interface RateLimiterOptions {
+  ordinaryPerMinute?: number;
+  meteredPerDay?: number;
+  /** Injected so the counting is unit-testable without sleeping. */
+  now?: () => number;
+}
+
+/**
+ * One bucket per shop per class, a counter, and a fallback. It is not
+ * authentication, not abuse detection, not a WAF and not a quota product
+ * (§8.5) — E03-B01's threat model owns the abuse surface, and what this gives it
+ * is a boundary to reason about rather than the current state, which is nothing
+ * at all (042 E21).
+ */
+export class ShopRateLimiter {
+  private readonly ordinary = new Map<string, Bucket>();
+  private readonly metered = new Map<string, Bucket>();
+  private readonly now: () => number;
+  readonly ordinaryPerMinute: number;
+  readonly meteredPerDay: number;
+
+  /**
+   * §8.4's guard: **every throttle event is counted from day one**, and a
+   * throttle that ever fires during normal pilot work is itself a finding —
+   * either the floor was miscalculated or something is wrong, and both are worth
+   * a 006 row.
+   */
+  readonly events = { ordinaryThrottled: 0, meteredExhausted: 0 };
+
+  constructor(opts: RateLimiterOptions = {}) {
+    this.ordinaryPerMinute = opts.ordinaryPerMinute ?? PROVISIONAL_SHOP_ORDINARY_RATE;
+    this.meteredPerDay = opts.meteredPerDay ?? PROVISIONAL_SHOP_METERED_BUDGET;
+    this.now = opts.now ?? (() => Date.now());
+  }
+
+  private take(map: Map<string, Bucket>, shopId: string, limit: number, windowMs: number): RateDecision {
+    const now = this.now();
+    // A configured limit of zero REFUSES, including the first call of a window.
+    // Without this the fresh-window branch below lets one request through per
+    // window whatever the limit says, which would make a deliberately zeroed
+    // budget (an operator disabling the metered class for a shop) silently
+    // permit traffic.
+    if (limit < 1) return { allowed: false, retryAfterSeconds: Math.ceil(windowMs / 1000) };
+    const bucket = map.get(shopId);
+    if (!bucket || now - bucket.windowStart >= windowMs) {
+      map.set(shopId, { windowStart: now, count: 1 });
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    if (bucket.count < limit) {
+      bucket.count += 1;
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    const remaining = windowMs - (now - bucket.windowStart);
+    return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(remaining / 1000)) };
+  }
+
+  /** Every mutating route except the metered one, plus the reads that share the surface. */
+  takeOrdinary(shopId: string): RateDecision {
+    const decision = this.take(this.ordinary, shopId, this.ordinaryPerMinute, MINUTE_MS);
+    if (!decision.allowed) this.events.ordinaryThrottled += 1;
+    return decision;
+  }
+
+  /**
+   * `POST …/identify`. A refusal here is NOT an error: the caller degrades to
+   * the manual-search path, which is "not a failure; a different route to the
+   * same rung" (040 §4.6).
+   */
+  takeMetered(shopId: string): RateDecision {
+    const decision = this.take(this.metered, shopId, this.meteredPerDay, DAY_MS);
+    if (!decision.allowed) this.events.meteredExhausted += 1;
+    return decision;
+  }
+}

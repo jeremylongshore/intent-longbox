@@ -119,17 +119,22 @@ export function fakeShopifyClient(
   client: ShopifyClient;
   /** Every copy key the consumer asked for, in order. */
   calls: string[];
+  /** Every INPUT, in order — the composed title is how a caller checks WHAT was drafted. */
+  inputs: DraftProductInput[];
   /** The "store": copy key → product GID. Its SIZE is the duplicate-product count. */
   products: Map<string, string>;
 } {
   const calls: string[] = [];
+  const inputs: DraftProductInput[] = [];
   const products = new Map<string, string>();
   return {
     calls,
+    inputs,
     products,
     client: {
       async createDraft(input: DraftProductInput): Promise<ShopifyDraftResult> {
         calls.push(input.copyKey);
+        inputs.push(input);
         opts.onCall?.(input.copyKey);
         if (opts.fail) {
           return {

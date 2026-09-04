@@ -61,7 +61,13 @@ describe("the comic edition signature (030 §3.3)", () => {
 
   it("fails closed on an unregistered vertical rather than defaulting to comic", () => {
     // 030 §6 rule 3, stated as a prohibition because §8 has to test it.
-    expect(() => editionSignature("sports-card", {})).toThrow(UnregisteredVerticalError);
+    //
+    // ⚠ THE STAND-IN USED TO BE `"sports-card"`, AND E04-B03 REGISTERED IT. The
+    // rule under test is "an unregistered vertical is refused", not "cards are
+    // refused", so the fixture moved to a vertical nothing has built — a test that
+    // silently starts asserting something else the day a pack lands is worse than
+    // one that fails.
+    expect(() => editionSignature("coin", {})).toThrow(UnregisteredVerticalError);
     expect(editionSignature("comic", { series: "X", issue: "1" })).toBe(
       comicEditionSignature({ series: "X", issue: "1" })
     );

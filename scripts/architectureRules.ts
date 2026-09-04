@@ -520,6 +520,12 @@ export const EDITION_SIGNATURE_FILE = "src/catalog/editionSignature.ts";
 export const CATALOG_IDENTITY_FILES: readonly string[] = [
   EDITION_SIGNATURE_FILE,
   "src/catalog/comicIdentity.ts",
+  // E04-B03. A second pack's field list is a field list: `cardSignatureClaim`
+  // maps a flat payload onto `set|number|variant|parallel|language`, and a diff
+  // that edited it beside `identityKey` is the paired edit A8 forbids just as
+  // much as one that edited the comic mapper. A subject set that grew a member
+  // and did not grow this row would have passed while watching the wrong file.
+  "src/catalog/cardIdentity.ts",
 ];
 
 /** `from "…"` / `require("…")`, capturing the specifier. */
@@ -692,6 +698,88 @@ export function checkIdentityPairEdit(changedFiles: readonly string[]): Finding[
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Rule 8 — 014 §3.4 / 030 §6 rule 1: no core code branches on a vertical.
+// ---------------------------------------------------------------------------
+
+/**
+ * "Plug-and-play requires a **vertical pack**, not scattered `if comic`
+ * statements" (014 §3.4), restated as a prohibition because 030 §6 has to test
+ * it: "**No `if (vertical === 'comic')` in core code.** Vertical-conditional
+ * behaviour lives in a pack. `platform`, `catalog`, `workflow`, `condition`,
+ * `valuation`, `commerce` and `reporting` may read `vertical` **only** to select
+ * a pack."
+ *
+ * ⚠ WHY A TEXT RULE AND NOT A DEPENDENCY-CRUISER RULE. A branch on a string
+ * literal has no import edge — it is the same blind spot `checkRouteDbAccess`
+ * exists for. And it is not hypothetical: E04-B03 found `!fields.series &&
+ * !fields.issue` in `src/services/identityResolution.ts`, a comic branch wearing
+ * FIELD NAMES instead of a vertical literal, which would have skipped every card
+ * lookup as an unusable claim while type-checking cleanly. The field-name shape
+ * is beyond a regex's reach; the literal shape is not, and this rule closes the
+ * half that can be closed mechanically.
+ *
+ * WHAT COUNTS AS A BRANCH, deliberately narrowly: an equality comparison against
+ * a registered vertical literal, or a `case` label of one. What does NOT count is
+ * a MAP KEY (`{ "comic": … }`), a registry lookup, an object property, a default
+ * constant or any mention in a comment or a string message — every one of those
+ * is a pack being SELECTED, which §6 rule 1 expressly permits. A rule that fired
+ * on all of them would fire on `packRegistry.ts` doing exactly the right thing.
+ */
+export const VERTICAL_LITERALS: readonly string[] = ["comic", "sports-card", "tcg-card"];
+
+/** The two pack modules, which own their own vertical by definition. */
+export const VERTICAL_PACK_FILES: readonly string[] = [
+  "src/catalog/comicIdentity.ts",
+  "src/catalog/cardIdentity.ts",
+];
+
+const VERTICAL_BRANCH = (literal: string): RegExp =>
+  new RegExp(
+    // `x === "comic"` / `x !== 'comic'` / `"comic" === x`, and `case "comic":`
+    `(?:[!=]==?\\s*["']${literal}["'])|(?:["']${literal}["']\\s*[!=]==?)|(?:\\bcase\\s+["']${literal}["'])`,
+    "g"
+  );
+
+export function checkNoVerticalBranching(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+
+  for (const file of files) {
+    if (!file.path.startsWith("src/")) continue;
+    if (VERTICAL_PACK_FILES.includes(file.path)) continue;
+
+    // Comment lines are prose about the rule, not the rule being broken — this
+    // very file's neighbours quote `if (vertical === 'comic')` to explain why it
+    // is forbidden, and a rule that could not tell the two apart would make the
+    // explanation unwritable.
+    const code = file.text
+      .split("\n")
+      .filter((line) => {
+        const t = line.trimStart();
+        return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+      })
+      .join("\n");
+
+    for (const literal of VERTICAL_LITERALS) {
+      if (VERTICAL_BRANCH(literal).test(code)) {
+        findings.push({
+          rule: "no-vertical-branching-in-core",
+          message:
+            `${file.path} branches on the vertical literal ${JSON.stringify(literal)} ` +
+            `(014 §3.4, 030 §6 rule 1). Core code may read \`vertical\` ONLY to select a pack — a ` +
+            `map lookup, never a comparison. Whatever this branch does differently for one ` +
+            `vertical is a PACK function: add a slot to \`VerticalPack\` in ` +
+            `src/catalog/packRegistry.ts and let every pack answer it, which is also the only ` +
+            `shape that makes the third vertical free. If the file genuinely owns a vertical, it ` +
+            `is a pack module and belongs in VERTICAL_PACK_FILES — deliberately, in the same PR.`,
+        });
+      }
+    }
+  }
+
+  return findings;
+}
+
 /**
  * Every `.ts` file under `dir`, repo-relative with forward slashes.
  *
@@ -726,5 +814,6 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkScanSessionStatusWriters(files),
     ...checkSupersedesWriters(files),
     ...checkIdentityFunctionSeparation(files),
+    ...checkNoVerticalBranching(files),
   ];
 }

@@ -44,7 +44,7 @@ if (changedPath !== null) {
 
 if (findings.length === 0) {
   console.log(
-    `architecture gate: ok (${files.length} files, 7 tree rules` +
+    `architecture gate: ok (${files.length} files, 8 tree rules` +
       (changedPath === null
         ? `; paired-edit rule SKIPPED — no changed-file list supplied)`
         : `, plus the paired-edit rule over ${changedPath})`)

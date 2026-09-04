@@ -132,6 +132,40 @@ describe("the resolution ladder (047 §9.1)", () => {
     ).resolves.toEqual({ status: "skipped", reason: "unusable_claim" });
   });
 
+  // E04-B03, and the reason it is here rather than only one layer down: this file
+  // is the ONLY place that drives `resolveConfirmationIdentity` itself, and until
+  // now every case ran with `vertical: "comic"`. The defect the bead found lived
+  // exactly here — `!fields.series && !fields.issue` asked the COMIC question of
+  // every vertical, so a card claim (which carries neither key) was skipped as
+  // `unusable_claim` on every call, silently. `isUsableClaim` now asks the PACK.
+  // A card case that reaches the signature read is what makes that regression
+  // visible in the layer where it happened.
+  it("carries a CARD claim to the signature read instead of calling it unusable (E04-B03)", async () => {
+    const { tx, calls } = fakeTx({ corpus: "c1", signature: ["lb.e.card"] });
+    const out = await resolveConfirmationIdentity(tx, {
+      ...request,
+      vertical: "sports-card",
+      confirmedIssue: { set: "1986 Topps", number: "661", language: "en" },
+    });
+    expect(out).toMatchObject({ status: "resolved", editionLcid: "lb.e.card", method: "signature" });
+    const read = calls.find((c) => c.sql.includes("FROM edition_signature"))!;
+    // The vertical reaches the query, and the signature is the CARD pack's five
+    // positions — not four comic fields normalised to empty.
+    expect(read.params).toContain("sports-card");
+    expect(read.params).toContain(["1986 topps", "661", "", "", "en"].join(""));
+  });
+
+  it("still declines a card claim that names neither a set nor a number", async () => {
+    const { tx } = fakeTx({ corpus: "c1" });
+    await expect(
+      resolveConfirmationIdentity(tx, {
+        ...request,
+        vertical: "sports-card",
+        confirmedIssue: { parallel: "Gold" },
+      })
+    ).resolves.toEqual({ status: "skipped", reason: "unusable_claim" });
+  });
+
   it("reports no_match when the catalog simply does not have the book", async () => {
     const { tx } = fakeTx({ corpus: "c1", signature: [] });
     await expect(resolveConfirmationIdentity(tx, request)).resolves.toEqual({

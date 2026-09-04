@@ -56,8 +56,27 @@
 // provider, "including in `attributes`, where a `gcd_id` key would smuggle the
 // same coupling past the DDL" — is enforced the same way.
 
+// ⚠ TWO THINGS LEFT THIS FILE AT E04-B03, AND BOTH FOR THE SAME REASON — a pack
+// is not the place a shared rule lives.
+//
+//   * THE SIX PER-PACK MAPS and their dispatchers moved to `packRegistry.ts`.
+//     They were here because the comic pack was the only pack; registering a
+//     second one in them would have made the COMIC module import the CARD module,
+//     which is both a cycle (`cardIdentity.ts` reads the normalisation from
+//     `editionSignature.ts`) and a boundary drawn wrong. A registry of packs is
+//     not a member of any pack.
+//   * THE COPY-FACT AND PROVIDER-KEY DENYLIST moved to `copyFacts.ts`. 047 A6
+//     rules that grader and `cert_number` are copy facts in EVERY vertical — "not
+//     a pack decision at all: it is the same rule restated" — and a card pack
+//     importing the comic pack to learn that would have made a universal
+//     invariant look like a comic convention other packs borrow.
+//
+// Both are re-exported unchanged through `src/catalog/index.ts`, so no caller
+// outside the module moved.
+
 import { z } from "zod";
-import { SIGNATURE_SEPARATOR, UnregisteredVerticalError, normalizeField } from "./editionSignature.js";
+import { assertNoForbiddenKeys } from "./copyFacts.js";
+import { SIGNATURE_SEPARATOR, normalizeField, type SignatureFields } from "./editionSignature.js";
 
 /**
  * The version of the SCHEMA below, distinct from `NORMALIZATION_VERSION` (which
@@ -74,63 +93,6 @@ import { SIGNATURE_SEPARATOR, UnregisteredVerticalError, normalizeField } from "
  * on every `edition` row already dates the payload.
  */
 export const COMIC_IDENTITY_SCHEMA_VERSION = 1;
-
-/**
- * Attribute keys that name a COPY, not an edition, in any vertical (047 A6).
- *
- * Lowercased and stripped of `_`/`-` before comparison, so `cert_number`,
- * `certNumber` and `CERT-NUMBER` are one entry. The list is deliberately about
- * IDENTITY-ADJACENT copy facts and not about every copy fact there is: a pack
- * author who invents `slabLabel` gets `.strict()`'s ordinary refusal, which is
- * correct — the named list exists to give the FORESEEABLE mistakes a sentence
- * that explains itself.
- */
-export const COPY_FACT_KEYS: readonly string[] = [
-  "grader",
-  "certnumber",
-  "cert",
-  "certification",
-  "slab",
-  "grade",
-  "gradelabel",
-  "graderlabel",
-  "condition",
-];
-
-/** Provider-named keys, refused by 030 §4 rule 2. */
-const PROVIDER_KEY_RE = /^(gcd|metron|pricecharting|ebay|covrprice|comicvine)_?id$/;
-
-function canonicalKey(key: string): string {
-  return key.toLowerCase().replace(/[_-]/g, "");
-}
-
-/** Thrown when an attribute payload names a copy fact (047 §2.3, A6; 037). */
-export class CopyFactInEditionError extends Error {
-  constructor(readonly key: string) {
-    super(
-      `attribute ${JSON.stringify(key)} is a COPY fact, not an edition attribute (047 §2.3, A6). ` +
-        `A slabbed book is the SAME EDITION as a raw one — it is a different copy, in a different ` +
-        `condition, at a different price, and none of those three is identity. A grader's label is ` +
-        `a number wearing a name, and locked decision 5 with 019 T7 (non-waivable) forbid a numeric ` +
-        `grade anywhere on the identity path. It belongs on physical_item (036) and its ` +
-        `condition_assessment (037).`
-    );
-    this.name = "CopyFactInEditionError";
-  }
-}
-
-/** Thrown when an attribute payload names a provider (030 §4 rule 2). */
-export class ProviderKeyInAttributesError extends Error {
-  constructor(readonly key: string) {
-    super(
-      `attribute ${JSON.stringify(key)} names a PROVIDER (030 §4 rule 2). No core table has a ` +
-        `column named after a provider — "including in attributes, where a \`gcd_id\` key would ` +
-        `smuggle the same coupling past the DDL and past a grep for column names". An external ` +
-        `identifier is an alias row in edition_external_id under a rights row, never an attribute.`
-    );
-    this.name = "ProviderKeyInAttributesError";
-  }
-}
 
 /**
  * A non-empty string after trimming. `""` and `"   "` are not a series name and
@@ -186,131 +148,34 @@ export type ComicDefinitionAttributes = z.infer<typeof comicDefinitionAttributes
 export type ComicEditionAttributes = z.infer<typeof comicEditionAttributes>;
 
 /**
- * The two schemas per registered vertical. ONE ENTRY, for the same reason
- * `SIGNATURE_FUNCTIONS` has one: E19-B06 gates any second vertical on evidence
- * (030 §5.4), and "architectural possibility is not market permission".
- */
-const IDENTITY_SCHEMAS: Record<string, { definition: z.ZodTypeAny; edition: z.ZodTypeAny }> = {
-  comic: { definition: comicDefinitionAttributes, edition: comicEditionAttributes },
-};
-
-/**
- * The other three per-pack functions, registered exactly like `IDENTITY_SCHEMAS`
- * above and `SIGNATURE_FUNCTIONS` in `editionSignature.ts`.
- *
- * ⚠ WHY THESE ARE MAPS AND NOT DIRECT CALLS. The first version of
- * `editionWrite.ts` called `comicDefinitionSignature` and `comicSignatureInput`
- * by name, for EVERY vertical. That is the `if comic` branch 014 §3.4 forbids,
- * wearing a different hat: `editionSignature()` would fail closed on
- * `sports-card` while the two functions beside it silently applied the COMIC
- * field list to a card — and because the composer runs BEFORE the signature
- * function, a pack whose composer produced a plausible-looking result could have
- * been comic-signed without anything refusing. A registry with one entry is not
- * ceremony here; it is the difference between "no second vertical exists yet" and
- * "a second vertical is silently treated as a comic".
- *
- * All three fail closed with the SAME error as `editionSignature` (030 §6 rule 3:
- * an unregistered vertical is refused at the boundary, never defaulted). E04-B04
- * folds all four maps into `VerticalPackManifest` and resolves them through
- * `vertical_pack_version.signature_fn_ref`; until then this is the interim, and
- * it is deliberately small.
- */
-const DEFINITION_SIGNATURE_FUNCTIONS: Record<string, (attributes: Record<string, unknown>) => string> = {
-  comic: (attributes) => comicDefinitionSignature(attributes),
-};
-
-const SIGNATURE_INPUT_COMPOSERS: Record<
-  string,
-  (
-    definitionAttributes: Record<string, unknown>,
-    editionAttributes: Record<string, unknown>
-  ) => SignatureFields
-> = {
-  comic: (definitionAttributes, editionAttributes) =>
-    comicSignatureInput(definitionAttributes, editionAttributes),
-};
-
-const SIGNATURE_CLAIM_MAPPERS: Record<string, (claim: unknown) => SignatureFields> = {
-  comic: (claim) => comicSignatureClaim(claim),
-};
-
-/** The WORK's dedupe text for a registered vertical. Fails closed. */
-export function definitionSignature(vertical: string, attributes: Record<string, unknown>): string {
-  const fn = DEFINITION_SIGNATURE_FUNCTIONS[vertical];
-  if (!fn) throw new UnregisteredVerticalError(vertical);
-  return fn(attributes);
-}
-
-/** The signature's input, composed across the two levels. Fails closed. */
-export function signatureInput(
-  vertical: string,
-  definitionAttributes: Record<string, unknown>,
-  editionAttributes: Record<string, unknown>
-): SignatureFields {
-  const fn = SIGNATURE_INPUT_COMPOSERS[vertical];
-  if (!fn) throw new UnregisteredVerticalError(vertical);
-  return fn(definitionAttributes, editionAttributes);
-}
-
-/** A flat identity claim mapped onto a registered vertical's fields. Fails closed. */
-export function signatureClaim(vertical: string, claim: unknown): SignatureFields {
-  const fn = SIGNATURE_CLAIM_MAPPERS[vertical];
-  if (!fn) throw new UnregisteredVerticalError(vertical);
-  return fn(claim);
-}
-
-function assertNoForbiddenKeys(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  for (const key of Object.keys(value as Record<string, unknown>)) {
-    if (COPY_FACT_KEYS.includes(canonicalKey(key))) throw new CopyFactInEditionError(key);
-    if (PROVIDER_KEY_RE.test(canonicalKey(key))) throw new ProviderKeyInAttributesError(key);
-  }
-}
-
-/**
- * Validate an attribute payload for a registered vertical at one of the two
- * levels. FAILS CLOSED on an unregistered vertical (030 §6 rule 3), exactly like
- * `editionSignature` — an unregistered vertical is refused at the boundary, never
- * defaulted to `"comic"`.
+ * Validate a comic attribute payload at one of the two levels.
  *
  * The named-key check runs BEFORE the parse so the foreseeable mistakes get the
- * sentence that explains them rather than `.strict()`'s "unrecognized key".
+ * sentence that explains them rather than `.strict()`'s "unrecognized key". The
+ * VERTICAL is not a parameter any more: this function is the comic pack's, and
+ * `packRegistry.ts` is what refuses an unregistered vertical before reaching it
+ * (030 §6 rule 3).
  */
-export function parseIdentityAttributes(
-  vertical: string,
+export function parseComicAttributes(
   level: "definition" | "edition",
   attributes: unknown
 ): Record<string, unknown> {
-  const pair = IDENTITY_SCHEMAS[vertical];
-  if (!pair) throw new UnregisteredVerticalError(vertical);
   assertNoForbiddenKeys(attributes);
-  return pair[level].parse(attributes) as Record<string, unknown>;
+  const schema = level === "definition" ? comicDefinitionAttributes : comicEditionAttributes;
+  return schema.parse(attributes) as Record<string, unknown>;
 }
 
 /**
- * The four fields the comic signature reads, as a loose input type.
+ * Is there enough of a claim to look an edition up with?
  *
- * `| undefined` is spelled out rather than relying on `?`, because the repo runs
- * `exactOptionalPropertyTypes`: under it an optional property may be ABSENT but
- * may not be present-and-undefined, and both of the composers below produce
- * present-and-undefined for a field the source did not state. That is the right
- * value to produce — `normalizeField` treats missing, null and empty as one claim
- * (`editionSignature.ts`) — so the type says so instead of the code pretending
- * otherwise with a `delete`.
+ * A series or an issue. This is the COMIC pack's rule and it used to live in
+ * `src/services/identityResolution.ts` as `!fields.series && !fields.issue` — a
+ * comic question asked of every vertical, which a card claim would have failed
+ * every time while type-checking cleanly (`packRegistry.ts`,
+ * `VerticalPack.claimIsUsable`).
  */
-export interface SignatureFields {
-  /**
-   * An index signature, so a composed input is assignable to the
-   * `Record<string, unknown>` the pack contract's `normalizedSignature` takes
-   * (030 §5.1). It is narrowed to the value types a field can hold rather than
-   * left as `unknown`, so the type still refuses a number or an object where a
-   * normalised field belongs.
-   */
-  [field: string]: string | null | undefined;
-  series?: string | null | undefined;
-  issue?: string | null | undefined;
-  variant?: string | null | undefined;
-  printing?: string | null | undefined;
+export function comicClaimIsUsable(fields: SignatureFields): boolean {
+  return Boolean(fields.series ?? fields.issue);
 }
 
 /**

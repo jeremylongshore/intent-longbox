@@ -39,8 +39,21 @@
 //   `identity-key-and-edition-signature-stay-apart` dependency-cruiser rule.
 //   `editionSignature.ts` was extended, never replaced.
 //
+//   HERE SINCE E04-B03 — the CARD identity schema (`cardIdentity.ts`: two
+//           registered verticals, `sports-card` and `tcg-card`, sharing one
+//           module; `set + number + variant + parallel + language`; a card-number
+//           and a language normalisation; `printRun` an edition fact and
+//           `serialNumber` a copy fact), the PACK REGISTRY that resolves a
+//           vertical to its six functions and fails closed on an unregistered one
+//           (`packRegistry.ts`), and the universal copy-fact / provider-key
+//           denylist that no pack owns (`copyFacts.ts`, 047 A6).
+//
+//   ⚠ REGISTERED IS NOT AUTHORISED. Two card verticals resolve through this
+//   surface and NO card pack row, card corpus or card shop exists. E19-B06 gates
+//   a second vertical on evidence; 030 §5.4: "architectural possibility is not
+//   market permission". E04-B03 is a proof that the core is not comic-shaped.
+//
 //   NOT HERE, by 047 §12.3's assignment —
-//     * the card identity schema                                 E04-B03 (gated by E19-B06)
 //     * the pack manifest as shipped code                        E04-B04
 //     * the rights registry and any licence analysis             E04-B05 (+ counsel)
 //     * the crosswalk review queue and its own tenancy detector   E04-B06
@@ -65,30 +78,58 @@ export {
   SIGNATURE_SEPARATOR,
   UnregisteredVerticalError,
   comicEditionSignature,
-  editionSignature,
   normalizeField,
   normalizeIssue,
   type ComicEditionFields,
+  type SignatureFields,
 } from "./editionSignature.js";
+
+export { COPY_FACT_KEYS, CopyFactInEditionError, ProviderKeyInAttributesError } from "./copyFacts.js";
 
 export {
   COMIC_IDENTITY_SCHEMA_VERSION,
-  COPY_FACT_KEYS,
-  CopyFactInEditionError,
-  ProviderKeyInAttributesError,
+  comicClaimIsUsable,
   comicDefinitionAttributes,
   comicDefinitionSignature,
   comicEditionAttributes,
   comicSignatureClaim,
   comicSignatureInput,
+  parseComicAttributes,
+  type ComicDefinitionAttributes,
+  type ComicEditionAttributes,
+} from "./comicIdentity.js";
+
+export {
+  CARD_IDENTITY_SCHEMA_VERSION,
+  SPORTS_CARD_VERTICAL,
+  TCG_CARD_VERTICAL,
+  cardClaimIsUsable,
+  cardDefinitionSignature,
+  cardEditionAttributes,
+  cardEditionSignature,
+  cardSignatureClaim,
+  cardSignatureInput,
+  normalizeCardNumber,
+  normalizeLanguage,
+  parseCardAttributes,
+  sportsCardDefinitionAttributes,
+  tcgCardDefinitionAttributes,
+  type CardEditionAttributes,
+  type CardEditionFields,
+} from "./cardIdentity.js";
+
+export {
+  COMIC_VERTICAL,
+  REGISTERED_VERTICALS,
   definitionSignature,
+  editionSignature,
+  isUsableClaim,
+  packFor,
   parseIdentityAttributes,
   signatureClaim,
   signatureInput,
-  type ComicDefinitionAttributes,
-  type ComicEditionAttributes,
-  type SignatureFields,
-} from "./comicIdentity.js";
+  type VerticalPack,
+} from "./packRegistry.js";
 
 export {
   UnattachedDefinitionError,

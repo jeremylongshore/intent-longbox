@@ -45,8 +45,13 @@
 // INSERT rather than after.
 
 import type { Tx } from "../db.js";
-import { definitionSignature, parseIdentityAttributes, signatureInput } from "./comicIdentity.js";
-import { NORMALIZATION_VERSION, editionSignature } from "./editionSignature.js";
+import { NORMALIZATION_VERSION } from "./editionSignature.js";
+import {
+  definitionSignature,
+  editionSignature,
+  parseIdentityAttributes,
+  signatureInput,
+} from "./packRegistry.js";
 import { mint } from "./mint.js";
 
 // ⚠ NOTHING HERE WRITES `supersedes_id`, AND THE ARCHITECTURE GATE IS WHY THE

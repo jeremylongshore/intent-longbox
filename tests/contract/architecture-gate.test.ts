@@ -20,6 +20,7 @@ import {
   checkIdentityFunctionSeparation,
   checkIdentityPairEdit,
   checkLockOrder,
+  checkNoVerticalBranching,
   checkRouteDbAccess,
   checkScanSessionStatusWriters,
   checkSelectStar,
@@ -33,10 +34,13 @@ import {
   IDENTITY_KEY_FILE,
   ROUTE_DB_ROWS,
   SELECT_STAR_ROWS,
+  VERTICAL_LITERALS,
+  VERTICAL_PACK_FILES,
   splitMutatingHandlers,
   type SourceFile,
   collectSources,
 } from "../../scripts/architectureRules.js";
+import { REGISTERED_VERTICALS } from "../../src/catalog/index.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -539,6 +543,93 @@ describe("rule 7 — identityKey and edition_signature stay apart (047 A8)", () 
     expect(
       checkIdentityFunctionSeparation(tree(identity('import type { Queryable } from "../db.js";')))
     ).toEqual([]);
+  });
+
+  it("FAILS on an import edge to the THIRD catalog subject, cardIdentity.ts (E04-B03)", () => {
+    // `cardSignatureClaim` maps a flat payload onto the card field list, so it is
+    // a field list by the same argument that put `comicIdentity.ts` in the set. A
+    // subject set that grew a pack and not a row would watch the wrong files.
+    const findings = checkIdentityFunctionSeparation(
+      tree(identity('import { cardSignatureClaim } from "../catalog/cardIdentity.js";'))
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/catalog/cardIdentity.ts");
+  });
+
+  it("holds every pack module in the subject set, so a fourth vertical cannot slip past", () => {
+    expect(CATALOG_IDENTITY_FILES).toContain("src/catalog/cardIdentity.ts");
+    for (const path of VERTICAL_PACK_FILES) expect(CATALOG_IDENTITY_FILES).toContain(path);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule 8 — 014 §3.4 / 030 §6 rule 1: no core code branches on a vertical.
+//
+// "Plug-and-play requires a vertical pack, not scattered `if comic` statements."
+// The rule is the mechanical half of E04-B03's acceptance line — that card
+// examples resolve through the same core contract as comics WITHOUT core-code
+// branching — and, like every rule here, it is exercised on the real tree and on
+// a fixture, because a rule that has never failed is indistinguishable from one
+// that cannot.
+// ---------------------------------------------------------------------------
+describe("rule 8 — no vertical branching in core (014 §3.4, 030 §6 rule 1)", () => {
+  const file = (path: string, text: string): SourceFile[] => [{ path, text }];
+
+  it("passes on the real tree", () => {
+    expect(checkNoVerticalBranching(collectSources(join(repoRoot, "src")))).toEqual([]);
+  });
+
+  it("FAILS on the canonical form 030 §6 rule 1 names", () => {
+    const findings = checkNoVerticalBranching(
+      file("src/services/identify.ts", 'if (vertical === "comic") { return comicOnly(); }')
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("no-vertical-branching-in-core");
+    expect(findings[0]!.message).toContain("ONLY to select a pack");
+  });
+
+  it("FAILS on the reversed comparison, the loose one, and a switch label", () => {
+    expect(
+      checkNoVerticalBranching(file("src/services/x.ts", 'if ("sports-card" === v) return 1;'))
+    ).toHaveLength(1);
+    expect(
+      checkNoVerticalBranching(file("src/services/x.ts", 'if (v != "tcg-card") return 1;'))
+    ).toHaveLength(1);
+    expect(
+      checkNoVerticalBranching(file("src/services/x.ts", 'switch (v) { case "comic": return 1; }'))
+    ).toHaveLength(1);
+  });
+
+  it("does NOT fire on a MAP KEY, which is a pack being selected", () => {
+    // §6 rule 1 permits reading `vertical` to select a pack; `packRegistry.ts`
+    // does nothing else, and a rule that fired on it would forbid the fix.
+    expect(
+      checkNoVerticalBranching(file("src/catalog/packRegistry.ts", 'const P = { "comic": comicPack };'))
+    ).toEqual([]);
+    expect(checkNoVerticalBranching(file("src/services/x.ts", 'const v = "comic";'))).toEqual([]);
+  });
+
+  it("does NOT fire on a comment quoting the prohibition", () => {
+    // Every neighbouring rule's header explains itself by quoting the thing it
+    // forbids. A rule that could not tell code from prose would make its own
+    // documentation unwritable.
+    expect(
+      checkNoVerticalBranching(file("src/services/x.ts", '// forbidden: if (vertical === "comic")'))
+    ).toEqual([]);
+  });
+
+  it("does NOT fire inside a pack module, which owns its own vertical", () => {
+    expect(
+      checkNoVerticalBranching(file("src/catalog/cardIdentity.ts", 'if (v === "tcg-card") return a;'))
+    ).toEqual([]);
+    // …and the exemption is by PATH, so the same line elsewhere still fails.
+    expect(
+      checkNoVerticalBranching(file("src/catalog/dedupe.ts", 'if (v === "tcg-card") return a;'))
+    ).toHaveLength(1);
+  });
+
+  it("watches every registered vertical, so a new pack cannot arrive unwatched", () => {
+    expect([...VERTICAL_LITERALS].sort()).toEqual([...REGISTERED_VERTICALS].sort());
   });
 });
 

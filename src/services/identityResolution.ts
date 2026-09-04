@@ -45,8 +45,10 @@
 
 import type { Queryable, Tx } from "../db.js";
 import {
+  COMIC_VERTICAL as CATALOG_COMIC_VERTICAL,
   NORMALIZATION_VERSION,
   editionSignature,
+  isUsableClaim,
   lookupByExternalId,
   lookupBySignature,
   newestCorpusVersionId,
@@ -84,7 +86,11 @@ export type ResolutionMethod = "live" | "barcode" | "signature" | "human" | "can
  * a lookup in one edit — which is why it is a named export rather than a string
  * literal at the call site.
  */
-export const COMIC_VERTICAL = "comic";
+// ⚠ AND SINCE E04-B03 IT IS THE CATALOG'S CONSTANT, NOT A SECOND LITERAL. The
+// pack registry owns the discriminator value; a workflow copy of the string would
+// be a second place to edit when one of them changed, and the two would agree
+// until the day they did not.
+export const COMIC_VERTICAL = CATALOG_COMIC_VERTICAL;
 
 /** The barcode namespaces — issued by a registrar, owned by nobody (030 §4). */
 const BARCODE_NAMESPACES = ["upc", "ean", "isbn"] as const;
@@ -195,11 +201,18 @@ async function lookupClaim(
   // Through the registry, so an unregistered vertical is refused rather than
   // having the comic field list applied to it.
   const fields = signatureClaim(vertical, c);
-  if (!fields.series && !fields.issue) {
-    // Neither a series nor an issue: there is no claim to look up. The same
-    // condition `identityKey` answers with `null` — and the symmetry is a
-    // coincidence of the DATA being thin, not a shared rule. (047 A8: these two
-    // functions stay apart.)
+  if (!isUsableClaim(vertical, fields)) {
+    // There is no claim to look up — and WHICH FIELDS decide that is the PACK's
+    // question, not this file's. It used to read `!fields.series && !fields.issue`
+    // here: correct for comics, and silently fatal for anything else, because a
+    // card claim carries neither key and would have been skipped as unusable on
+    // every call while type-checking cleanly. That is the `if comic` 014 §3.4
+    // forbids, wearing field names instead of a vertical literal.
+    //
+    // The comparison to `identityKey` still holds and still means nothing: it
+    // answers the same-shaped question with `null`, and the symmetry is a
+    // coincidence of the DATA being thin, not a shared rule (047 A8: these two
+    // functions stay apart).
     return { status: "skipped", reason: "unusable_claim" };
   }
 

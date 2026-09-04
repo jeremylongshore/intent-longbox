@@ -199,7 +199,7 @@ describe("what an edition may never carry (047 §2.3, A6; 030 §4 rule 2)", () =
   });
 
   it("fails closed on an unregistered vertical rather than defaulting to comic", () => {
-    expect(() => parseIdentityAttributes("sports-card", "edition", { issue: "1" })).toThrow(
+    expect(() => parseIdentityAttributes("coin", "edition", { issue: "1" })).toThrow(
       UnregisteredVerticalError
     );
   });
@@ -265,10 +265,10 @@ describe("the schema version", () => {
 // with the same fail-closed shape.
 describe("the per-pack registries fail closed (030 §6 rule 3)", () => {
   const registryEntryPoints: ReadonlyArray<[string, () => unknown]> = [
-    ["definitionSignature", () => definitionSignature("sports-card", { series: "Topps" })],
-    ["signatureInput", () => signatureInput("sports-card", { series: "Topps" }, { issue: "1" })],
-    ["signatureClaim", () => signatureClaim("sports-card", { title: "Topps", issue: "1" })],
-    ["parseIdentityAttributes", () => parseIdentityAttributes("sports-card", "edition", { issue: "1" })],
+    ["definitionSignature", () => definitionSignature("coin", { series: "Topps" })],
+    ["signatureInput", () => signatureInput("coin", { series: "Topps" }, { issue: "1" })],
+    ["signatureClaim", () => signatureClaim("coin", { title: "Topps", issue: "1" })],
+    ["parseIdentityAttributes", () => parseIdentityAttributes("coin", "edition", { issue: "1" })],
   ];
 
   it.each(registryEntryPoints)(

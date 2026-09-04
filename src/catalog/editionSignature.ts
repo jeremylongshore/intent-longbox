@@ -36,6 +36,21 @@
 // should be reused". What must not be reused is the FIELD LIST, because the two
 // functions answer different questions.
 //
+// ⚠ THE PER-VERTICAL REGISTRY LEFT THIS FILE AT E04-B03, AND THE REASON IS A
+// CYCLE, NOT A PREFERENCE. `SIGNATURE_FUNCTIONS` lived here and mapped
+// `"comic"` to the function below. Registering a SECOND pack in it would have
+// made this file import `cardIdentity.ts`, which imports the normalisation from
+// this file — a two-module cycle, and `no-circular` in `.dependency-cruiser.cjs`
+// is an ERROR ("029 §3.1: the module graph is a DAG. A cycle means a boundary was
+// drawn wrong."). The boundary was indeed drawn wrong: a registry of packs is not
+// a member of any pack. It now lives in `packRegistry.ts`, which imports every
+// pack and is imported by NO PACK (`index.ts` imports it, and re-exports the pack
+// modules too, because the module's public surface is `index.ts`; the property
+// that kills the cycle is that the arrows run registry → pack, never the reverse).
+// What stays here is what a pack may share
+// — the NORMALISATION (047 §9.3 says in terms it "should be reused") — plus the
+// comic pack's own signature function and its own field literal.
+//
 // A SIGNATURE IS NOT AN IDENTITY (030 §3.3). Two rows with the same signature are
 // a DEDUPE CANDIDATE — a human-queue item — and never an automatic merge. That is
 // why `edition_signature` carries no UNIQUE constraint (047 A1/I17) and why the
@@ -115,21 +130,6 @@ export function comicEditionSignature(fields: ComicEditionFields): string {
   ].join(SEP);
 }
 
-/**
- * The registered signature functions, keyed by `vertical_pack.vertical`.
- *
- * ONE ENTRY TODAY, and that is not an oversight. E19-B06 gates any second
- * vertical on reuse, rights, accuracy, economics and demand evidence (030 §5.4):
- * "architectural possibility is not market permission". The card pack's signature
- * is E04-B03's and does not exist. When it lands it is registered here — or, once
- * E04-B04 ships the pack manifest as code, resolved through
- * `vertical_pack_version.signature_fn_ref` and FAILING CLOSED when the module is
- * missing (030 §5.2). This map is the interim, and it is deliberately small.
- */
-const SIGNATURE_FUNCTIONS: Record<string, (fields: Record<string, unknown>) => string> = {
-  comic: (fields) => comicEditionSignature(fields as ComicEditionFields),
-};
-
 /** Thrown when a write names a vertical with no registered signature function. */
 export class UnregisteredVerticalError extends Error {
   constructor(vertical: string) {
@@ -142,11 +142,21 @@ export class UnregisteredVerticalError extends Error {
 }
 
 /**
- * Compute a signature for any registered vertical. FAILS CLOSED (030 §6 rule 3):
- * an unregistered vertical is refused, never defaulted.
+ * A signature's INPUT — the fields a pack's signature function reads, as a loose
+ * bag with no vertical's names in it.
+ *
+ * ⚠ IT DECLARES NO NAMED FIELD, AND THAT IS THE E04-B03 CHANGE. It used to name
+ * comic's four (`series`, `issue`, `variant`, `printing`) beside the index
+ * signature, which was harmless while one pack existed and became a comic field
+ * list in a shared type the moment a second one did — a caller reading
+ * `fields.series` off a CARD claim type-checks, returns `undefined`, and silently
+ * treats a real claim as an empty one. `isUsableClaim` in `packRegistry.ts` is
+ * where that question is now asked, per pack.
+ *
+ * The index signature is narrowed to the value types a normalised field can hold
+ * rather than left as `unknown`, so the type still refuses a number or an object
+ * where a field belongs.
  */
-export function editionSignature(vertical: string, fields: Record<string, unknown>): string {
-  const fn = SIGNATURE_FUNCTIONS[vertical];
-  if (!fn) throw new UnregisteredVerticalError(vertical);
-  return fn(fields);
+export interface SignatureFields {
+  [field: string]: string | null | undefined;
 }

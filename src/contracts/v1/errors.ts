@@ -132,6 +132,74 @@ export const ERROR_CODES = {
     copyRow: "021 — E05 owes the registered string (042 §4.5)",
     implements: "042 §4.5 — routes:44-49's accidental envelope (E8), now deliberate",
   },
+  /**
+   * E03-B07. The bytes are not one of the three accepted image types.
+   *
+   * 415 and NOT 400: the request is well-formed, and the condition is exactly
+   * what 415 names — the payload's media type is not one this route accepts.
+   * It is a SIBLING of `UNSUPPORTED_MEDIA_TYPE` rather than a reuse, because
+   * that code means "this route takes multipart/form-data" and this one means
+   * "the FILE inside your multipart body is not a JPEG, PNG or WebP". A client
+   * that cannot tell them apart cannot tell a person which thing to fix.
+   *
+   * The verdict comes from the MAGIC BYTES. A caller who declares `image/png`
+   * and sends a PDF, an SVG or an HTML document lands here whatever the
+   * `Content-Type` part said (046 E6).
+   */
+  UNSUPPORTED_IMAGE_TYPE: {
+    status: 415,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string (a re-take, not a retry)",
+    implements: "046 E6 / G-5 — the type is detected, never declared",
+  },
+  /**
+   * E03-B07. The bytes ARE one of the three types and the container is not
+   * valid: a chunk or segment outside the closed allowlist, a second document
+   * appended after the terminator (the polyglot), a truncated structure, or an
+   * animated WebP.
+   *
+   * 422 and not 400: the syntax of the REQUEST is fine — the multipart parse
+   * succeeded, the fields validated — and it is the CONTENT that cannot be
+   * processed, which is the distinction 422 exists to make.
+   */
+  MALFORMED_IMAGE: {
+    status: 422,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string (a re-take, not a retry)",
+    implements: "046 G-5 — container walk against a closed allowlist; no trailing bytes",
+  },
+  /**
+   * E03-B07. The header declares more pixels than the ceiling allows — the
+   * decompression bomb, refused from the header by arithmetic with no decoder
+   * ever asked to open the file. 422 for the same reason as `MALFORMED_IMAGE`:
+   * the request is well-formed and its content is not processable.
+   */
+  IMAGE_DIMENSIONS_TOO_LARGE: {
+    status: 422,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements: "046 §5 / G-5 — the pixel ceiling is a PROVISIONAL floor (src/services/media.ts)",
+  },
+  /**
+   * E03-B07. A per-session or per-shop storage ceiling is already reached.
+   *
+   * 409 and not 429: 429 is a RATE, and retrying later is the honest advice it
+   * carries. This is a STATE — a session or a shop holding more photographs
+   * than the policy allows — and it does not clear by waiting; it clears when
+   * the retention sweep (E03-B09) or an operator removes something. `details`
+   * carries `{scope, limit_kind}` so a client can say which, without the server
+   * writing prose.
+   */
+  PHOTO_QUOTA_EXCEEDED: {
+    status: 409,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements: "046 §4 B4 — 'no per-tenant quota'; the ceilings are PROVISIONAL floors",
+  },
   SHOP_HAS_NO_PRICING_POLICY: {
     status: 409,
     retryable: false,
@@ -280,6 +348,10 @@ export const MESSAGES: Record<ErrorCode, string> = {
   ROUTE_NOT_FOUND: "no route matches this request",
   UNSUPPORTED_MEDIA_TYPE: "this route accepts multipart/form-data only",
   PHOTO_TOO_LARGE: "the uploaded file exceeds the configured multipart limit",
+  UNSUPPORTED_IMAGE_TYPE: "the uploaded bytes are not a jpeg, png or webp image",
+  MALFORMED_IMAGE: "the uploaded image is not a well-formed file of its own type",
+  IMAGE_DIMENSIONS_TOO_LARGE: "the uploaded image declares more pixels than the configured ceiling",
+  PHOTO_QUOTA_EXCEEDED: "a photo storage ceiling for this session or shop is already reached",
   SHOP_HAS_NO_PRICING_POLICY: "this shop has no pricing policy row",
   SESSION_HAS_NO_CONFIRMATION: "this session has no current human_confirmation",
   SESSION_HAS_NO_PRICING: "this session has no current pricing_snapshot",

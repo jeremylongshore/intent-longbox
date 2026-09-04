@@ -1,6 +1,7 @@
 // Central env-derived config. Secrets stay in process.env; this module never
 // logs or re-exports raw key values beyond handing them to transport code.
 import "dotenv/config";
+import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./services/media.js";
 
 export interface BandThresholds {
   high: number;
@@ -12,6 +13,19 @@ export interface AppConfig {
   databaseUrl: string;
   uploadsDir: string;
   bands: BandThresholds;
+  /**
+   * The upload guard's ceilings (E03-B07). OPTIONAL in the type and always set
+   * by `loadConfig`: a test that builds a config literal gets
+   * `DEFAULT_MEDIA_POLICY` through `mediaPolicy()` below rather than a
+   * `undefined` limit that would read as "no limit". The default is the SAFE
+   * value, so an omission tightens rather than opens.
+   */
+  media?: MediaPolicy;
+}
+
+/** The policy in force for a request: the configured one, or the safe default. */
+export function mediaPolicy(config: Pick<AppConfig, "media">): MediaPolicy {
+  return config.media ?? DEFAULT_MEDIA_POLICY;
 }
 
 function num(name: string, fallback: number): number {
@@ -20,6 +34,50 @@ function num(name: string, fallback: number): number {
   const n = Number(raw);
   if (Number.isNaN(n)) throw new Error(`env ${name} is not a number`);
   return n;
+}
+
+/** Thrown at boot when a media ceiling is set past the point where it protects. */
+export class MediaPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaPolicyError";
+  }
+}
+
+/**
+ * How far above the default any single ceiling may be raised.
+ *
+ * **The check REFUSES; it does not clamp** (invariant review of `1c25749`,
+ * item 5), and the choice is the same one `assertGatewayConfigOrThrow` makes
+ * twenty lines below: a silent clamp leaves an operator believing a ceiling they
+ * set is the one in force, which is the failure the gateway's
+ * "a presence check is not a scope check" note is about. Refusing is loud, is
+ * fixed in one edit, and cannot be missed in a log nobody reads.
+ *
+ * Four is not a measurement — it is the point past which a "ceiling" stops
+ * describing a phone photograph: 4x `maxPixels` is 320 MP, six times the largest
+ * sensor in 035 §9's cohort. `MEDIA_MAX_PIXELS=99999999999` used to disable the
+ * decompression-bomb guard in silence, which is the specific bug this closes.
+ * Ceilings may be lowered without limit: tightening is always allowed.
+ */
+export const MEDIA_CEILING_HEADROOM = 4;
+
+export function assertMediaPolicyOrThrow(policy: MediaPolicy): MediaPolicy {
+  for (const [key, value] of Object.entries(policy) as Array<[keyof MediaPolicy, number]>) {
+    const ceiling = DEFAULT_MEDIA_POLICY[key] * MEDIA_CEILING_HEADROOM;
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new MediaPolicyError(`media policy ${key} must be a positive number (got ${value})`);
+    }
+    if (value > ceiling) {
+      throw new MediaPolicyError(
+        `media policy ${key} is ${value}, which is more than ${MEDIA_CEILING_HEADROOM}x the default ` +
+          `(${DEFAULT_MEDIA_POLICY[key]}). These ceilings are safety floors, not capacity settings: a value ` +
+          `this far above the default disables the control rather than tuning it. Lower it, or change the ` +
+          `default in src/services/media.ts with the derivation written down.`
+      );
+    }
+  }
+  return policy;
 }
 
 export function loadConfig(): AppConfig {
@@ -31,6 +89,14 @@ export function loadConfig(): AppConfig {
       high: num("BAND_HIGH", 0.85),
       medium: num("BAND_MEDIUM", 0.5),
     },
+    media: assertMediaPolicyOrThrow({
+      maxPixels: num("MEDIA_MAX_PIXELS", DEFAULT_MEDIA_POLICY.maxPixels),
+      maxDimension: num("MEDIA_MAX_DIMENSION", DEFAULT_MEDIA_POLICY.maxDimension),
+      sessionPhotoLimit: num("MEDIA_SESSION_PHOTO_LIMIT", DEFAULT_MEDIA_POLICY.sessionPhotoLimit),
+      sessionByteLimit: num("MEDIA_SESSION_BYTE_LIMIT", DEFAULT_MEDIA_POLICY.sessionByteLimit),
+      shopPhotoLimit: num("MEDIA_SHOP_PHOTO_LIMIT", DEFAULT_MEDIA_POLICY.shopPhotoLimit),
+      shopByteLimit: num("MEDIA_SHOP_BYTE_LIMIT", DEFAULT_MEDIA_POLICY.shopByteLimit),
+    }),
   };
 }
 

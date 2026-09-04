@@ -40,8 +40,27 @@ describe.skipIf(!dbUp)("scan-session event flow (service layer)", () => {
     expect(session).not.toHaveProperty("status");
 
     // Photos append in order.
-    await addScanPhoto(pool, { sessionId: session.id, shopId, kind: "cover", storageUrl: "uploads/a.jpg" });
-    await addScanPhoto(pool, { sessionId: session.id, shopId, kind: "barcode", storageUrl: "uploads/b.jpg" });
+    // E03-B07: the row binds to the bytes — a storage key, the SHA-256 of the
+    // stored file and its size are written with it, so 003's
+    // `scan_photo_storage_key_hashed` CHECK is satisfied by a real writer.
+    await addScanPhoto(pool, {
+      sessionId: session.id,
+      shopId,
+      kind: "cover",
+      storageUrl: "uploads/a.jpg",
+      storageKey: "a.jpg",
+      contentHash: "a".repeat(64),
+      byteSize: 11,
+    });
+    await addScanPhoto(pool, {
+      sessionId: session.id,
+      shopId,
+      kind: "barcode",
+      storageUrl: "uploads/b.jpg",
+      storageKey: "b.jpg",
+      contentHash: "b".repeat(64),
+      byteSize: 12,
+    });
     const photos = await listSessionPhotos(pool, shopId, session.id);
     expect(photos.map((p) => p.kind)).toEqual(["cover", "barcode"]);
 

@@ -11,17 +11,18 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { listSessionPhotos } from "../../src/services/scanSession.js";
 import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { jpeg, png, pngOfExactly } from "../fixtures/media/index.js";
 
 const dbUp = await probeDb();
 
 const UPLOADS_DIR = "tests/.tmp-photo-uploads";
 const BOUNDARY = "----LongboxPhotoContract7a1b9c";
 
-// 1x1 PNG: signature + IHDR chunk header (enough for a magic-number check).
-const PNG_BYTES = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
-  0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
-]);
+// A REAL png, not a signature (E03-B07). The guard walks the container now:
+// signature + IHDR + IDAT + IEND, with real chunk lengths and CRCs, is what an
+// accepted upload has to be. The old 33-byte header-only constant is exactly the
+// file the guard exists to refuse.
+const PNG_BYTES = png();
 
 interface Part {
   name: string;
@@ -113,7 +114,12 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
     const photo = res.json().photo as { id: string; kind: string };
     expect(photo).toEqual({ id: photo.id, kind: "cover" });
     const [row] = await listSessionPhotos(pool, shopId, sessionId);
-    expect(row!.storage_url).toMatch(new RegExp(`^${UPLOADS_DIR}/${sessionId}/\\d{13}-cover\\.png$`));
+    // The key is minted server-side and carries a random suffix (E03-B07): two
+    // same-kind uploads inside one millisecond used to collide on the clock
+    // alone, and the second rename overwrote the first.
+    expect(row!.storage_url).toMatch(
+      new RegExp(`^${UPLOADS_DIR}/${sessionId}/\\d{13}-cover-[0-9a-f]{8}\\.png$`)
+    );
     expect(existsSync(row!.storage_url)).toBe(true);
     expect(readFileSync(row!.storage_url)).toEqual(PNG_BYTES);
     expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([
@@ -123,7 +129,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
 
   it("honors kind=barcode and maps image/jpeg to a .jpg extension", async () => {
     const sessionId = await newSession();
-    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]);
+    const jpegBytes = jpeg();
     const req = multipart([
       { name: "kind", value: "barcode" },
       { name: "file", value: jpegBytes, filename: "upc.jpg", contentType: "image/jpeg" },
@@ -133,7 +139,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
     expect(res.json().photo.kind).toBe("barcode");
     expect(res.json().photo).not.toHaveProperty("storage_url");
     const [row] = await listSessionPhotos(pool, shopId, sessionId);
-    expect(row!.storage_url).toMatch(/-barcode\.jpg$/);
+    expect(row!.storage_url).toMatch(/-barcode-[0-9a-f]{8}\.jpg$/);
   });
 
   it("defaults kind to cover when the field is absent", async () => {
@@ -190,7 +196,11 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
   // `file.file.truncated` and writes via a `.part` temp path.
   it("rejects a file over the 25 MiB limit with 413 and stores no row", async () => {
     const sessionId = await newSession();
-    const oversize = Buffer.concat([PNG_BYTES, Buffer.alloc(25 * 1024 * 1024 - PNG_BYTES.length + 1, 0x7f)]);
+    // A VALID png one byte over the limit, so the case under test is the SIZE
+    // and not the guard: a malformed oversize file would be refused as
+    // MALFORMED_IMAGE long before 25 MiB had been read, which would leave the
+    // truncation path unexercised.
+    const oversize = pngOfExactly(25 * 1024 * 1024 + 1);
     const req = multipart([
       { name: "kind", value: "cover" },
       { name: "file", value: oversize, filename: "huge.png", contentType: "image/png" },
@@ -212,7 +222,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
   // Boundary beside the case above: exactly at the limit is not over it.
   it("accepts a file exactly at the 25 MiB limit with 201", async () => {
     const sessionId = await newSession();
-    const atLimit = Buffer.concat([PNG_BYTES, Buffer.alloc(25 * 1024 * 1024 - PNG_BYTES.length, 0x7f)]);
+    const atLimit = pngOfExactly(25 * 1024 * 1024);
     expect(atLimit.length).toBe(25 * 1024 * 1024);
     const req = multipart([
       { name: "kind", value: "cover" },

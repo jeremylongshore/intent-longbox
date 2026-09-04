@@ -66,6 +66,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "015_llm_rerank_band_inputs.sql",
       "016_catalog_core.sql",
       "017_lcid_lifecycle_and_resolution.sql",
+      "018_scan_photo_bytes_and_hash.sql",
     ]);
 
     const tables = await pool.query(
@@ -143,8 +144,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  015_llm_rerank_band_inputs.sql");
     expect(secondRun).toContain("skip  016_catalog_core.sql");
     expect(secondRun).toContain("skip  017_lcid_lifecycle_and_resolution.sql");
+    expect(secondRun).toContain("skip  018_scan_photo_bytes_and_hash.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(17);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(18);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

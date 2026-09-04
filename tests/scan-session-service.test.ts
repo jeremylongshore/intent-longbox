@@ -81,9 +81,23 @@ describe("addScanPhoto / listSessionPhotos", () => {
       shopId: "shop-1",
       kind: "cover",
       storageUrl: "uploads/a.jpg",
+      storageKey: "a.jpg",
+      contentHash: "a".repeat(64),
+      byteSize: 11,
     });
     expect(photo.id).toBe("p-1");
-    expect(calls[0]?.values).toEqual(["s-1", "shop-1", "cover", "uploads/a.jpg"]);
+    // E03-B07: the row names the bytes — the storage key, the SHA-256 of the
+    // stored file and its size travel with the INSERT, so 003's reserved
+    // columns stop being reserved and `media_deletion` has a key to address.
+    expect(calls[0]?.values).toEqual([
+      "s-1",
+      "shop-1",
+      "cover",
+      "uploads/a.jpg",
+      "a.jpg",
+      "a".repeat(64),
+      11,
+    ]);
 
     const photos = await listSessionPhotos(pool, "shop-1", "s-1");
     expect(photos).toEqual([{ id: "p-1", kind: "cover", storage_url: "uploads/a.jpg" }]);

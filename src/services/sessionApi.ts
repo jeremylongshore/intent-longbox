@@ -26,12 +26,12 @@
 //   6. the response, stored on the idempotency row in the same commit.
 import type pg from "pg";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { extname, join, resolve, sep } from "node:path";
+import { mkdir, open, realpath, rename, rm, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { extname, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { AppConfig } from "../config.js";
+import { mediaPolicy, type AppConfig } from "../config.js";
 import type { Queryable, Tx } from "../db.js";
 import { LongboxError } from "../contracts/v1/errors.js";
 import {
@@ -50,6 +50,7 @@ import type { z } from "zod";
 import { DRAFT_REQUESTED } from "../events/catalogue.js";
 import { resolveEbayCredentials, resolveShopToken, resolveVisionProvider } from "../providers/registry.js";
 import type { VisionProvider } from "../providers/types.js";
+import { createImageSanitizer, MediaRejected, quotaBreach, type MediaVerdict } from "./media.js";
 import { enqueue } from "./outbox.js";
 import { replayIfSettled, runIdempotent, type IdempotentOutcome } from "./idempotency.js";
 import { createEbayProvider, createStubEbayProvider } from "./ebay.js";
@@ -74,6 +75,7 @@ import {
   getSessionEvents,
   insertHumanConfirmation,
   lockScanSession,
+  photoUsage,
   readConfirmationBaseline,
   setSessionStatus,
 } from "./scanSession.js";
@@ -235,12 +237,34 @@ export async function uploadPhoto(
   against: Against | undefined
 ): Promise<IdempotentOutcome> {
   const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const policy = mediaPolicy(deps.config);
 
-  const ext = upload.mimetype === "image/png" ? "png" : upload.mimetype === "image/webp" ? "webp" : "jpg";
+  // THE QUOTA IS THE CHEAPEST REJECTION AND SO IT IS THE FIRST (046 §4 B4).
+  // A session or a shop that is already at its ceiling is refused before a byte
+  // reaches the disk the ceiling exists to protect.
+  const breach = quotaBreach(await photoUsage(deps.pool, ctx.shopId, session.id), policy);
+  if (breach) throw new LongboxError("PHOTO_QUOTA_EXCEEDED", { ...breach });
+
   const dir = join(deps.config.uploadsDir, session.id);
   await mkdir(dir, { recursive: true });
-  const path = join(dir, `${Date.now()}-${upload.kind}.${ext}`);
-  const tmpPath = `${path}.part`;
+
+  // THE STORAGE KEY IS MINTED HERE AND NOWHERE ELSE (046 §4 B4's Information
+  // Disclosure cell: "path is server-composed"). `upload.filename` is not a
+  // parameter of this function, so there is no client string to sanitise — the
+  // traversal question is answered by construction on the write side exactly as
+  // `readPhoto` answers it on the read side.
+  //
+  // The random suffix closes the collision the E03-B07-D1 invariant review
+  // found: `Date.now()-kind.ext` gives two same-kind uploads inside one
+  // millisecond the SAME path, and the second rename silently overwrote the
+  // first — orphaning the first row's bytes under a row that still names them.
+  // The temp file is randomly named for the same reason.
+  //
+  // The extension comes from the DETECTED type below, never from the declared
+  // mimetype, which is what makes `readPhoto`'s `SERVABLE_TYPES` map and
+  // `identify`'s extension-derived `media_type` (046 E6's second half) tell a
+  // third party the truth about the bytes.
+  const tmpPath = join(dir, `${randomUUID()}.part`);
 
   const digest = createHash("sha256");
   const tap = new Transform({
@@ -249,20 +273,39 @@ export async function uploadPhoto(
       cb(null, chunk);
     },
   });
+  // The guard runs BEFORE the digest tap, so `content_hash` is the hash of the
+  // bytes as STORED — after metadata is dropped — rather than of what arrived.
+  const guard = createImageSanitizer(policy);
 
+  let verdict: MediaVerdict;
+  let path: string;
   try {
-    await pipeline(upload.stream, tap, createWriteStream(tmpPath));
+    await pipeline(upload.stream, guard.stream, tap, createWriteStream(tmpPath));
     // @fastify/multipart enforces `limits.fileSize` by TRUNCATING the busboy
     // stream, not by erroring: without this check an oversize upload yields a
     // silently clipped file plus a 201.
     if (upload.stream.truncated === true) throw fileTooLarge();
+    verdict = guard.finish();
+    path = join(dir, `${Date.now()}-${upload.kind}-${randomUUID().slice(0, 8)}${verdict.extension}`);
     await rename(tmpPath, path);
   } catch (err) {
     await rm(tmpPath, { force: true }).catch(() => undefined);
-    throw err;
+    // A truncated stream is 413 whatever the guard made of the clipped bytes:
+    // the caller's file was too large, and telling them it was malformed would
+    // send them to fix the wrong thing.
+    if (upload.stream.truncated === true) throw fileTooLarge();
+    throw err instanceof MediaRejected ? new LongboxError(err.code) : err;
   }
 
-  const contentHash = digest.digest("hex");
+  let contentHash = digest.digest("hex");
+  if (verdict.riffSizePatch !== undefined) {
+    // A RIFF header states the file's own length and dropping an `EXIF`/`XMP `
+    // chunk changes it, so those four bytes are corrected in place — and the
+    // digest is then taken again over the finished file, because a hash of the
+    // pre-patch bytes would name a file that is not the one on disk.
+    contentHash = await patchRiffSizeAndRehash(path, verdict.riffSizePatch);
+  }
+
   try {
     const outcome = await runIdempotent(
       deps.pool,
@@ -275,6 +318,9 @@ export async function uploadPhoto(
           shopId: ctx.shopId,
           kind: upload.kind,
           storageUrl: path,
+          storageKey: relative(deps.config.uploadsDir, path),
+          contentHash,
+          byteSize: verdict.bytesOut,
         });
         // `storage_url` is DELIBERATELY not in the body (042 §3.5): a photo is
         // addressed by a shop-scoped, time-bounded signed URL issued by the
@@ -370,6 +416,27 @@ export async function readPhoto(
   if (!info?.isFile()) throw new LongboxError("PHOTO_NOT_FOUND");
 
   return { stream: createReadStream(path), contentType, contentLength: info.size };
+}
+
+/**
+ * Rewrite a WebP file's RIFF length and return the digest of the finished file.
+ *
+ * Four bytes at offset 4, then one streaming pass to re-hash. The pass is the
+ * price of streaming a format that states its own total length, and it is paid
+ * for WebP only — PNG and JPEG carry no such field and are never re-read.
+ */
+async function patchRiffSizeAndRehash(path: string, riffSize: number): Promise<string> {
+  const size = Buffer.alloc(4);
+  size.writeUInt32LE(riffSize, 0);
+  const handle = await open(path, "r+");
+  try {
+    await handle.write(size, 0, 4, 4);
+  } finally {
+    await handle.close();
+  }
+  const digest = createHash("sha256");
+  for await (const chunk of createReadStream(path)) digest.update(chunk as Buffer);
+  return digest.digest("hex");
 }
 
 function fileTooLarge(): Error & { code: string; statusCode: number } {

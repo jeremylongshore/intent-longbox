@@ -76,6 +76,16 @@ const ERROR_COPY = {
   SESSION_HAS_NO_CONDITION: "Record the condition first.",
   SHOP_HAS_NO_PRICING_POLICY: "This shop has no pricing rules set up yet.",
   PHOTO_TOO_LARGE: "That photo is too big. Take it again.",
+  // E03-B07. Four refusals a person can act on, and each says the ONE thing
+  // they should do next. None of them says why the file was refused: an
+  // operator at the counter cannot act on "the container had a chunk outside
+  // the allowlist", and 021 has not registered these strings yet — E05 owes
+  // them, exactly as it owes the rows above.
+  UNSUPPORTED_IMAGE_TYPE: "That file isn't a photo. Take the picture again with the camera.",
+  MALFORMED_IMAGE: "That photo didn't come through cleanly. Take it again.",
+  IMAGE_DIMENSIONS_TOO_LARGE: "That photo is too big to store. Take it again with the normal camera setting.",
+  PHOTO_QUOTA_EXCEEDED:
+    "This scan already has all the photos it can hold. Start a new scan for the next book.",
   RATE_LIMITED: "Too many requests just now. Try again in a moment.",
   IDENTIFY_FAILED: "Couldn't read that one. Search for it instead.",
   IDENTIFY_PROVIDER_UNAVAILABLE: "Couldn't read that one. Search for it instead.",

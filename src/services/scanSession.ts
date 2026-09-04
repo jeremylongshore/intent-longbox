@@ -155,15 +155,87 @@ export async function setSessionStatus(
   await tx.query(`UPDATE scan_session SET status = $3 WHERE id = $1 AND shop_id = $2`, [id, shopId, status]);
 }
 
+/**
+ * THE ROW BINDS TO THE BYTES (E03-B07; 046 §4 B4's K-1 amendment).
+ *
+ * `content_hash` is the SHA-256 of the bytes as STORED — computed on the stream
+ * that is already being written, after the guard has dropped metadata, so the
+ * digest is of the file on disk and not of what the client sent. 041 A5 pins the
+ * class: SHA-256 of exact bytes, and no perceptual hash under this or any other
+ * column without its own decision record.
+ *
+ * `storage_key` is the same server-minted key `storage_url` holds, written so
+ * the deletion path (E03-B09, `media_deletion.storage_key`) and the restore
+ * validation (046 I11) address an object by the column 003 reserved for it
+ * rather than by parsing a path. `byte_size` is what makes the quota answerable
+ * without a filesystem walk.
+ */
 export async function addScanPhoto(
   db: Queryable,
-  args: { sessionId: string; shopId: string; kind: "cover" | "barcode" | "defect"; storageUrl: string }
+  args: {
+    sessionId: string;
+    shopId: string;
+    kind: "cover" | "barcode" | "defect";
+    storageUrl: string;
+    storageKey: string;
+    contentHash: string;
+    byteSize: number;
+  }
 ): Promise<{ id: string }> {
   const res = await db.query(
-    `INSERT INTO scan_photo (scan_session_id, shop_id, kind, storage_url) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [args.sessionId, args.shopId, args.kind, args.storageUrl]
+    `INSERT INTO scan_photo (scan_session_id, shop_id, kind, storage_url, storage_key, content_hash, byte_size)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [
+      args.sessionId,
+      args.shopId,
+      args.kind,
+      args.storageUrl,
+      args.storageKey,
+      args.contentHash,
+      args.byteSize,
+    ]
   );
   return res.rows[0] as { id: string };
+}
+
+/**
+ * What this session and this shop are already holding (E03-B07's quota).
+ *
+ * ONE round trip for four numbers, and both halves are shop-scoped: the session
+ * half carries `shop_id` in its predicate even though `scan_session_id` alone
+ * would identify the rows, because a count that could be computed across a
+ * tenant boundary is a count that will be one day (019 T24).
+ *
+ * `coalesce(byte_size, 0)` is why the sum is honest about legacy rows: a row
+ * written before migration 018 has no size and contributes nothing, which
+ * under-counts rather than inventing a number for it.
+ */
+export async function photoUsage(
+  db: Queryable,
+  shopId: string,
+  sessionId: string
+): Promise<{ sessionPhotos: number; sessionBytes: number; shopPhotos: number; shopBytes: number }> {
+  const res = await db.query(
+    `SELECT
+       count(*) FILTER (WHERE scan_session_id = $2)::bigint            AS session_photos,
+       coalesce(sum(byte_size) FILTER (WHERE scan_session_id = $2), 0)::bigint AS session_bytes,
+       count(*)::bigint                                                 AS shop_photos,
+       coalesce(sum(byte_size), 0)::bigint                              AS shop_bytes
+     FROM scan_photo WHERE shop_id = $1`,
+    [shopId, sessionId]
+  );
+  const row = res.rows[0] as {
+    session_photos: string;
+    session_bytes: string;
+    shop_photos: string;
+    shop_bytes: string;
+  };
+  return {
+    sessionPhotos: Number(row.session_photos),
+    sessionBytes: Number(row.session_bytes),
+    shopPhotos: Number(row.shop_photos),
+    shopBytes: Number(row.shop_bytes),
+  };
 }
 
 /**

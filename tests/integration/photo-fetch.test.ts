@@ -26,6 +26,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { listSessionPhotos } from "../../src/services/scanSession.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { png } from "../fixtures/media/index.js";
 
 const dbUp = await probeDb();
 
@@ -33,11 +34,9 @@ const UPLOADS_DIR = "tests/.tmp-photofetch-uploads";
 const BOUNDARY = "----LongboxPhotoFetch3d5e";
 const MISSING = "00000000-0000-4000-8000-000000000000";
 
-// 1x1 PNG: signature + IHDR chunk header.
-const PNG_BYTES = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
-  0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
-]);
+// A REAL png (E03-B07): the upload guard walks the container, so a signature
+// with no IDAT behind it is now refused as MALFORMED_IMAGE rather than stored.
+const PNG_BYTES = png();
 
 function multipartPng(): { payload: Buffer; headers: Record<string, string> } {
   const head = [

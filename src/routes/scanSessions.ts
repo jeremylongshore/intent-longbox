@@ -1,7 +1,7 @@
 // HTTP API — shop-scoped by path prefix: /api/shops/:shopId/scan-sessions/...
 // Every route resolves the shop row first; nothing is hardcoded to one shop.
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
@@ -33,6 +33,19 @@ import {
   createStubShopifyClient,
   type ShopifyClient,
 } from "../services/shopify.js";
+
+/**
+ * The error @fastify/multipart raises for an oversize file (its own
+ * `RequestFileTooLargeError` is not exported). Constructed here so a
+ * truncated stream produces the same 413 / FST_REQ_FILE_TOO_LARGE body a
+ * caller gets from `toBuffer()`, instead of a silent success.
+ */
+function requestFileTooLarge(): Error & { statusCode: number; code: string } {
+  const err = new Error("request file too large") as Error & { statusCode: number; code: string };
+  err.statusCode = 413;
+  err.code = "FST_REQ_FILE_TOO_LARGE";
+  return err;
+}
 
 const shopParams = z.object({ shopId: z.string().uuid() });
 const sessionParams = shopParams.extend({ id: z.string().uuid() });
@@ -114,14 +127,35 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
     const dir = join(config.uploadsDir, session.id);
     await mkdir(dir, { recursive: true });
     const path = join(dir, `${Date.now()}-${kind.data}.${ext}`);
-    await pipeline(file.file, createWriteStream(path));
+    // Write to a temp path and rename only on success, so a stream that fails
+    // or gets truncated at the multipart fileSize limit never leaves a
+    // half-written file at the storage_url a scan_photo row would point at.
+    const tmpPath = `${path}.part`;
+    try {
+      await pipeline(file.file, createWriteStream(tmpPath));
+      // @fastify/multipart enforces `limits.fileSize` by truncating the busboy
+      // stream, not by erroring: without this check an oversize upload yields a
+      // silently clipped file plus a 201.
+      if (file.file.truncated) throw requestFileTooLarge();
+      await rename(tmpPath, path);
+    } catch (err) {
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      throw err;
+    }
 
-    const photo = await addScanPhoto(db, {
-      sessionId: session.id,
-      shopId: session.shop_id,
-      kind: kind.data,
-      storageUrl: path,
-    });
+    let photo;
+    try {
+      photo = await addScanPhoto(db, {
+        sessionId: session.id,
+        shopId: session.shop_id,
+        kind: kind.data,
+        storageUrl: path,
+      });
+    } catch (err) {
+      // No row means no owner for the bytes — do not leave them on disk.
+      await rm(path, { force: true }).catch(() => undefined);
+      throw err;
+    }
     return reply.code(201).send({ photo: { id: photo.id, kind: kind.data, storage_url: path } });
   });
 

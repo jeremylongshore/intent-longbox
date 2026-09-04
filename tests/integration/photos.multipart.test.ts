@@ -3,7 +3,7 @@
 // a PNG attaches (201, row + file on disk), the kind field is honored,
 // a missing file / bad kind is 400, non-multipart is 406, and a payload over
 // the 25 MiB limit is 413. Integration lane only (INTEGRATION=1).
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -155,13 +155,12 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     expect(res.json().code).toBe("FST_INVALID_MULTIPART_CONTENT_TYPE");
   });
 
-  // KNOWN SOURCE BUG (2026-09-02): the route pipes `file.file` to disk without
-  // checking `file.file.truncated`, so @fastify/multipart's fileSize limit only
-  // truncates the stream — the route still writes a 26,214,400-byte file,
-  // inserts a scan_photo row and returns 201. `it.fails` pins the intended
-  // contract (413, nothing stored); flip to `it` when src/routes/scanSessions.ts
-  // checks truncation (or uses toBuffer(), which throws FST_REQ_FILE_TOO_LARGE).
-  it.fails("rejects a file over the 25 MiB limit with 413 and stores no row", async () => {
+  // Regression for E03-B07-D1: @fastify/multipart enforces `limits.fileSize`
+  // by truncating the busboy stream rather than erroring, so a route that pipes
+  // `file.file` straight to disk used to write a clipped 26,214,400-byte file,
+  // insert a scan_photo row and answer 201. The route now checks
+  // `file.file.truncated` and writes via a `.part` temp path.
+  it("rejects a file over the 25 MiB limit with 413 and stores no row", async () => {
     const sessionId = await newSession();
     const oversize = Buffer.concat([PNG_BYTES, Buffer.alloc(25 * 1024 * 1024 - PNG_BYTES.length + 1, 0x7f)]);
     const req = multipart([
@@ -172,6 +171,28 @@ describe.skipIf(!dbUp)("HTTP: POST /api/shops/:shopId/scan-sessions/:id/photos (
     expect(res.statusCode).toBe(413);
     expect(res.json().code).toBe("FST_REQ_FILE_TOO_LARGE");
     expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([]);
+    // No partial bytes survive the rejection: the session's upload dir is
+    // either absent or empty (no `.part` leftovers either).
+    const sessionDir = `${UPLOADS_DIR}/${sessionId}`;
+    expect(existsSync(sessionDir) ? readdirSync(sessionDir) : []).toEqual([]);
+  });
+
+  // Boundary beside the case above: exactly at the limit is not over it.
+  it("accepts a file exactly at the 25 MiB limit with 201", async () => {
+    const sessionId = await newSession();
+    const atLimit = Buffer.concat([PNG_BYTES, Buffer.alloc(25 * 1024 * 1024 - PNG_BYTES.length, 0x7f)]);
+    expect(atLimit.length).toBe(25 * 1024 * 1024);
+    const req = multipart([
+      { name: "kind", value: "cover" },
+      { name: "file", value: atLimit, filename: "exact.png", contentType: "image/png" },
+    ]);
+    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    expect(res.statusCode).toBe(201);
+    const photo = res.json().photo as { id: string; storage_url: string };
+    expect(statSync(photo.storage_url).size).toBe(atLimit.length);
+    expect(await listSessionPhotos(pool, shopId, sessionId)).toEqual([
+      { id: photo.id, kind: "cover", storage_url: photo.storage_url },
+    ]);
   });
 
   it("404s for a session that belongs to a different shop", async () => {

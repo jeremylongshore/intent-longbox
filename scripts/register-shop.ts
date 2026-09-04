@@ -8,6 +8,7 @@
 import "dotenv/config";
 import { parseArgs } from "node:util";
 import pg from "pg";
+import { DEFAULT_RETENTION } from "./retention-defaults.js";
 
 const { values } = parseArgs({
   options: {
@@ -60,6 +61,17 @@ async function main(): Promise<void> {
        VALUES ($1, $2, $3, $4)`,
       [shopId, Number(values["comp-percent"]), Number(values["floor-cents"]), values.rounding]
     );
+    // Default retention policies (022 P7 Q6, seeded by migration 003 for shops
+    // that already existed; new shops get them here). A policy change is a NEW
+    // row for the same (shop, class) pair — these are the first rows, not the
+    // only ones.
+    for (const policy of DEFAULT_RETENTION) {
+      await client.query(
+        `INSERT INTO retention_policy (shop_id, artifact_class, anchor, window_days, ceiling_days)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [shopId, policy.artifactClass, policy.anchor, policy.windowDays, policy.ceilingDays]
+      );
+    }
     await client.query("COMMIT");
     console.log(`shop registered: ${name} (${slug})`);
     console.log(`shop_id: ${shopId}`);

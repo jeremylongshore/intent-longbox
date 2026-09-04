@@ -1,6 +1,6 @@
 # Stack and Artifact Map — where every Longbox artifact lives, who backs it up, what the phone runs
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** MAPPED, NOT BUILT — this is the topology as it exists at main `1ed9ffb` and as the blueprint plans it; every "planned" cell names the bead that builds it. Written on 2026-09-03 in answer to Jeremy's question "do we have the software stack in place — where photos are hosted for backup, what iPhone app for pics, I use Immich, is this mapped?" It pulls the E13-B01 topology ADR forward as a map so the gaps are on paper before E00 closes.
 **Beads:** E13-B01 `longbox-e5b.13.1` (topology ADR — this map is its first draft), E05-B03 `longbox-e5b.5.3` (PWA vs native), E13-B06 `longbox-e5b.13.6` (object storage), E13-B07 `longbox-e5b.13.7` (backup/PITR)
 **Sensitivity:** Restricted internal (014 §10) — infrastructure detail.
@@ -23,7 +23,7 @@
 |---|---|---|---|---|---|---|---|
 | Photo original (cover, back, barcode, slab) | phone browser upload | `uploads/<session>/` on the VPS, public static | estate borg (implicit, unverified for this path) | private object store (B2 bucket or VPS private dir behind auth at Pilot A) | B2 Object Lock archival; restore drill | 90 days originals (draft, council Q6) | E05-B07, E13-B06 |
 | Photo derivative (resized for LLM / listing) | none yet (originals sent as-is) | — | — | same store, derivative tier | same | life of the listing | E05-B07 |
-| `scan_photo` row (path, hash, mime) | route | Postgres on the VPS | estate borg; **no PITR** | Postgres (same) | PITR + nightly logical dump; restore drill | append-only, purge by designed path (E02-B07) | E13-B07 |
+| `scan_photo` row (path, `storage_key` + `content_hash`, mime) | route | Postgres on the VPS | estate borg; **no PITR** | Postgres (same) | PITR + nightly logical dump; restore drill | append-only, purge by designed path (E02-B07) | E13-B07 |
 | Scan-session events (`candidate_set`, `llm_rerank`, `human_confirmation`, `condition_assessment`, `pricing_snapshot`, `shopify_draft`) | services | Postgres, append-only triggers (`migrations/001_init.sql:179`) | as above | same | same | forever (Hickey) | E13-B07 |
 | Cost ledger (`cost_log`) | providers | Postgres | as above | same + category column | same | forever | E12-B01 |
 | Corpus / catalog snapshots | not built | — | — | versioned snapshots (locked decision 4), source registry with rights (E04-B05) | B2 | forever, versioned | E04-B11 |
@@ -63,4 +63,14 @@ Where it is useful: as Jeremy's own capture tool for the **seed and evaluation p
 
 ## 6. Maintenance
 
+Any bead that moves an artifact updates the matching §2 row and logs the change in §7.
+
 E13-B01 replaces this map with the topology ADR (diagram, trust boundaries, cost, extraction triggers); until then, any bead that moves an artifact updates the matching row here and bumps the Version.
+
+## 7. Row updates
+
+Changes to the §2 artifact map since v1.0.0. One line per change, newest last.
+
+| Date | §2 row | Change | Bead |
+|---|---|---|---|
+| 2026-09-03 | `scan_photo` row (path, `storage_key` + `content_hash`, mime) | Storage key + content hash **reserved** by `migrations/003_reserve_principle_slots.sql`: `scan_photo.storage_key` and `scan_photo.content_hash` are nullable columns (legacy rows have neither and are never backfilled) under a CHECK that a key never exists without a hash, plus an index on the key. The row's Retention cell is now backed by real slots — `media_deletion` tombstones the object while the row survives, and `retention_policy` / `retention_hold` / `retention_hold_release` hold the 022 P7 Q6 windows and holds. The **object** still lives in the public `uploads/` mount (§2 row unchanged on that point; E05-B07 + E13-B06 own the move to private storage). | `longbox-e5b.2.11` (E02-D01) |

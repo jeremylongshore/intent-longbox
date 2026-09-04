@@ -1,6 +1,7 @@
 // L4: the Hickey model is enforced IN THE DATABASE (R1) — UPDATE and DELETE on
 // event tables must be rejected by trigger, while the one permitted mutation
 // (scan_session.status) still works.
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { createScanSession } from "../../src/services/scanSession.js";
@@ -76,6 +77,52 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // 003 (E02-D01): the 022 P7 lifecycle tables are event tables too.
+      case "media_deletion": {
+        // The tombstone names the SAME storage key as the photo it deletes —
+        // a deletion pointing at some other key would tombstone nothing.
+        const key = `key/${randomUUID()}`;
+        const photo = await pool.query(
+          `INSERT INTO scan_photo (scan_session_id, shop_id, kind, storage_url, storage_key, content_hash)
+           VALUES ($1,$2,'cover','x.jpg',$3,'sha256:deadbeef') RETURNING id`,
+          [sessionId, shopId, key]
+        );
+        const photoRow = photo.rows[0] as { id: string };
+        const r = await pool.query(
+          `INSERT INTO media_deletion (shop_id, scan_photo_id, storage_key, reason_code)
+           VALUES ($1,$2,$3,'retention_sweep') RETURNING id`,
+          [shopId, photoRow.id, key]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "retention_policy": {
+        const r = await pool.query(
+          `INSERT INTO retention_policy (shop_id, artifact_class, anchor, window_days, ceiling_days)
+           VALUES ($1,'originals','draft_created',30,90) RETURNING id`,
+          [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "retention_hold": {
+        const r = await pool.query(
+          `INSERT INTO retention_hold (shop_id, target_table, target_id, reason, review_date)
+           VALUES ($1,'scan_session',$2,'open return','2027-01-01') RETURNING id`,
+          [shopId, sessionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "retention_hold_release": {
+        const hold = await pool.query(
+          `INSERT INTO retention_hold (shop_id, target_table, target_id, reason, review_date)
+           VALUES ($1,'scan_session',$2,'dispute closed','2027-01-01') RETURNING id`,
+          [shopId, sessionId]
+        );
+        const r = await pool.query(
+          `INSERT INTO retention_hold_release (hold_id, released_by) VALUES ($1,'tester') RETURNING id`,
+          [(hold.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }
@@ -89,12 +136,16 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     "pricing_snapshot",
     "shopify_draft",
     "cost_log",
+    "media_deletion",
+    "retention_policy",
+    "retention_hold",
+    "retention_hold_release",
   ];
 
   for (const table of eventTables) {
     it(`rejects UPDATE and DELETE on ${table}`, async () => {
       const id = await insertRow(table);
-      await expect(pool.query(`UPDATE ${table} SET shop_id = shop_id WHERE id = $1`, [id])).rejects.toThrow(
+      await expect(pool.query(`UPDATE ${table} SET id = id WHERE id = $1`, [id])).rejects.toThrow(
         /append-only/
       );
       await expect(pool.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(/append-only/);

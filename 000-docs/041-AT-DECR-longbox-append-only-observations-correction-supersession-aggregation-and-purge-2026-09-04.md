@@ -1,0 +1,834 @@
+# Decision Record — Append-Only Observations: the Envelope, Correction and Supersession, the Request Transaction, Ordering, Aggregation and Lawful Purge
+
+**Version:** 1.1.1
+**Status:** **RATIFIED 2026-09-04** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`rich-hickey-reviewer`, `martin-kleppmann-reviewer`, both ACCEPT-WITH-CHANGES) plus a `legal-advisor` review of §7/§8 and §13 Q6. Binding per §14. Amendments A1–A12 absorbed in full, none declined; three dissents preserved in §14.
+**Bead:** E02-B07 `longbox-e5b.2.7` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class DEC, owner-role eng, risk critical) — see 000-docs/014 §8 row E02-B07
+**Drafted:** 2026-09-04 by `longbox-domain-builder` · **Cannon:** `rich-hickey-reviewer` + `martin-kleppmann-reviewer` + `legal-advisor`, 2026-09-04 — **both architecture lenses re-executed E13–E18 on a clean `postgres:16` and reproduced every claim verbatim; Hickey additionally re-ran E1–E22 by sample. No claim in §1 is disputed.** · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
+**Sensitivity:** Restricted internal (014 §10)
+**Supersedes:** nothing — first record on the observation envelope, the correction path and the purge path.
+**Inputs:** 014 §8 rows E02-B07, E02-B08, E02-B09, E02-B10, E01-B06, E03-B09, E05-B08, E05-B09, E10-B05, E13-B01 · 015 alias map · 003 v1.0.0 §*Data model* · 006 v1.26.2 (the 2026-09-04 migration-numbering row; the versioning convention at `:6`) · 016 v1.9.4 · 018 (evidence rules) · 019 v1.2.0 §3.0, §3.6, T3, T7, T17, T18, T19, T20, T23, T24, T32, T33, T34, T35, K1, K2, K4 · 020 §*Implementation directives* (the K1 detector-gap row) · 022 v1.1.1 P1, P2, P3, P7 (Q6), P8 · 023 v1.0.1 §2, §3, §5 · 029 v1.2.0 §1, §2.2, §2.9, §2.10, §3.1, §5 move 8 note N2, §9, **§12 in full** · 030 v1.1.1 §2.5, §2.6, §3.3, §7.1 · 034 v1.1.1 §2.5, §2.6, §2.9, §2.12, §2.13, §3.3, §4.1, §4.2, §4.4, §7 · 036 v1.1.1 §5.1 D1–D5, §5.2, §5.4, §6.2, §6.3, §7.1, §7.3, §7.4, §7.5, §8 I5/I9/I11/I18, §9 A1/A2, §10 Q6, §11 (the Fowler dissent), **§13 O-A/O-B/O-C** · 037 v1.1.1 §1.1, §1.4 D1, §4.1, §4.2, **§4.4**, §7 I3 · 040 v1.1.1 §2.3, §3.2, §3.3, §3.4, §3.5, §4.4, §4.5, §5.1, §5.2, §5.3, §5.4, §8.1, §8.2, §8.4, §8.5, §9, §12 · `migrations/001_init.sql`, `migrations/002_ebay_credential_kind.sql`, `migrations/003_reserve_principle_slots.sql`, `migrations/004_human_confirmation_outcome.sql`, `src/db.ts`, `src/config.ts`, `src/services/scanSession.ts`, `src/services/confirmationOutcome.ts`, `src/routes/scanSessions.ts`, `scripts/migrate.ts`, `scripts/register-shop.ts`, `scripts/retention-defaults.ts`, `tests/integration/append-only.test.ts`, `tests/integration/migrations.test.ts`, `.env.example` · CLAUDE.md locked decisions 2, 4, 5.
+
+## Change log
+
+**Version convention** (006 `:6`, as used by 029/030/034/036/037/040): a **minor** bump means the content of a decision changed; a **patch** means a statement of fact was repaired with no decision changing.
+
+**This is a minor bump, and five of the twelve amendments change what the schema or the sequence is.** A reader who acted on v1.0.0's §10 ordering (the transaction first), on §3.2's "FK or trigger, E02-B10's choice", on §4.2 as a settled decision, on §8.3's raw retained `content_hash`, or on §2.5's flat prohibition on ordering by `observed_at` must re-read §2.5, §3.2, §4.2, §5.3, §8.3, §9.2 and §10. **Every §1 today-claim was re-run at `12470b3`** after the rebase onto `b4ca195`, and **six changed**, because PR #52 landed `migrations/005_listing_status_observation.sql` between the draft and the cannon — see §0.
+
+| Version | Date | What changed | Authority |
+|---|---|---|---|
+| 1.0.0 | 2026-09-04 | Initial draft. **Status PROPOSED, §14 unsigned**, seven questions open in §13. Nine decisions: the observation envelope (§2), correction and supersession with a single writer and three new integrity rules (§3), 029 §12's request transaction with its isolation argument and route order (§4), the per-session sequence that answers the tie-break 040 §3.4 owes (§5), the materialization rule and the replay drill (§6), the O-A and O-B measurement obligations 036 §13 lays on this bead (§7), the lawful-purge path and the reference-not-value rule that makes field-level erasure possible without an UPDATE (§8), the append-only-trigger bypass detector 019 §3.6 files as this bead's directive (§9), and the confirmation that 030's catalog tables fit the envelope unchanged (§9.4). | `longbox-domain-builder` |
+| **1.1.0** | **2026-09-04** | **RATIFIED. Twelve amendments absorbed, none declined**, and **six §1 claims re-derived at `12470b3`** after PR #52 landed migration `005`. **A1** (Hickey, REQUIRED) `ENABLE ALWAYS` + the `pg_trigger` test ships as **migration 0, alone, before the transaction helper** — it shares no dependency with anything and closes a live bypass of locked decision 4; implementing bead **E02-D05**. **A2** (Hickey + Kleppmann) §13 Q3 **closed**: the composite FK is **mandatory** on the three session-scoped tables; the trigger fallback is deferred to whichever record first introduces a non-session-scoped supersession. **A3** (Hickey + Kleppmann) §4.2 **splits**: constraint-over-lock-over-isolation is **DECIDED**; `FOR UPDATE` versus `SERIALIZABLE` for anchorless guards is **OPEN**, closed by O-A arms (ii)/(iii) — Q5 answered *yes, mark OPEN*. Adds the **per-guard lock-coverage table**, decides G-c by making the hold-placement path take the same session lock, and names the anomaly as **write skew**. **A4** (Kleppmann) §5.3 states that `session_seq` is **commit order, not act order**, that for E05-B08's queue it is reconnect-and-replay time, and that a dispute between two replayed writes is resolved by `against_*` and never by `session_seq` alone — the **second sanctioned exception** beside `abandoned`'s `now()`; plus the one-sentence **consistency model** in §2.0. **A5** (Hickey + Kleppmann + legal) §8.3 names the hash class: `content_hash` is **SHA-256 of exact bytes, no perceptual hash without its own record**, and after purge the row retains only a **keyed HMAC-SHA256 under a per-shop purge-epoch key held outside the database** — so retention-for-detection is not a permanent re-identification key and is invalidated by rotating the key rather than by editing an append-only row. **Q6 answered: the keyed hash serves the deletion right; the raw hash does not survive the purge.** **A6** (legal, structural only) `retention_hold.hold_kind ∈ {operational, litigation}` with different placement and release rules; purged-row operator context bounded at 24 months and severed by reference; the purge record is **minimal**; the statutory questions go to the **counsel batch**, uncited here; the data-subject response wording is a **021 C-row candidate**, not written here. **A7** (Kleppmann) the `tgenabled` detector runs **continuously on a five-minute schedule**, boot check retained as the deployed-with-it-off catch; **T34's seventh heartbeat is YES**, filed as a 019 amend-by-row candidate for E00-B03 rather than as an edit. **A8** (Hickey) I20's static assertion lands in the same PR as the deprecation comment, as an explicit **E02-B08 acceptance line**. **A9** (Q2) **YES** — 040 §5.1's `observed_current_id` collapses into A1's `against_table`/`against_id`, recorded as an **amend-by-a-row on 040** (040 → v1.2.0). **A10** (Q1) **YES** to `authored_by NOT NULL`, with a **per-table** backfill decision in §10.1 — derivable-or-empty for all fourteen, so no NULL is needed anywhere. **A11** (Q7) **YES** — `request_idempotency` is exempt from the append-only set, as a declared exemption with its reason. **A12** implementing beads named: **E02-D04** (the transaction helper), **E02-D05** (A1), and a note-obligation on **E05-B08** for A4. | Two-lens cannon + `legal-advisor` → acting head, §14 |
+| 1.1.1 | 2026-09-04 | **Patch after the gate audit of `fa8be24` (statements of fact only — no decision changed, no re-cannon, §14 stays signed).** `longbox-gate-auditor` returned **NOT-READY on citation hygiene**, having confirmed that every executed claim E13–E18 reproduces, that all twelve amendments are absorbed, and that the registries are consistent. Five repairs. **(1)** **E5, E8 and E22 re-derived at `fa8be24` and their actual output pasted.** The consequential one is **E8**: it read *"No envelope column exists anywhere in code … zero lines, exit 1"*, and the grep now returns **eight lines, exit 0** — every one of them `observed_at` in `src/services/listingStatus.ts`, including the INSERT column list at `:106`. **The headline was false.** The finding survives and is now stated precisely: `actor_verified`, `operator_id`, `recorded_at`, `definition_version` and `derivation_version` still return nothing, so `003:63-73`'s four reserved columns still have no reader and no writer — and `observed_at` has exactly one writer, which is §2.5's external-observation case. E5 now returns one comment (`listingStatus.ts:17`) and E22 two (`003:130`, `005:141`); both keep their substance. **(2)** §2.1's specification table said `observed_at` **does not exist** while E21 and §2.5 say it does — the cell now names `005:80` and its writer, and `scan_photo.taken_at` as the third name for the same idea. **(3)** §10's preamble said *"neither `005` nor `006` exists"*, contradicting E20 — reworded: `005` is taken, 034 §4.1's and 036 §7.1's migrations are unwritten and take the **next free numbers at write time**, and the numbering has now moved **twice in one day**, which makes the no-reservation rule a worked example rather than a principle. **(4)** §0's executed-claims roster named *"four claims — E14, E15, E16 and E19"*, wrong twice: E13 and E17 are executed and were omitted, and **E19 is a grep, not an execution**. The set is **E13–E18**, six. The same bullet now also names E5, E8 and E22 as the three claims that carried stale evidence text while their substance held. **(5)** the `migrations.test.ts` citation unified on **`:89-111`** across §9.2 item 3 and I11 (E10 and §10 row 0 already had it). Plus a §0 note that the two commits between `12470b3` and `fa8be24` are docs-only, so every undisturbed line number re-derives at either SHA. | `longbox-gate-auditor` report on PR #53 → acting head |
+
+## 0. Evidence posture
+
+Per 018 A1/A3, and with 029 v1.0.0's gate-audit blocker B1 as the governing lesson — a "today" claim asserted at REPRODUCED on the strength of having read a file, later found false:
+
+- **Every "today" claim in §1 is REPRODUCED at `12470b3`** — this record's own commit, rebased onto `main` at **`b4ca195`**, the E02-D02 `listing_status_observation` PR #52 — each carrying a `file:line` **or** the verbatim command that produced it **with its exit status**. §1 prints the commands so a reader re-runs them rather than trusting the reading. **A rung is earned by the citation, not by the reading.** *(v1.1.1: E5, E8 and E22 were re-run at **`fa8be24`** on the gate audit and their evidence text corrected. The two commits between `12470b3` and `fa8be24` are **docs-only** — a diff over `src migrations scripts tests public .env.example` between them is **empty** — so every other line number re-derives unchanged at either SHA, and this is a statement of that fact rather than an assumption from it.)*
+- **⚠ Six §1 claims changed between the draft and the ratification, and they were re-derived rather than carried.** v1.0.0 was written at `12470b3`. PR #52 landed `migrations/005_listing_status_observation.sql`, `src/services/listingStatus.ts` and their tests while the cannon was running, so **E9, E10, E11, E19, E20 and E21 are materially different at `12470b3`** and are rewritten below — the trigger set is now **fourteen** tables spelled in **three** places, migration `005` **exists** and is not what 006's reservation said it would be, and the behavioural coverage gap **widened from two tables to three**. **One of the six is a live conflict with this record's own draft rule and is resolved in §2.5, not smoothed over: `005` ships an `observed_at` column and orders its derivation on it** (`005:80`, `005:94-95`, `listingStatus.ts:141`), which v1.0.0's §2.5 and I5 flatly forbade. §2.5 now carries the refined rule and states which of the two was wrong. *(This is the second time in two records that a same-day merge moved the ground under a citation — 040 cited `routes:213`/`:373`, correct at `aa448bb` and wrong at `12470b3`. The lesson is recorded in §12.2, not just absorbed.)* **Three further claims carried stale *evidence text* while their substance held, and were re-derived at `fa8be24` on the gate audit (v1.1.1): E5, E8 and E22.** Each had been written as a clean "zero lines, exit 1" grep and each now returns matches — one comment for E5, **eight lines for E8** (every one of them `observed_at` in `listingStatus.ts`, so the headline *"no envelope column exists anywhere in code"* was simply false), two comments for E22. **In all three the finding survives and the sentence did not**, which is the failure mode 029 §9's cheap-factual-repair clause exists for and §12.2 now names as a pattern.
+- **Line numbers were re-derived at this SHA, not carried across from 040.** 040 v1.1.1 was written at `aa448bb` and cites `setSessionStatus`'s call sites as `routes:213` and `:373`. **Those numbers are stale**: PR #51 added the outcome computation to the confirm handler, and at `12470b3` the same two call sites are `src/routes/scanSessions.ts:259` and `:419`. Nothing in 040's *decisions* is affected — the call sites are the same two — but a reader following 040's numbers at this SHA lands in the wrong place, and this record says so rather than reproducing the drift. Every cite below was produced by a command run at `12470b3`.
+- **§1 carries six claims that are REPRODUCED by execution rather than by reading — E13, E14, E15, E16, E17 and E18.** Each was produced by applying `migrations/001`–`005` verbatim to a clean `postgres:16` and running SQL against the result. The method and the observed output are stated with each claim, because a claim about what a constraint *permits* cannot be established by reading the constraint: the whole point is that the reader's expectation and the database's behaviour differ. **These are the strongest claims in the record and they are the ones a reviewer should re-run first** — both architecture lenses did, and reproduced every one verbatim (§14). *(v1.1.0 named this set as "four claims — E14, E15, E16 and E19", which was wrong twice: E13 and E17 are executed and were omitted, and **E19 is a grep, not an execution**. Corrected at v1.1.1 on the gate audit; the claims themselves are unchanged.)*
+- **Everything in §2–§10 is ASSERTED.** No table, column, view, trigger, helper, detector or line of code exists as a result of this record. Every invariant in §11 names a test file that does not exist. This record writes no migration and no TypeScript; §10 is a sequence for E02-B10 to order and for the implementing bead to execute.
+- **Ratification does not move anything up the ladder.** §14 records that a design was argued by two architecture lenses and a legal lens and adopted. It does **not** make any claim in §2–§10 true of any running system. What ratification changes is only that E02-D04, E02-D05, E02-B08 and E02-B10 are authorized to build against this shape, **in the order §10 fixes**.
+- **No numeric threshold is set here.** The lines this record leans on — T7 numeric grades = 0 (non-waivable), T18 duplicates reaching a live listing = 0 (non-waivable), T19 auto-publish incidents = 0 (non-waivable), T23 lost/duplicated offline items = 0, T24 cross-tenant access = 0 (non-waivable), T32 (non-waivable), T33 consent coverage 100% (non-waivable, G1 blocker), T34 detector liveness (non-waivable), T35 per-operator rendering = 0 (non-waivable), T3 ≤1%, T17 ≥99% — are quoted from 019 v1.2.0 and **never re-derived**. Two parameters this record needs and refuses to invent (`tx_max_retries`, §4.5; the purge sweep's cadence, §8.7) are signed as OPEN in 040 §3.5's idiom, with their closing evidence named.
+- **⚠ BLOCKING PRECONDITION, inherited and restated — 029 §12's request transaction still does not exist.** REPRODUCED at `12470b3`: `src/db.ts` is 17 lines and exports `getPool` (`:5`) and `closePool` (`:12`) and **no transaction helper**; `grep -rniE "BEGIN|COMMIT|ROLLBACK|connect\(\)|withTransaction" --include=*.ts src` returns **one** line and it is a prose comment (`src/config.ts:38`, exit 0); the only `BEGIN` / `COMMIT` / `ROLLBACK` in the repository are `scripts/register-shop.ts:46`, `:75`, `:84` — a one-shot onboarding script, not the pipeline. 040 §0 and §5.3 recorded this as the blocking precondition on **this bead**, and 040 marks **I14** and the atomicity halves of guards **G-a**, **G-c** and **G-d** as ⛔ blocked until it lands. **This record does not close that gap either — it specifies the helper (§4) and orders it FIRST (§10).** The half-written-chain risk 029 §12 names is live at `12470b3` and stays live until code ships. Adopting this record changes nothing about the running system.
+- **Two of this record's own decisions are additionally blocked on tables that do not exist.** §7's O-A measurement is on `listing_link` and `physical_item_active_listing`; §9.4's confirmation is about `lcid_registry` and `identity_resolution`. **None of those four tables exists at `12470b3`** (E18) — 036 §7.1's migration and 030 §7's are both unwritten. Those sections specify the shape of work that cannot begin yet, and say so where they say it.
+- **One claim in the bead's own notes is sharpened rather than repeated.** The 2026-09-03 note reads *"add `human_confirmation.supersedes_id` + `outcome` CHECK (confirm|correct)"*. **Half of that shipped without this bead**: `supersedes_id` landed at `003:86` and `outcome` at `004:60`, the latter under E02-D03. What is left for this bead is the part the note did not name and 019 §3.0 implies — **there is no writer for either column, and no rule about what a supersession may reference.** §1 E4 and §3 are about that, and §1 E14/E15/E16 show what the missing rule already permits.
+
+## 1. What exists today (REPRODUCED at `12470b3`)
+
+| # | Claim | Evidence |
+|---|---|---|
+| **E1** | **There is no transaction in the request path.** `src/db.ts` is 17 lines: `getPool` (`:5`), `closePool` (`:12`), nothing else. `grep -rniE "BEGIN\|COMMIT\|ROLLBACK\|connect()\|withTransaction" --include=*.ts src` → **one match, a prose comment** at `src/config.ts:38`. The only `BEGIN`/`COMMIT`/`ROLLBACK` in the repository are in a one-shot script. 029 §12's NOTHING-EXISTS-YET block reproduces at this SHA. | `src/db.ts:5`, `:12`; grep, one non-transaction match; `scripts/register-shop.ts:46`, `:75`, `:84` |
+| **E2** | **The one UPDATE in the codebase is still `scan_session.status`**, and the file's header comment still says so. 040 retires this column; nothing has been done about it yet. | `src/services/scanSession.ts:41`; comment `:1-3`. `grep -rn "UPDATE " --include=*.ts src` → two lines, one of them the comment |
+| **E3** | **`setSessionStatus`'s two call sites have moved.** At `12470b3` they are `src/routes/scanSessions.ts:259` (`"confirmed"`) and `:419` (`if (result.ok) … "drafted"`). 040 v1.1.1 cites `:213` and `:373`, which were correct at `aa448bb` and are not correct now. | `grep -rn setSessionStatus --include=*.ts src` → `routes:17` (import), `:259`, `:419`, `scanSession.ts:35` (export) |
+| **E4** | **`supersedes_id` has no writer anywhere in `src/`.** `grep -rn "supersedes_id" --include=*.ts src` returns **one line and it is a comment** — `src/services/confirmationOutcome.ts:9`, which says in as many words that the writer arrives with this bead: *"will be corrected by appending a superseding row once E02-B07 lands the `supersedes_id` writer, never by UPDATE."* The three columns 003 reserved are written only by tests. | grep, one comment match; `003:84-86`; writers only at `tests/integration/principle-slots.test.ts:96`, `:129`, `:153` and `tests/integration/confirmation-outcome.test.ts:125` |
+| **E5** | **No `_current` view is read by any code.** `grep -rn "_current" --include=*.ts src scripts` returns **one line, exit 0, and it is a comment** — `src/services/listingStatus.ts:17`, naming `listing_link_current_status` as something E02-B10's contract step will build. *(v1.1.0 said "zero lines, exit 1"; PR #52 added the comment. The **substance is unchanged** — no code selects from `condition_assessment_current` (`003:108`), `pricing_snapshot_current` (`003:114`) or `human_confirmation_current` (`003:120`, re-created at `004:103`) — but the evidence text was stale.)* The draft path instead reads the **last row by insertion order** out of `getSessionEvents` — `assessments?.[assessments.length - 1]` (`routes:374`), `confirmations?.[…]` (`routes:366`), `snapshots?.[…]` (`routes:370`) — which is not the same query and does not honour supersession at all. | grep, one comment match at `listingStatus.ts:17`; `routes/scanSessions.ts:366`, `:370`, `:374` |
+| **E6** | **The event trail is unfiltered, and that is correct.** `getSessionEvents` selects every row of seven tables with no supersession predicate. So a superseded record stays visible in `GET …/:id`'s `events` payload even once a `_current` view would hide it. **This is the property §3.6 turns into a rule**, not a defect. | `src/services/scanSession.ts:73-81` (the table list), `:85` (the interpolated `SELECT *`) |
+| **E7** | **No purge, sweep or retention code exists in `src/`.** `grep -rniE "media_deletion\|retention_policy\|retention_hold\|purge\|tombstone" --include=*.ts src` → **zero lines, exit 1**. The only non-test writer of any retention table in the repository is the seed in `scripts/register-shop.ts:70`, mirrored by `scripts/retention-defaults.ts`. 029 §1 records the same fact from the ownership side: `media_deletion`, `retention_hold` and `retention_hold_release` have **no code referencing them at all**. | grep over `src`, exit 1; `scripts/register-shop.ts:70`; `scripts/retention-defaults.ts:18-22` |
+| **E8** | **No envelope column is written on any table this record adds one to — but `observed_at` now exists and is written, on the one table that already had it.** `grep -rniE "actor_verified\|operator_id\|recorded_at\|observed_at\|definition_version\|derivation_version" --include=*.ts src scripts` returns **eight lines, exit 0, every one of them `observed_at` in `src/services/listingStatus.ts`** (`:74` the row type, `:87` the mapping, **`:106` the INSERT column list**, `:109`/`:138` the RETURNING and SELECT lists, `:128-129` the tie-break comment, `:141` the ORDER BY). **`actor_verified`, `operator_id`, `recorded_at`, `definition_version` and `derivation_version` return nothing.** So `003:63-73`'s four reserved `operator_id`/`actor_verified` columns still have no reader and no writer, which is the claim this row exists to make; and `observed_at` has exactly one writer, on `listing_status_observation`, which is §2.5's external-observation case. *(v1.1.0 said "zero lines, exit 1" — false at this SHA, and the false half is the headline. The finding survives; the sentence did not.)* | grep, eight matches, all `observed_at` in `listingStatus.ts`; `migrations/003_reserve_principle_slots.sql:63-73` |
+| **E9** | **The append-only trigger set is FOURTEEN tables, spelled in THREE places** *(changed at `b4ca195`)*. `001:174-176` names nine (`corpus_version, scan_photo, candidate_set, llm_rerank, human_confirmation, condition_assessment, pricing_snapshot, shopify_draft, cost_log`); `003:240-242` names four more (`media_deletion, retention_policy, retention_hold, retention_hold_release`); and **`005:149` names a fourteenth**, `listing_status_observation`, through its own single-element `FOREACH … ARRAY[…]` loop. `scan_session` is still deliberately absent, which is what makes E2's UPDATE legal. **A third spelling of the same set, added by a migration whose author had no reason to touch the other two, is the argument for §9.2 item 4 arriving on its own.** | `migrations/001_init.sql:170-182`; `migrations/003_reserve_principle_slots.sql:237-248`; `migrations/005_listing_status_observation.sql:147-155` |
+| **E10** | **The repository's only assertion about the trigger set still reads `information_schema.triggers`**, and PR #52 extended its expected list to fourteen rather than changing the query. `tests/integration/migrations.test.ts:89-111` runs `SELECT event_object_table FROM information_schema.triggers WHERE trigger_name LIKE '%_append_only'` and asserts equality against a fourteen-element literal (`:95-110`). **The list grew; the blindness did not change** (E13). | `tests/integration/migrations.test.ts:89-111`, list at `:95-110` |
+| **E11** | **The behavioural append-only test now covers eleven of the fourteen — the gap widened from two to three** *(changed at `b4ca195`)*. `append-only.test.ts:131-143`'s `eventTables` array is unchanged, so it omits **`corpus_version`**, **`llm_rerank`** and now **`listing_status_observation`**. All three carry triggers per E9 and none has a test that the trigger fires. **The list that grew (E10) and the list that did not are in different files, and nothing relates them** — which is exactly the failure §9.2 item 4's single declared list exists to make impossible. | `tests/integration/append-only.test.ts:131-143` versus `001:174-176`, `003:240-242`, `005:149` |
+| **E12** | **One database role does everything.** `.env.example:7` defines a single `DATABASE_URL`; `scripts/migrate.ts:12` reads it to apply the migrations — and therefore **owns every table it creates** — and `src/config.ts:28` reads the same variable for the running server. There is no second role, no `GRANT`, and no `OWNER` statement anywhere in `scripts/`. | `.env.example:7`; `scripts/migrate.ts:12`; `src/config.ts:28`; `grep -rn "GRANT\|OWNER" scripts/*.ts` → zero lines |
+| **E13** | **`information_schema.triggers` is blind to whether a trigger is enabled.** REPRODUCED by execution on `postgres:16`: with `tgenabled='O'` the view lists the trigger; after `ALTER TABLE t DISABLE TRIGGER t_append_only` (`tgenabled='D'`) **the view lists it identically**, while `UPDATE` on the table now succeeds. **Therefore E10's assertion passes with every append-only trigger in the database disabled.** That is the 019 §3.6 / 020 detector gap, stated as a reproducible fact rather than a worry. | executed: `SELECT event_object_table, trigger_name FROM information_schema.triggers …` before and after `DISABLE TRIGGER` — identical output; `SELECT tgname, tgenabled FROM pg_trigger WHERE NOT tgisinternal` — `O` then `D`; the intervening `UPDATE` returns `UPDATE 1` |
+| **E14** | **A default-enabled trigger (`tgenabled='O'`) is bypassed by `SET session_replication_role='replica'`.** REPRODUCED by execution: with the trigger enabled and `tgenabled='O'`, `SET session_replication_role='replica'` then `UPDATE` succeeds. With `ALTER TABLE … ENABLE ALWAYS TRIGGER` (`tgenabled='A'`) the same `UPDATE` raises `table t is append-only (Hickey model): UPDATE not allowed`. **Every trigger created by `001:178-180` and `003:244-246` is `'O'`** — neither uses `ENABLE ALWAYS`. | executed, both directions; `migrations/001_init.sql:178-180`; `migrations/003_reserve_principle_slots.sql:244-246` |
+| **E15** | **The bypass is available to the application's own role, and to no one else.** REPRODUCED by execution: a non-owner, non-superuser role gets `permission denied to set parameter "session_replication_role"` and `must be owner of table t2`, and its `UPDATE` is refused by the trigger. The **table owner** and any **superuser** may do both. Per E12, the application connects as the owner. | executed as a granted-but-not-owning role; three outcomes as stated |
+| **E16** | **A `human_confirmation` row may supersede *itself*, and doing so empties the session's current view.** REPRODUCED by execution against `001`–`004` applied verbatim: a single `WITH n AS (SELECT gen_random_uuid() AS nid …) INSERT … SELECT nid, …, nid FROM n` **succeeds**. The session then holds **1 row in `human_confirmation`** and **0 rows in `human_confirmation_current`** — because the view's `WHERE NOT EXISTS (… s.supersedes_id = h.id)` finds the row itself. There is no `CHECK (supersedes_id <> id)` on any of the three tables. | executed; counts 1 and 0; `003:88-104` contains an FK and a partial unique index and no self-reference CHECK |
+| **E17** | **Two rows may supersede each other, and the session then has no current confirmation at all — permanently.** REPRODUCED by execution: one `INSERT … SELECT a,…,b UNION ALL SELECT b,…,a` **succeeds** (the partial unique index is satisfied — each `supersedes_id` value appears once). The session holds **2 rows** and **0 rows in `human_confirmation_current`**. It is **unrecoverable**: the append-only trigger forbids `UPDATE` and `DELETE`, and a third row superseding either is refused by `human_confirmation_supersedes_once_idx` (observed verbatim: `duplicate key value violates unique constraint "human_confirmation_supersedes_once_idx"`). Under 040 §3.2 that session's rung falls back to `proposed` forever and `POST …/draft` 409s at `routes:367` for the life of the record. | executed; counts 2 and 0; the unique-violation message observed on the repair attempt |
+| **E18** | **A confirmation in one shop may supersede a confirmation in another shop, in another session.** REPRODUCED by execution: a `human_confirmation` inserted with shop `t`'s `shop_id` and session, carrying `supersedes_id` pointing at shop `s`'s row, **inserts successfully**; the joined check returns `crosses_shop = t`, `crosses_session = t`, and shop `s`'s victim session drops to **0 rows in `human_confirmation_current`**. Nothing in the schema prevents it: the FK targets `human_confirmation(id)` and constrains nothing about `shop_id` or `scan_session_id`. **019 T24 is `0` cross-tenant access, non-waivable, `any → K1`.** | executed; `003:94-96` (the FK, which names neither column); 019 T24 |
+| **E19** | **The four tables this record reasons about still do not exist — they now exist only as prose.** `grep -rniE "listing_link|physical_item_active_listing|lcid_registry|identity_resolution" migrations src scripts` returns matches at `005:31-39`, `005:110-112` and `listingStatus.ts:17` and **every one is a comment**, not a definition. 005's header states the deviation in as many words: 040 §4.4 and §8.1 write `listing_status_observation`'s FK against 036's `listing_link`, *"that table does not exist in the tree"*, so **the FK targets `shopify_draft` instead** (`005:76`) and `listing_link_id` is to be added nullable alongside when `listing_link` lands — expand, never a rewrite. **§7's O-A is therefore still unstartable**, for the same reason and now with a second record saying so. | grep, matches only in comments; `005:31-39`, `005:76`, `005:110-112` |
+| **E20** | **`migrations/` holds five files, and `005` is NOT what 006 reserved it for** *(changed at `b4ca195`)*. `005_listing_status_observation.sql` is E02-D02's, not 034 §4.1's tenancy migration. 006's 2026-09-04 row had reserved `005` for 034 and `006` for 036 §7.1; a second 006 row filed with PR #52 records the reservation moving again. **Both reserved sketches remain unwritten, and this is now the second time a reserved number was taken by a migration that was actually ready** — which is why §10 numbers nothing and states the rule instead. | `ls migrations/` → five files; `005_listing_status_observation.sql`; 006 decision-log rows of 2026-09-04 |
+| **E21** | **Time is now recorded under three column names, and one of them already orders a derivation** *(changed at `b4ca195`)*. `scan_photo` carries `taken_at` (`001:79`); every table from `001`/`003` carries `created_at`; and `listing_status_observation` carries **both** `observed_at timestamptz NOT NULL DEFAULT now()` (`005:80`) **and** `created_at` (`005:83`), with its comment distinguishing them exactly as §2.5 does — *"When the status was true according to the channel … Distinct from created_at, which is when Longbox wrote the row"* — and then stating *"the derivation orders on observed_at"* (`005:125-129`). The index (`005:94-95`) and the read (`listingStatus.ts:141`) both order `observed_at DESC, id DESC`. **This directly contradicts v1.0.0's §2.5 and I5.** §2.5 resolves it and says which of the two was wrong. | `001:79`; `005:80`, `:83`, `:94-95`, `:125-129`; `src/services/listingStatus.ts:141` |
+| **E22** | **No request carries an idempotency key, and `request_idempotency` does not exist.** `grep -rniE "idempoten" src migrations` returns **two lines, exit 0, and both are comments**: `003:130` about `media_deletion`'s unique storage key, and `005:141` about `003:237-248`'s idempotent trigger form. **Neither is a request idempotency key**, and no route reads or writes one. 040 §5.2 specifies the table; nothing has been built. | grep, two comment matches at `003:130` and `005:141` |
+
+**What §1 adds up to.** The Hickey model in this repository is enforced in exactly one place and in exactly one direction: fourteen triggers that refuse `UPDATE` and `DELETE`. That is a real guarantee and it holds — E11's two untested tables aside, the rows cannot be edited. **Everything built on top of it is missing.** There is no envelope, so a row does not say who caused it, who authored it, which rule produced it or when the thing it describes actually happened (E8, E21). There is no writer for the correction path (E4), and the rule the correction path needs was never written — which is why a row can supersede itself (E16), two rows can supersede each other into a permanent dead end (E17), and one shop can supersede another shop's record (E18). There is no transaction, so none of it is atomic (E1). There is no ordering rule that is about causality rather than clocks. There is no purge, so 022 P7's deletion sentence is a schema slot with no code behind it (E7). And the one guarantee that *does* hold is protected by a test that passes when it has been switched off (E13, E14, E15).
+
+**The through-line is a single sentence.** Immutability is not the same as truthfulness. A log whose rows cannot be edited but whose contents cannot say who wrote them, in what order, against what, or under whose authority is an *unfalsifiable* record, not an *honest* one — and an unfalsifiable record is worse than a mutable one, because it cannot be corrected either. **E02-B07 is the decision to make the log say what happened, and to make it correctable and erasable without ever being edited.**
+
+## 2. Decision A — The observation envelope
+
+### 2.0 The consistency model, in one sentence (A4, Kleppmann)
+
+The cannon's cross-cutting finding was that this record specifies a consistency model per guard and per session and never states its boundary anywhere a reader could hold onto. It is stated here, once, so that **every append-only table added after this record inherits it without re-deriving it**:
+
+> **The `scan_session` is the unit of causal ordering. Within a session, order is a fact — `session_seq`, assigned under the session lock. Above a session — across shops, across tenants, across sessions, and on any wall clock — nothing orders anything, and no derivation may pretend otherwise.**
+
+Three things follow immediately, and each is a rule stated elsewhere in this record that this sentence is the reason for. Ordering is **per session**, so `session_seq` is per session and never global (§5.3). A correction may not cross a session or a shop, because there is no order between two sessions in which "supersedes" could mean anything (§3.2 R1). And an external system's clock orders only its own observations of its own state and never a Longbox fact (§2.5). **A future table that wants a global order is asking for something this system does not have**, and it should read this sentence before inventing one.
+
+### 2.1 The rule
+
+> **Every append-only table in Longbox carries the same named set of envelope columns, spelled out on each table. There is no base table, no shared parent, no `event` table with a `payload jsonb`, and no inheritance. The envelope is a *specification with a test*, not an abstraction.**
+
+The envelope answers four questions about every row, and it is exactly four because the bead asks for exactly four properties — *versioned, actor-bound, replayable*, plus the tenancy locked decision 4 already requires:
+
+| Question | Column(s) | Status today |
+|---|---|---|
+| **Whose data is this?** | `shop_id uuid NOT NULL REFERENCES shop(id)` | present on every shop-scoped table |
+| **Who caused it, and were they who they said they were?** | `operator_id uuid REFERENCES app_user(id)`, `actor_verified boolean NOT NULL DEFAULT false`, `actor_role text` | present on four tables only (`003:63-73`); FK arrives with 034 §2.13; no writer (E8) |
+| **Who *authored the content*?** | `authored_by text NOT NULL CHECK (authored_by IN ('human','system','provider'))` | **does not exist** |
+| **Which rule produced it?** | `definition_version text` | **does not exist**; `candidate_set.corpus_version_id` (`001:86`) is the one instance already in the tree |
+| **When was it recorded, and when did the thing happen?** | `created_at` (= recorded), `observed_at timestamptz` | `created_at` present everywhere; **`observed_at` exists on exactly one table** — `listing_status_observation` (`005:80`), written at `listingStatus.ts:106` (E8, E21) — and on none of the others; `scan_photo.taken_at` (`001:79`) is the same idea under a third name (§2.5) |
+| **What did it come after, and what did it replace?** | `session_seq bigint` (§5), `supersedes_id uuid` (§3), `against_table`/`against_id` (§3.5) | `supersedes_id` on three tables (`003:84-86`); the rest do not exist |
+
+### 2.2 Why a specification and not a base table — simple, not easy
+
+The obvious construction is a parent: one `observation` table holding the envelope, with each witness table carrying a FK to it, or one `event(kind, payload jsonb)` table holding everything. **Both are the easier thing and the wrong thing, for one reason stated three ways.**
+
+A `scan_photo` and a `pricing_snapshot` have *nothing in common but the envelope*. Their contents vary independently, their writers are different modules (029 §2.2 versus §2.6), their retention windows are different (022 P7 Q6 gives originals and derivatives different anchors and different ceilings), and their correction semantics are different. **A base table asserts that they are the same kind of thing.** They are not; they merely have the same *metadata*. Braiding a photo and a price together because both know who took them is the exact complecting 034 §2.11 rejected when it struck the `source_bins jsonb` array — *"a foreign key wearing a costume"* — and it costs the same three things:
+
+1. **The database stops checking the contents.** A `payload jsonb` has no columns, so `grade_range_low` has no CHECK, no type and no FK. 037 §1.1 and locked decision 5 hang on the fact that a condition is a *range of band words*, checkable by a constraint. In a jsonb payload, T7's *"numeric grades emitted: 0, any → BLOCK, non-waivable"* stops being a schema fact and becomes a runtime hope.
+2. **A join becomes a join through a parent.** Every read of a witness table would traverse the parent to reach the envelope, on the hot path (§6), for metadata that could have been a column.
+3. **It buys nothing that a test does not buy more cheaply.** The property wanted is *"every witness table has these columns."* That is one query over `information_schema.columns` and a checked-in list — invariant **I1**. A base table enforces the same property by making it impossible to state a table *without* the envelope, which sounds stronger and is not: a table can still be added outside the hierarchy, and then the property is silently false with no test to catch it.
+
+**So: the envelope is a list, the list lives in one place in code, and a test asserts the schema matches it.** One declared set, three readers — the migration, the CI assertion, and the runtime assertion of §9. That is the same shape §9 needs for the trigger set, and the two lists are the same list.
+
+### 2.3 `authored_by` — cause and authorship are different facts
+
+This is the column the envelope adds that no existing record has, and it earns its place by making a non-waivable line **unrepresentable rather than merely forbidden**.
+
+040 §3.3 gives `scan_session_transition` an `actor_role` over three human values and states, correctly, that *"after A3 no machine writes a row here at all."* That works because a transition is always a human decision. **It does not generalise**, because most witness tables are written by a machine on a human's behalf: an operator presses a button and `resolution` writes a `candidate_set`; nobody would call the operator its author. Collapsing "who caused this row" and "who wrote its content" into one column forces a false answer on every machine-authored table.
+
+So the envelope carries both:
+
+- **`operator_id` + `actor_role`** — the person whose act caused the row. On `candidate_set` that is the operator who pressed identify; the row is theirs in the sense that it happened because of them.
+- **`authored_by ∈ {human, system, provider}`** — who produced the content. `human` when a person's judgement is the content; `system` when a Longbox module computed it; `provider` when the content came back over the seam (029 §4).
+
+And then the payoff, in one constraint:
+
+```sql
+ALTER TABLE condition_assessment ADD CONSTRAINT condition_assessment_is_a_human_act
+  CHECK (authored_by = 'human');
+```
+
+**037 §1.1 says a condition value not authored by a person in front of the book is an estimate, and that *"an estimate that reaches any of those surfaces is a defect, not a feature."* 040 F4 forbids a machine-driven condition. 019 T7 signs numeric grades at 0, non-waivable.** Today all three are enforced by the absence of a code path — which is a statement about the code as it stands, re-checkable only by grep. With `authored_by`, a machine-authored condition is **rejected by the database**, and 040 I9 and 037 §7 I3 gain a constraint to assert instead of a scan to run. The two invariants do not become redundant — 037 I3 forbids a rendered *suggestion*, which is a surface property no CHECK can see — but the writer half becomes structural.
+
+The same CHECK belongs on `human_confirmation` (022 P1: *"a person confirms every identity"*) and on `scan_session_transition` when 040's table lands (A3 already removed its `'system'` role). It deliberately does **not** go on `candidate_set`, `llm_rerank`, `pricing_snapshot`, `shopify_draft` or `cost_log`, all of which are legitimately machine-authored.
+
+### 2.4 `definition_version` — versioned means the rule is named on the row
+
+*Versioned* is ambiguous between two things, and the record means only one of them. It does **not** mean a schema version on each row (that is E02-B08's envelope on the *call*, and 029 §10 already assigns it). It means: **a row produced by a rule names the rule that produced it, so that changing the rule re-derives forward and restates no history.**
+
+The idiom is already ratified twice. 034 §2.9 puts `derivation_version text NOT NULL` on `labor_shift` — *"names the rule that produced this row, e.g. `gap-45m-ceiling-12h/v1`"* — alongside the parameters actually used, and 034's guard states the property: *"a change re-derives forward and never silently restates history. Old rows keep their old parameters and are superseded, not edited."* 040 §3.5 moves the same idiom onto a view for `abandon_after`. And `candidate_set.corpus_version_id` (`001:88`) is the same idea shipped in `001` under a domain-specific name.
+
+**Decision: one name, `definition_version text`, on every table whose content is produced by a rule that can change** — `llm_rerank` (the prompt, model and gate version that produced the re-rank), `pricing_snapshot` (the pricing rule version beside the `shop_pricing_policy` id the row already carries), and every derived read model (§6). It is **not** added to tables whose content is a person's words (`human_confirmation`, `condition_assessment`) — there is no rule there to version, and a column that is always NULL is a question the reader has to answer twice.
+
+`candidate_set.corpus_version_id` is **not renamed**. It is a typed FK to a real table and it is strictly better than a text version string; the record names it as the envelope's instance on that table rather than adding a second, weaker column beside it.
+
+### 2.5 `recorded_at` and `observed_at` — and the one table that already disagreed
+
+Two different times, and until PR #52 only one of them had a name.
+
+> **`created_at` is `recorded_at`: the moment the database learned the fact. It is never client-supplied, is always `DEFAULT now()`.**
+> **`observed_at` is the moment the thing being recorded actually happened. It is supplied by whoever is reporting the fact.**
+
+**`created_at` is not renamed to `recorded_at`.** Renaming a column on fourteen shipped tables would rewrite `003:112`, `:118`, `:124` and `004:107`'s view definitions, every `ORDER BY created_at` in `scanSession.ts:74-80` and `routes:224`, `:236`, and every test — a large diff whose entire yield is a better word. That is the *easy* kind of tidiness: it feels like clarity and buys none, because the column's meaning was never in doubt; only its documentation was. **The decision is to state the semantics and add the column that is genuinely missing.** Where this record and later records say `recorded_at`, they mean `created_at`, and §2.1's table says so.
+
+`observed_at` is added only where the two can differ, which is exactly three situations:
+
+1. **A queued write.** E05-B08's offline queue replays a transition or a confirmation minutes after the operator made it. The act happened at the counter; the row is recorded at reconnect. 040's A1 exists because *"time is a proxy for causality"*, and the offline queue is one of the three cases it names as breaking the proxy.
+2. **An observation of somebody else's system.** `listing_status_observation` — which **exists now** (`005:80`) and did not when v1.0.0 was drafted.
+3. **`scan_photo.taken_at`.** **Decision: `taken_at` *is* `observed_at`** — the shutter time — and `scan_photo` gains a `created_at` for the recorded time, defaulting to `now()`, never backfilled. Today the two are the same instant because the row is written in the request that received the upload (`routes:149-154`); under an offline queue they will not be, and by then the distinction must already exist, because an append-only column added later is a permanent hole for every row before it (`003:4-7`).
+
+#### The ordering rule, corrected — v1.0.0 was too broad and migration `005` was right
+
+v1.0.0 wrote a flat prohibition: *"no derivation may order by `observed_at`."* **E21 records that `005` does exactly that** — it indexes `(shopify_draft_id, observed_at DESC, id DESC)` (`005:94-95`), reads in that order (`listingStatus.ts:141`), and its comment states the intent plainly: *"the derivation orders on observed_at"* (`005:129`). One of the two is wrong, and **it is v1.0.0**.
+
+The rationale for the prohibition was that a client-supplied clock is not evidence — it is a number the client chose. That reasoning holds for a **Longbox** fact, where the client is our own phone and the thing being timed is an act we witnessed. It does **not** hold for an observation of an **external system of record**. 040 §4.4 is emphatic that publication is *"an observation Longbox receives"*, never a transition Longbox makes; Shopify is the authority on the order its own listing states occurred in, and `created_at` records only the order **Longbox heard about them**. A webhook replayed hours after a poll would otherwise read as newer than the state it is older than — which is 005's own worked example, and it is correct.
+
+> **The corrected rule. `observed_at` may order a derivation only inside an *external-observation table*: one whose rows are Longbox's record of a fact owned by another system. Such a table is declared as external-observation on §9.2 item 4's list. Everywhere else — every table recording a Longbox act — `observed_at` renders and never decides, and the order is `session_seq` then `created_at` (§5.3).**
+>
+> Three conditions on the exception, all of which `005` already satisfies: the ordering is **per subject** (`shopify_draft_id`), it carries a **deterministic tie-break** (`id DESC`, so a poll and a webhook landing on one instant do not coin-flip), and **it orders nothing outside its own table** — an external clock never contributes to `session_seq`, never sets a session's rung, and never decides between two Longbox facts.
+
+This is the §2.0 model applied: an external system orders its own observations; nothing above the session orders anything of ours. **I5 is rewritten accordingly** — it now asserts that no *non-declared* table orders by `observed_at`, and that the declared ones satisfy the three conditions. Stating that a shipped migration was right and this record's draft was wrong is cheaper than either quietly dropping the rule or filing a defect against `005`.
+
+### 2.6 What *replayable* means, made concrete
+
+The bead asks for observations that are *replayable* and the word is worth pinning down, because it is the property everything in §6 rests on:
+
+> **A derived artifact is replayable if it can be dropped entirely and recomputed from the witness tables plus its own `definition_version`, with no other input, producing the same result.**
+
+Two consequences follow immediately, and both are testable:
+
+1. **Nothing derived may hold a fact that exists nowhere else.** If dropping it loses information, it is not derived — it is a second source of truth, and locked decision 4 forbids one. §6.4's **replay drill** is the test: drop every view and every materialized read model, recreate them from their definitions, and assert every invariant test still passes.
+2. **A derivation may not read the clock, the environment, or a provider.** A rule that consults `now()` is not replayable, because replaying it tomorrow gives a different answer. 040 §3.4 clause 3's `abandoned` predicate **does** read the clock — and it is correct that it does, because it is deliberately *a statement about now* (040 §3.4: *"the predicate is a statement about now"*). **That is the one sanctioned exception and it is sanctioned by being named**: a time-relative predicate is replayable *as of an instant*, and its instant is an input. §6.3 makes that explicit for any read model that inherits it.
+
+## 3. Decision B — Correction and supersession
+
+### 3.1 The rule
+
+> **A correction is a new row that names its predecessor through `supersedes_id`. It never edits the original, never hides the original from the trail, and never crosses a shop or a session boundary. A row may be superseded at most once, and a row may not supersede itself or participate in a cycle. The only writer is the module that owns the table, through one shared helper, inside the request transaction.**
+
+Four of those seven clauses are enforced today. Three are not, and §1 E16, E17 and E18 are what the absence already permits.
+
+### 3.2 The three integrity rules the tree is missing
+
+`003:88-104` gives each of `condition_assessment`, `pricing_snapshot` and `human_confirmation` a self-FK and a partial unique index. That is genuinely good and it enforces **R2** below. It enforces nothing else, and the FK's own shape is why: `FOREIGN KEY (supersedes_id) REFERENCES human_confirmation(id)` constrains the *target's existence* and says nothing about the target's `shop_id` or `scan_session_id`.
+
+| # | Rule | Enforced by | Status |
+|---|---|---|---|
+| **R1** | **A successor sits in the same shop and the same session as its predecessor.** | a `BEFORE INSERT` trigger — see below | **missing; E18 is the consequence, and it is a T24 path** |
+| **R2** | **A row is superseded at most once**, so the correction history is a chain and never a fork. | `*_supersedes_once_idx`, partial unique on `supersedes_id` | shipped, `003:99-104` |
+| **R3** | **A row may not supersede itself, and no cycle may form.** | `CHECK (supersedes_id IS DISTINCT FROM id)` for the self case; the acyclicity of longer cycles follows from R2 plus R4 — see below | **missing; E16 and E17 are the consequences** |
+| **R4** | **A successor is recorded after its predecessor**, so the chain runs forward. | the same `BEFORE INSERT` trigger, asserting the predecessor's `session_seq` is lower (§5) | **missing** |
+
+**R1 is a composite foreign key, and on these three tables it is MANDATORY (A2, Hickey + Kleppmann).** v1.0.0 left the choice between a composite FK and a `BEFORE INSERT` trigger to E02-B10 and asked §13 Q3 whether the FK should be required. **The cannon closed it: on `human_confirmation`, `condition_assessment` and `pricing_snapshot` the FK is required, not preferred.**
+
+```sql
+ALTER TABLE human_confirmation
+  ADD CONSTRAINT human_confirmation_supersedes_same_scope
+  FOREIGN KEY (supersedes_id, shop_id, scan_session_id)
+  REFERENCES human_confirmation (id, shop_id, scan_session_id);
+-- requires a redundant unique index on the target: (id, shop_id, scan_session_id)
+```
+
+All three are session-scoped today — every one carries both `shop_id` and `scan_session_id` — so the FK is expressible on all three, and there is no case among them where the trigger would be needed. Three reasons it is mandatory rather than preferred:
+
+1. **It is checked by the planner, and there is no procedure to disable.** §1 E13–E15 establish, by execution, that a trigger can be switched off by the table owner or a superuser and that the repository's own assertion cannot see it. A constraint has no `tgenabled`. Choosing a trigger for R1 would put a **non-waivable T24 boundary** behind precisely the mechanism §9 exists because it is bypassable.
+2. **It therefore needs no detector.** Every trigger this system relies on costs a detector, a heartbeat and a place on §9.2's declared list. The FK costs a redundant unique index and nothing else — no runtime check, no CI check, no T34 entry.
+3. **It is not a per-table judgement call.** A rule that says "FK where it fits, trigger otherwise" invites the next author to decide it fits less well than it does. On these three it fits exactly.
+
+**The trigger fallback is not deleted — it is deferred.** Whichever record first introduces a supersession chain on a table that is *not* session-scoped (`labor_shift` is 034 §2.9's candidate: shop- and location-scoped, with its own `supersedes_id` and partial unique index) owns the rule for that shape, and may reach for a trigger with its eyes open and a detector attached. **It is not a choice for these three, and §13 Q3 is closed.**
+
+**Why R3 is not merely tidy.** E17 is the whole argument. Two rows that supersede each other satisfy R2, satisfy the FK, and leave the session with **zero** current confirmations — and the state is **unrecoverable**, because the append-only trigger forbids repair and R2 forbids a third row from superseding either. A session in that state 409s on `POST …/draft` forever (`routes:367`). It is the exact failure class 029 §12 describes for the half-written chain — *"unfixable by design"* — arriving through a different door. `CHECK (supersedes_id IS DISTINCT FROM id)` costs one line and closes E16 outright; R4's forward-ordering assertion closes E17, because a cycle requires at least one edge pointing backwards.
+
+**And R1 is a non-waivable line, not a hygiene item.** 019 T24 signs cross-tenant access at `0`, non-waivable, `any → K1`. E18 is a reproducible cross-tenant write that the database currently permits, and its effect on the victim shop is that a session silently loses its confirmation. 022 P7's *"NOTHING IN THE DATABASE VERIFIES TENANCY HERE"* warning at `003:208-213` was written about `retention_hold`'s polymorphic target; **it applies to `supersedes_id` too, and nobody had said so.** This record says so.
+
+### 3.3 The single writer
+
+> **One helper writes `supersedes_id`, for every table, and no route or service writes it directly.**
+
+```ts
+supersede(tx, table, predecessorId, row)   // owned by the module that owns `table`
+```
+
+Three reasons it is one helper rather than a per-route `INSERT`:
+
+1. **R1, R3 and R4 are checked in the database, and the helper is where the *error* becomes a product answer.** A raw FK violation surfaces as a Postgres message; 022 P6's *"a screen never blames the person"* and 040 A9's E05 acceptance criterion require that a losing correction shows the other person's answer, not a stack trace. One writer means one place that translates.
+2. **The `outcome` baseline is a property of the supersession, not of the clock.** `decideOutcome` today takes `priorConfirmation` = the session's latest prior confirmation by `(created_at DESC, id DESC)` (`routes:221-226`). That is *usually* the row being superseded and is not *necessarily* it. **Decision: when a write supersedes, the outcome baseline IS the superseded row** — 019 T20 measures *"owner edits to the identity the owner INHERITED"*, and the inherited identity is by definition the one being replaced. The helper is the only place that knows both, so it is the only place the rule can be enforced. This is a correction to a shipped behaviour and §13 Q4 puts it to the cannon.
+3. **Idempotency and the transaction.** A correction that retries must not append twice (040 §5.2), and a correction plus its consequence must commit together (§4). Both are properties of the writing path, and there is one.
+
+**Who may call it:** the module that owns the table (029 §2.10's map), and nobody else. `condition` writes a superseding `condition_assessment`; `commerce` may not. That is already enforced structurally by 029 §3.1's dependency rule, and the negative architecture test at 040 I4d is its gate.
+
+### 3.4 The `_current` view contract, stated once
+
+Today three views exist and nothing reads them (E5); the draft path uses last-row-by-insertion-order instead (`routes:366`, `:370`, `:374`), which does not honour supersession at all. So the contract has to be stated before it can be relied on:
+
+> **A `<table>_current` view returns, per `scan_session_id`, the newest row that nothing supersedes, ordered by §5's canonical order. It is a read model over immutable history and holds no state. It may legitimately return zero rows — meaning nothing was ever written — and it must never return zero rows for any other reason.**
+
+That last clause is the one E16 and E17 violate: today, zero rows also means *"a correction chain ate itself"*, and the two are indistinguishable to every caller. R1/R3/R4 are what make the sentence true, and invariant **I7** asserts it in both directions.
+
+Two consequential decisions follow:
+
+- **Every read that drives a decision goes through `_current`.** `POST …/draft`'s three reads (`routes:366`, `:370`, `:374`) move to `human_confirmation_current`, `condition_assessment_current` and `pricing_snapshot_current`. Today a superseded condition would still compose the listing, which is 037 §4.4's correction path silently failing to take effect — the owner's corrected condition would be written and ignored. **This is a live defect at `12470b3`**, not a design gap, and invariant **I8** is written to fail on the current tree.
+- **The `_current` views' `ORDER BY created_at DESC, id DESC` (`003:112`, `:118`, `:124`, `004:107`) is replaced by §5's canonical order**, for the reason §5 gives: `id` is `gen_random_uuid()`, so `id DESC` is a stable coin flip, not a tie-break with meaning.
+
+### 3.5 `against_table` / `against_id` — one shape, not two
+
+040 introduced two constructions for the same idea within one document. §5.1 proposes `human_confirmation.observed_current_id uuid REFERENCES human_confirmation(id)` — *"a confirming write carries the id of the confirmation the client believed was current"* — and A1 proposes `against_table` / `against_id` on `scan_session_transition`. **040 itself says they are one idea**, in §5.1's own words:
+
+> *"The same shape covers a transition: `scan_session_transition.against_*` (A1) is the confirmation case generalised, which is why the two amendments are one idea — **a write says what world it was made against, and the reader checks.**"*
+
+**Decision: implement the general shape, `against_table` / `against_id`, and do not add `observed_current_id`.** A confirmation issued against confirmation `X` is `('human_confirmation', X)`; the same CHECK, the same whole-or-absent rule, the same `(against_table, against_id)` index, the same fallback counter. One concept, one column pair, one test.
+
+This is a **shape unification, not a decision reversal.** 040 §14 reserves supersession to a new record for *"the two-machine split, the derivation rule, a transition kind, a forbidden transition, a guard"*; a column name for the concurrency check is none of those, 040 §8 is explicitly *"a sketch for E02-B07 and E02-B10 to execute"*, and 040 §5.1 names the two as one idea in the sentence quoted above. **It is nonetheless the place where this record comes closest to editing a ratified one, and §13 Q2 puts it to the cannon rather than assuming the answer.**
+
+The columns go on the tables that record **a human decision made against a displayed state**: `human_confirmation`, `condition_assessment`, and `scan_session_transition` when 040's table lands. They do **not** go on machine-authored tables, which are not decisions and were not made against anything the actor was shown.
+
+### 3.6 A correction never edits and never hides
+
+Three separate properties, and only the first is enforced today:
+
+1. **It never edits.** The append-only trigger, `001:171-182`. Shipped.
+2. **It never hides.** The `_current` view hides a superseded row *from the current read*, which is its purpose — but the full trail stays readable. E6 records that `getSessionEvents` returns every row of seven tables with no supersession filter, and **that is the correct behaviour and is now a rule**: `GET …/:id`'s `events` payload is the complete, unfiltered history, and no view may be the only way to read a table. 022 P8's decision strip and 040 §3.6's `scan_session_state_history` are both projections of that trail, and both stop being computable if the trail is ever filtered at source. Invariant **I9**.
+3. **It never deletes.** 036 D5 — *"Nothing is ever deleted"* — and §8's purge is the single, designed exception, which removes **bytes and referenced values**, never rows. §8.4 draws that line precisely.
+
+## 4. Decision C — The request transaction (029 §12)
+
+**⛔ This is the section that is blocked, not pending, and it is FIRST in §10's sequence.** 040 §0 and §5.3 name it as the precondition for its own guards; 034 §7 names it as the blocker on E03-B04's RLS; 036 D3 needs it for the sale/deactivation pair; §3.3 above needs it for the supersession writer. Nothing else in this record can be tested without it.
+
+### 4.1 The shape
+
+One helper, in `src/db.ts`, beside `getPool`:
+
+```ts
+export async function withTransaction<T>(
+  pool: pg.Pool,
+  fn: (tx: pg.PoolClient) => Promise<T>,
+  opts?: { isolation?: "read committed" | "serializable"; label?: string }
+): Promise<T>;
+```
+
+It acquires a client, `BEGIN`s, runs `fn`, `COMMIT`s, and on any throw `ROLLBACK`s and releases — the shape `scripts/register-shop.ts:44-84` already demonstrates, lifted into the request path. 029 §12.1's four clauses are the contract it implements, unchanged: `workflow` owns it, the handle travels explicitly as the first parameter of every writing public function, the transition fact and the step record commit together, and a partial failure rolls the whole request back.
+
+**One rule the helper enforces that 029 §12 does not state: `fn` performs no side effect outside the transaction.** No provider call, no Shopify mutation, no file write. This is not stylistic — it is what makes §4.5's retry sound, and it has a concrete consequence for the draft path today: `client.createDraft(draftInput)` (`routes:407`) runs *before* the `shopify_draft` INSERT (`routes:408`), and that ordering is **correct and must be preserved**. The external call happens first, outside; the transaction then writes `shopify_draft` and (once 036's table exists) `listing_link` and the arbiter row together. Invariant **I13** asserts no `fn` body reaches a provider.
+
+### 4.2 Isolation: READ COMMITTED plus explicit locks, not SERIALIZABLE
+
+**Decision: `READ COMMITTED` is the default. `SERIALIZABLE` is used only where no single anchor row exists.**
+
+The argument starts from what the pipeline actually writes. **Appends do not conflict.** Two `scan_photo` inserts are two photos; two `pricing_snapshot` rows are one per source by design; concurrent inserts into an append-only table under `READ COMMITTED` are correct with no isolation help at all. The conflicts that matter are all of one shape — **a read that decides whether a write is allowed**:
+
+| Guard | The read | The write | Source |
+|---|---|---|---|
+| **G-a** | is there a consent reference covering this session? | the first `scan_photo` | 019 T33, non-waivable, G1 blocker |
+| **G-c** | is there an open `retention_hold`? | `shopify_draft` + `listing_link` | 022 P7 Q6; 040 §4.5 |
+| **G-d / D1** | does this copy already have an active listing? | `listing_link` + the arbiter row | 036 §5.1 D1, non-waivable via T18 |
+| **§3 / I13** | is the confirmation I was shown still current? | the superseding `human_confirmation` | 040 §5.1 |
+| **F6** | does a condition assessment exist? | `shopify_draft` | 040 F6 |
+
+Under `READ COMMITTED` every one is a time-of-check-to-time-of-use race. There are three ways to close them, and the record picks between them **per guard**, because they are not the same problem:
+
+1. **A constraint, where one exists — always preferred.** 036 §5.2's `physical_item_active_listing` has `PRIMARY KEY (physical_item_id)`, and 036 states the property exactly: *"two simultaneous bind attempts do not both read 'no active link' and proceed; the second blocks on the key and then fails."* **G-d needs no isolation help and no lock.** Likewise R2's partial unique index, and `request_idempotency`'s `UNIQUE (shop_id, idempotency_key)` (040 §5.2). A constraint is the cheapest correct answer and it is correct under every isolation level.
+2. **An explicit lock on the anchor row, where the guard is about one session or one copy.** `SELECT id FROM scan_session WHERE id = $1 AND shop_id = $2 FOR UPDATE` at the top of every mutating session route. **This closes G-a, G-c, F6 and the confirmation check in one line**, because all four are questions about a single session, and it makes the second device's 409 (040 §5.1) *deterministic* rather than racy — the loser blocks, then reads the winner's row, then is refused with the winner's answer in hand. The contention cost is a session, which is one book at one counter: by construction, near zero.
+3. **`SERIALIZABLE` with retry, where the guard spans many rows with no anchor.** The purge sweep (§8) reads a policy, a hold set and a photo set across a shop. 036 §5.3's daily reconciliation reads every copy. Neither has a single row to lock, and locking a shop would serialise the shop.
+
+#### What is DECIDED and what is OPEN (A3, Hickey + Kleppmann — §13 Q5 answered "yes, mark OPEN")
+
+v1.0.0 presented all of §4.2 as decided. **The cannon split it, and it was right to**: half of it is a structural argument and half of it is a contention claim I never measured — the same unmeasured-cost rejection 036's O-A exists to correct, which §7.3 raised against this record and then did not act on.
+
+> **(i) DECIDED — the preference order: a constraint, else a lock on the anchor row, else an isolation level.** This is structural, not a performance claim: a constraint is correct at every isolation level and needs no retry, and 036 §5.2 already states the property for the arbiter's primary key. Nothing measured could overturn it.
+>
+> **(ii) OPEN — `SELECT … FOR UPDATE` versus `SERIALIZABLE` for a guard with no single anchor row.** v1.0.0 argued that a lock names the row a guard depends on while an isolation level does not. That is a readability argument, and the cost claim underneath it — that `SERIALIZABLE`'s retry rate is a real risk at the counter — **is unmeasured**. It is signed **OPEN** and closed by **O-A arms (ii) and (iii)** (§7.1), exactly as 040 §5.4 marks its own plain view: the same fixture, the same run, measuring lock wait against `40001` retry rate. Until it reports, no record may cite §4.2(ii) as settled.
+
+#### The per-guard lock-coverage table (A3, Kleppmann's Lamport-lens gap)
+
+The cannon's second finding on §4.2 was that the record asserts the session lock closes four guards without ever enumerating, per guard, **which rows the lock covers versus which rows the predicate reads**. Where those two sets differ, the guard is exposed to **write skew** — two transactions each read a predicate, each see it satisfied, each write a row that invalidates it for the other, and both commit, because under `READ COMMITTED` (and under `SNAPSHOT ISOLATION` generally) nothing detects that the predicate's *result set* changed. Naming the anomaly matters: it is the one class of bug a row lock does not catch by construction, and every row below is an argument that the two sets coincide.
+
+| Guard | Predicate reads | The `FOR UPDATE` covers | Coincide? |
+|---|---|---|---|
+| **G-a** consent | the consent reference for **this session** | the `scan_session` row | **Yes** — the consent reference hangs off the session (019 T33: *"a consent flag on `scan_session` naming the covering buy slip"*), so the predicate's subject *is* the locked row |
+| **G-b** batch | `scan_session.batch_id`, `location_id`, `device_id` | the same row | **Yes** — all three are columns of the locked row (034 §2.13) |
+| **G-c** hold | `retention_hold` rows naming **this session or its copy**, minus their releases | the `scan_session` row — **and, by decision below, the hold-placement path takes the same lock** | **Yes, by construction** — see below. Without that decision, **no** |
+| **G-d / D1** | active `listing_link` rows for **this copy** | *(no lock taken)* | **N/A** — closed by `physical_item_active_listing`'s primary key, which is a constraint, not a predicate read (036 §5.2) |
+| **F6** condition | whether a non-superseded `condition_assessment` exists for **this session** | the `scan_session` row | **Yes** — the assessment is FK'd to the locked session, and R1 (§3.2) now guarantees no correction arrives from another session |
+| **confirmation check** | `human_confirmation_current` for **this session** | the `scan_session` row | **Yes** — same reason, and R1's composite FK is what makes "for this session" a closed set the lock can cover |
+
+**G-c is the one that did not coincide, and it is decided rather than noted.** A `retention_hold` is polymorphic (`003:214-216`) and its placement path has no reason to touch the session row, so a hold could be inserted by a transaction that never takes the session lock, between the draft path's hold check and its write — classic write skew, on a guard that 022 P7 Q6 requires be exempt from *every* sweep.
+
+> **Decision: the hold-placement path takes the same `scan_session` FOR UPDATE as the draft path**, for a hold whose target is a session or a copy reachable from one. Hold placement is a rare, human-initiated act; serializing it behind the session it concerns costs nothing and makes **a hold that never touches the session row impossible by construction** rather than merely unlikely. Where a hold targets something with no session (a `labor_shift`, a shop-wide litigation hold under §8.6's `hold_kind`), there is no draft path to race and the guard does not apply.
+
+**I16 is extended to construct exactly the interleaving this forbids**: a hold inserted by a transaction that does *not* lock the session, concurrent with a draft, asserting the interleaving is blocked rather than merely improbable. A guard whose test cannot produce the anomaly it prevents has not been tested.
+
+
+**Why not `SERIALIZABLE` everywhere.** It is the *easier* choice — one setting, no per-path thinking — and it complects three things that are independent. (a) It makes every statement in a request part of one serialization unit, so an unrelated read can cause an unrelated write to abort. (b) It moves correctness into a retry loop whose failure mode — `40001` under contention — is invisible until pilot load, and 019 K4's *"the pipeline never blocks on a provider"* posture has an analogue here: a pipeline that stalls on serialization failures at the counter has failed for the operator in exactly the way 022 P4 and 033's rapid loop forbid. (c) It hides *which row the guard depends on*. `FOR UPDATE` on the session row is a sentence a reader can read: **this write depends on this session not changing.** `SERIALIZABLE` says only *this depends on something*. **The lock is simple; the isolation level is easy.** And the deciding point is that most of these guards need neither, because a constraint already holds them.
+
+### 4.3 Where 036's O-A obligation lands
+
+036 §13 O-A makes this record's isolation argument **falsifiable rather than asserted** for the one path it names, and §7 carries it in full. The short form here: the D1 binding path is exactly the case where option 1 (the arbiter's primary key) and option 2 (`FOR UPDATE` on `physical_item`) and option 3 (`SERIALIZABLE`) all work, and 036's Fowler dissent is that the arbiter was chosen over the other two *without a measurement*. **§4.2's preference for constraints over locks over `SERIALIZABLE` is a reasoned default, and O-A is the measurement that tests it on the one path where the choice has a cost.**
+
+### 4.4 Which routes it wraps, in order
+
+Ordered by how many blocked invariants each unblocks, not by size:
+
+| Order | Route | Why here |
+|---|---|---|
+| **0** | the helper itself, plus the `FOR UPDATE` anchor read | nothing below is possible without it |
+| **1** | `POST …/draft` (`routes:356-425`) | it unblocks **all four** of 040's ⛔ items at once — I14 in full, and the atomicity halves of G-a, G-c and G-d. It is also the largest half-written chain in the tree: the external call, the `shopify_draft` INSERT (`routes:408`) and `setSessionStatus` (`routes:419`) are three unprotected steps, and 036 D3's sale/deactivation pair joins them later |
+| **2** | `POST …/confirm` (`routes:196-261`) | the supersession writer (§3.3) and the two-device conflict check (040 §5.1, I13) both live here; it is where the `outcome` baseline rule (§3.3 point 2) takes effect |
+| **3** | `POST …/identify` (`routes:163-194`) | 029 §12 point 4's own worked example — *"no `candidate_set` without the `llm_rerank` the same request produced"*. `runIdentify` writes both; today nothing binds them. 040 §4.6 additionally owes this route an error record on its 502 (`routes:192`), which is E06's, and the transaction is what makes that record atomic with the failure |
+| **4** | `POST …/condition`, `POST …/price` (`routes:263-354`) | the supersession path for the other two corrected tables; `POST …/price` writes one row per source through `priceWithProviders` and those must land together |
+| **5** | `POST …/photos` (`routes:115-161`) | last, because G-a's consent record does not exist until E01-B06 and E03-B09 land, so wrapping it earlier protects a guard with nothing to read. The byte-write ordering it already has (`routes:134-159`: temp file, rename on success, remove the file if the row fails) is a hand-rolled compensation that the transaction does **not** replace — a filesystem write cannot join a database transaction, and §8.2 makes the same point about the purge |
+
+### 4.5 Retry
+
+Retry the whole `fn` on `40001` (`serialization_failure`) and `40P01` (`deadlock_detected`), and on nothing else. A retry is only sound because §4.1 forbids side effects inside `fn`; the two rules are one rule.
+
+**`tx_max_retries` is a signed OPEN parameter**, in 040 §3.5's idiom:
+
+| Field | Value |
+|---|---|
+| Parameter | `tx_max_retries` — attempts before the request fails with a 409 the operator can act on |
+| Value today | **UNSET.** This record refuses to invent an unmeasured number beside 034 §2.9's 45-minute gap and 040 §3.5's `abandon_after` |
+| Rung | **PROPOSED / OPEN** (018 A3). No Longbox concurrency data exists |
+| Closing evidence | the retry-rate distribution from §7's O-A benchmark, at the pilot volumes 019 §5 fixes (Pilot A 25 supervised items; Pilot B 100 mixed; Pilot C ≥300 across ≥2 operators over ≥4 weeks) |
+| Guard | **every retry is counted from day one**, whatever the limit turns out to be. A retry rate that nobody measures is a latency problem that arrives as a mystery — and the count is itself the evidence that closes the parameter |
+| Red line | 018 C3: never moved after seeing a result it would change, without a 006 row saying so in those words |
+
+## 5. Decision D — Ordering, and the tie-break 040 §3.4 owes
+
+### 5.1 The debt
+
+040 §3.4 states its own limitation and hands the fix here:
+
+> *"'newest' orders transition against transition by `created_at`. A1 removed the wall-clock proxy for transition-against-record; two transitions issued against the same witness … are still separated by a clock. Both rows persist and clause 1 keeps `voided` order-independent, so the hole is bounded. **E02-B07 owes a tie-break rule**, and I18 counts the fallback either way."*
+
+The same hole exists one layer down, in shipped code: `003:112`, `:118`, `:124` and `004:107` order the `_current` views by `created_at DESC, id DESC`.
+
+### 5.2 The three candidates
+
+**(a) `(created_at, id)`, with `id` declared a stable arbitrary tie-break and not a clock.** This is what ships. It costs nothing. Its honest description is that `id` is `gen_random_uuid()`, so `id DESC` is a **coin flip that lands the same way every time**. Stability is a real property — a view that returned a different row on each read would be worse — but it answers "which is stable" and never "which happened first". As the *only* rule it is a proxy dressed as an order.
+
+**(b) A global sequence (`bigserial`).** Monotonic per database, no lock. **Rejected, and the reason generalises**: a sequence advances *outside* transaction control. A rolled-back request burns a number, and two transactions can commit in the opposite order to the sequence values they drew. So a global sequence is also only a proxy for commit order — a different proxy from the clock, with the same defect A1 removed. Swapping one proxy for another is not progress.
+
+**(c) A per-session monotonic sequence, assigned inside the request transaction.** `session_seq bigint`, assigned as `SELECT coalesce(max(session_seq), 0) + 1 …` for the session, with `UNIQUE (scan_session_id, session_seq)` so a race fails loudly rather than duplicating.
+
+### 5.3 The decision
+
+> **(c). Every row about a session carries `session_seq`, assigned inside the request transaction under the `scan_session` row lock §4.2 already takes. The canonical order of two rows about one session is `session_seq`; where either lacks one, it degrades to `(created_at, id)` — in which `id` is a stable arbitrary tie-break and NOT a clock — and every use of the fallback is counted.**
+
+Three reasons, in increasing weight:
+
+1. **It is causal within exactly the scope where the question is asked.** 040's whole derivation is per session; the `_current` views are per session. A per-session counter is the smallest thing that answers the actual question, and it makes no claim about ordering across sessions, which nothing needs.
+2. **The read-modify-write is free, given Decision C.** The usual objection to (c) is that it costs a lock. **§4.2 already takes that lock** — `SELECT … FROM scan_session … FOR UPDATE` at the top of every mutating session route — for the four guards it closes. The counter rides on it at no additional cost. This is the second independent reason §4 must land first, and it is why (c) is affordable here and would not be in a system without a request transaction.
+3. **It is the only candidate that is a fact rather than an inference.** `session_seq` records the order the database *committed* the rows in, because it is assigned under the lock that serialises them. The other two record something correlated with that order.
+
+**Its honest limit, stated.** `session_seq` orders rows written through the transaction helper. A legacy row, a row written by a hand-run `INSERT`, or a row written by any future path that bypasses the helper has none. So it is **`NOT NULL` on tables created after this record and nullable on the existing witness tables, never backfilled** (034 §4.4 / 030 A1's rule — a reconstructed sequence would be a fabricated observation about what order things happened in). And the fallback is **counted**, exactly as 040 I18 counts its own: an uncounted fallback is a silent return to the rule this section removed. Invariant **I6**.
+
+**This also closes R4** (§3.2): a superseding row's predecessor must have a lower `session_seq`, which makes a cycle unconstructible rather than merely unlikely, and it is the half of E17's fix that the self-reference CHECK does not cover.
+
+#### `session_seq` is COMMIT order, not act order (A4, Kleppmann)
+
+The cannon's sharpest correction, and the one most likely to be misread later. §5.3 says `session_seq` *"records the order the database committed the rows in"*, and that is exactly and only what it records:
+
+> **`session_seq` is commit order. It is not the order in which the acts happened, and it must never be read as such.**
+
+For a request that writes as it happens, commit order and act order coincide, which is why the counter is useful. **For E05-B08's offline queue they do not**: a park recorded at the counter at 10:02 and replayed at 10:47 receives the `session_seq` of **10:47**, because that is when the database learned it. So:
+
+- **`session_seq` for a replayed write is reconnect-and-replay time**, and E05-B08 must not present it to anyone as when the operator acted.
+- **A dispute between two replayed writes to one session is resolved by `against_table`/`against_id` (040 §5.1, §3.5), never by `session_seq` alone.** Two devices that both queued a park against the same witness are exactly 040 A1's case — *"a timestamp cannot tell 'I parked the session I was looking at' from 'I parked a session someone else had already advanced'"* — and a sequence number assigned at replay cannot tell them apart either. It is a *different* proxy for the same missing fact. The causal reference is the fact; the sequence orders the commits.
+
+**This is the second sanctioned exception in the record**, beside 040 §3.4 clause 3's `abandoned` predicate reading `now()` (§2.6). Both are cases where a derivation legitimately depends on something outside the log, and both are sanctioned **by being named**: `abandoned` is a statement about *now*, and `session_seq` is a statement about *commit*. An unnamed dependency on either would be the bug.
+
+**I6 is extended** with a simulated dual-offline replay: two writes queued against the same witness, replayed in each of the two possible orders, asserting that the outcome is decided by `against_*` and is **identical under both replay orders** — which is the property that fails if anything reads `session_seq` as act order. **E05-B08 carries a note-obligation for this** (A12).
+
+## 6. Decision E — Aggregation, and when a read model may be materialized
+
+### 6.1 The default
+
+> **A read model is a view. Materializing one is a decision that must be earned by a measurement, and a materialized read model is always labelled as derived, always rebuildable from the log, and always shape-gated.**
+
+This is 036 §5.2's construction generalised. That record built one materialized read model, argued it carefully, and named it precisely — *"a materialized index over the log … the same category as a B-tree"* — and gave it two guards (I9 contents, I18 shape). **The generalisation is this record's contribution: 036's arbiter is an instance of a form, and the form should have rules before the second instance is built.** 040 §5.4 and A6 already anticipate the second instance — `scan_session_current_state`, if the plain view measures badly.
+
+### 6.2 The two forms
+
+| Form | Holds | Written by | Example |
+|---|---|---|---|
+| **Materialized index over the log** | **keys only** — no copied values, no timestamp anyone reads, no reason, no actor | the same transaction that appends the fact, INSERT on bind and DELETE on release | 036's `physical_item_active_listing` (`{physical_item_id, shop_id, listing_link_id}`) |
+| **Materialized projection** | computed values | a rebuild, plus incremental maintenance in the writing transaction | a materialized `scan_session_current_state`, if O-A's measurement demands it (040 A6) |
+
+**Neither is a Postgres `MATERIALIZED VIEW`.** `REFRESH MATERIALIZED VIEW` cannot be maintained incrementally by the transaction that wrote the row, so its staleness is unbounded — which is precisely the drift surface both forms exist to avoid — and even `CONCURRENTLY` is a full rebuild holding a lock. Both forms are **ordinary tables maintained inside the request transaction**, which is a third reason §4 comes first.
+
+**The keys-only rule for the first form is 036 I18 generalised**, and 036 states why better than a restatement would: *"someone adds `bound_at timestamptz` for debugging, then `bound_by`, then a `reason` — and at some point the table holds facts that exist nowhere else, the rebuild in I9 can no longer reproduce it, and the log has quietly stopped being the source of truth. A column on this table is a design change, not a convenience."* The gate makes a reviewer say so out loud, and §7.2 makes it a required check.
+
+### 6.3 The four conditions
+
+A read model may be materialized only when **all four** hold:
+
+1. **Measured.** Its plain-view form ran against a checked-in benchmark fixture at the volumes 019 §5 fixes, and the figures are in a 006 row naming the method, the dataset size, the observed figures and the date. This is 040 O-A, and it is binding on `scan_session_current_state` specifically.
+2. **Replayable** (§2.6). It can be dropped and rebuilt from the witness tables plus its `definition_version`, and a test asserts the rebuilt contents are byte-identical to what is stored — 036 I9's shape.
+3. **Versioned.** It carries a `definition_version`, and changing the rule changes the version and forces a rebuild. 034 §2.9 and 040 §3.5's idiom.
+4. **Shape-gated.** A CI schema-diff test fails the build if it gains a column beyond what the rule computes — 036 I18's shape, and for the keys-only form, beyond its keys.
+
+A time-relative predicate — 040's `abandoned` — inherits one extra clause: **its instant is an input to the replay**, and a materialized form of it stores the instant it was computed at, or it is not replayable at all.
+
+### 6.4 The one prohibition, and the drill
+
+> **A materialized read model may never be the only place a fact lives. If dropping it loses information, it is not a read model; it is a second source of truth, and locked decision 4 forbids one.**
+
+That is testable, and the test is the point:
+
+> **The replay drill.** Drop every derived view and every materialized read model. Recreate them from their definitions. Assert every invariant test still passes and every rebuilt table is byte-identical to what was dropped. It runs in CI, and it is the mechanical form of the sentence above.
+
+It is deliberately the same shape as 023's restore drill: a backup nobody restores is not a backup, and a derivation nobody replays is not a derivation. **And the corollary 040 §5.4 states for its own case holds generally: what a measurement may never conclude is that the stored column should come back.**
+
+## 7. Decision F — The two measurement obligations
+
+036 §13 lays three obligations on named beads and says of all three: *"These are not deferrals — they are conditions the cannon attached to its acceptance, and a bead that skips one is not done."* **Two of the three are this bead's.** (The third, O-C, is E05-B04's, sequenced behind E01-B02, and this record does not touch it.)
+
+### 7.1 O-A — measure before building the D1 index
+
+036's obligation, verbatim in its operative part: *"Before `physical_item_active_listing` is created, E02-B07 benchmarks the cheaper construction — a `SERIALIZABLE` transaction, or `SELECT … FOR UPDATE` on the `physical_item` row, around the bind path — at pilot-realistic concurrency, and records the result in a 006 row naming the method, the load, the observed contention and the date. If the lock path holds, the index is not built and this record is amended by a row. … The index is authorized either way — what is forbidden is building it without having looked."*
+
+**This record fixes the experiment's shape and nothing else.** Three implementations of the same D1 binding path, on the same fixture:
+
+| Arm | Construction | What is measured |
+|---|---|---|
+| (i) | the arbiter's `PRIMARY KEY (physical_item_id)` | bind latency; refusal rate under concurrent bind |
+| (ii) | `SELECT … FOR UPDATE` on `physical_item`, then check-then-insert | bind latency; **lock wait time** |
+| (iii) | `SERIALIZABLE` with retry | bind latency; **`40001` retry rate** — which is also `tx_max_retries`' closing evidence (§4.5) |
+
+The fixture is the one 040 O-A already requires — seeded at the volumes 019 §5 fixes — so the two obligations share it rather than building two. Concurrency is the pilot's real shape: 019 §5's Pilot C is *"≥300, ≥2 operators, ≥4 weeks"*, and two operators on one shop is the concurrency the bind path actually faces.
+
+**Two things the measurement may never conclude.** It may not conclude that **D1 is droppable** — D1 is 036's invariant and 019 T18 makes a duplicate reaching a live listing non-waivable; the measurement chooses a *mechanism*, never a guarantee. And it may not conclude that a mutable `deactivated_at` column on `listing_link` is acceptable, which 036 §5.2 already rejects as *"a mutation on an append-only row, which is the thing locked decision 4 exists to forbid."*
+
+**⛔ It cannot begin at `12470b3`.** E19: `listing_link` and `physical_item_active_listing` do not exist, because 036 §7.1's migration is unwritten. This obligation attaches to the bead that writes it and is stated here so it is not lost.
+
+### 7.2 O-B — the shape gate lands in the same PR as the index
+
+036's obligation: *"E02-B07 must land I18 as a required check in the same PR that creates the index. A shape gate added later is a gate added after the shape has already drifted."*
+
+**Decision: implement it as the general keys-only assertion of §6.2, not as a single-table test.** One CI test enumerates every materialized index over the log from the same declared list §2.2 and §9 use, and asserts each holds exactly its declared key columns and nothing else. For `physical_item_active_listing` that set is exactly `{physical_item_id, shop_id, listing_link_id}` (036 §8 I18). The general form costs the same as the specific one, catches the second instance for free, and — the reason that decides it — makes adding a materialized read model *without* a shape declaration a build failure rather than an omission nobody notices.
+
+### 7.3 The honest note on both
+
+Both obligations are recorded here at **ASSERTED**. Neither has run. A reader who takes §4.2's isolation argument as settled has read past O-A, which exists precisely because 036 §9 A5 rejected an alternative *"on an unmeasured cost"* and the cannon called it — and §4.2 makes a reasoned but likewise unmeasured argument about locks versus `SERIALIZABLE`. **§13 Q5 asks the cannon whether §4.2 should be marked OPEN until O-A reports.**
+
+## 8. Decision G — Lawful purge that does not corrupt shared data
+
+### 8.1 The problem, precisely
+
+022 P7 requires deletion — originals swept on a window, a five-business-day clock on seller revocation and bystander reports, *"a per-seller deletion path that actually deletes"* (019 T33, non-waivable, G1 blocker). Locked decision 4 and thirteen triggers forbid removing a row. **Those are not in conflict, and the reason they are not is the whole of this section: the thing that must be destroyed is never the row.**
+
+003's header already states the shape and this record only has to make it a rule and give it a mechanism: *"deletion of a media object is a new `media_deletion` row (the event row survives, the photo does not)."*
+
+### 8.2 The path, and its ordering
+
+> **The only purge path is: check the policy and the holds, destroy the bytes, then append the tombstone. In that order, and never the reverse.**
+
+1. Read the effective `retention_policy` for the shop and artifact class — the newest row per `(shop_id, artifact_class)`, since *"a policy CHANGE is a new row"* (`003:171-173`).
+2. Assert no open `retention_hold` names the target — a hold with no `retention_hold_release` (`003:224-232`) — **and assert the hold's `shop_id` equals the target row's**, which `003:208-213` requires in as many words because the target is polymorphic and no FK can express it. E03-B09's bead note carries the same obligation, points (b) and (c).
+3. **Destroy the bytes** at `scan_photo.storage_key`.
+4. **Append the `media_deletion` tombstone**, inside the request transaction.
+
+**The ordering is load-bearing and it is the reverse of the intuitive one.** Append the tombstone first and the byte-delete fails, and the record now contains a permanent, unfixable false statement: *this object was destroyed*, when it was not. The append-only trigger forbids repairing it. Destroy the bytes first and the tombstone fails, and the system is merely *inconsistent and recoverable*: the next sweep sees the photo row, attempts the byte delete (a missing object is success, not an error), and appends the tombstone. `UNIQUE (storage_key)` at `003:149` is what makes the retry safe, and `003:130-132` already says so — *"a second deletion attempt for the same key fails loudly instead of writing a duplicate tombstone."*
+
+**A false statement in an append-only table is unrecoverable; a missing statement is a retry.** Where an operation spans a transactional store and a non-transactional one, the non-transactional side goes first and the transactional side is the record of it — the same reasoning the photo-upload path already uses in the other direction (`routes:134-159`: write to a temp path, rename on success, and remove the bytes if the row fails, because *"no row means no owner for the bytes"*).
+
+### 8.3 What a purge may never remove
+
+> **The fact that a row existed, who caused it, who authored it, when it was recorded, its content hash, and its causal links.**
+
+Concretely: the `scan_photo` row survives whole, including `storage_key` and `content_hash` (`003:35-36`); the envelope survives; `supersedes_id` and `against_*` survive. **Removing any of them would make the log a record of a system that never ran**, and would break 022 P2's *"undo writes a superseding record; it never edits history"*, 022 P8's decision strip, and 018's entire evidence chain — none of which can be recomputed from a log with holes in it.
+
+#### The hash class, and what survives a purge (A5, Hickey + Kleppmann + legal — §13 Q6 answered)
+
+v1.0.0 kept the raw `content_hash` after the bytes were destroyed, argued it makes a re-upload detectable, and asked whether that is compatible with the deletion right. **The answer is that the goal is right and the mechanism was not.** A raw hash of destroyed content is a **permanent, unrotatable re-identification key** sitting in a row that can never be edited: anyone holding a candidate image can confirm forever that Longbox once held that exact image. That is not what "we deleted it" means.
+
+> **First, the hash class is named, because "hash" was doing too much work.**
+> **`content_hash` is SHA-256 of the exact bytes.** It is an equality check on identical content and nothing else. **No perceptual or fuzzy hash — pHash, dHash, wavelet — may be stored under this or any other column without its own decision record.** A perceptual hash of a destroyed image is a *similarity* index over deleted content, which is a materially different thing to retain and a materially harder one to defend.
+>
+> **Second, the raw hash does not survive the purge.** On purge, the row retains only a **keyed** variant:
+> **`purge_digest = HMAC-SHA256(key = per-shop purge-epoch key, message = content_hash)`**, with the key held **outside the database** (the estate's SOPS/age posture, per CLAUDE.md's secrets standard — never in a column, never in a backup of this database). `scan_photo.content_hash` itself is cleared by the §8.4 reference mechanism, not by editing the row.
+
+That buys both properties at once, which is why it is worth the extra column:
+
+- **Re-upload detection still works.** A new upload's `content_hash` is HMAC'd under the same shop's current epoch key and compared. Exact-byte re-upload after a deletion request is still caught, which is the privacy protection §8.3 was arguing for.
+- **The retention is revocable.** Rotating a shop's purge-epoch key makes every stored `purge_digest` for that shop unlinkable to any candidate image, **without touching one append-only row**. A deletion that must be strengthened later — a regulator's order, an offboarding, a second request from the same seller — is honoured by destroying a key, which is the one thing an append-only store can always do, because the key was never in it.
+- **Proof-of-deletion survives.** The digest still proves *a* photo existed and was destroyed, with its actor and timestamps, so 018's evidence chain and 022 P2's history are intact.
+
+**§13 Q6 is answered: the keyed hash serves the deletion right; the raw hash does not survive the purge.** The detector rule is restated in those terms — a new `scan_photo` whose `purge_digest` matches an existing `media_deletion`'s, under the shop's current epoch key, is a detector event. **Key custody, rotation cadence and the epoch boundary are E03-B09's and E13-B01's**; this record fixes only that the key exists, lives outside the database, and is the thing that gets destroyed.
+
+### 8.4 What a purge must remove, and the rule that makes it possible
+
+Bytes are easy: they live outside the database and §8.2 destroys them. **The hard case is a personal identifier stored as a value inside an append-only row**, because there is no legal way to remove it — `UPDATE` is forbidden by the trigger and by locked decision 4, and a "redaction fact" that a view applies does not help, because the value is still in the table for anyone who reads it directly.
+
+**Decision: the log holds references, not personal data. Personal data lives in one mutable, purgeable place.**
+
+> **After G2, no append-only table may carry a personal identifier as a value. It carries `operator_id` — a reference into `app_user`, which is mutable config (034 §2.5) — and nothing else. Erasing a person is then one operation on one row in one table, and every reference in the log resolves to an erased person, which is the truthful answer.**
+
+This is the Hickey move the whole section turns on, and it is why §2's envelope is the purge mechanism and not merely attribution. It also explains a hazard that already exists and had not been named as one: **`scan_session.created_by` and `human_confirmation.confirmed_by` hold a client-supplied free-text string** (`001:67`, `001:117`), on append-only tables, and `routes:98` and `:205` default them to `"employee"` while accepting up to 200 characters from the caller. 034 §2.13 decides — correctly — that they are *"not dropped and not backfilled"*, because dropping them would destroy the record of what the pre-G2 system was told. **This record adds the other half: they must stop being *written* before any real person's name lands in one.** A pre-G2 string that says `"employee"` is a purge problem nobody has; a string that says a person's name is a purge problem with no legal solution.
+
+So: `created_by` and `confirmed_by` are **deprecated by comment in this record's expand migration and stop being written by E02-B08**, exactly as 040 §8.1 step 8 deprecates `scan_session.status`, and they are dropped in E02-B10's contract step only after the last writer is gone. Both remain behind identity's audited accessor and the break-glass role in the meantime, per 034 §3.3 A5 — *"a pre-G2 row's attribution is not merely unusable as evidence; it is not readable outside break-glass either."*
+
+**The residual, stated.** Photographs may contain bystanders (022 P7's `bystander_report` reason code, `003:140`), and those are bytes — §8.2 handles them. `media_deletion.requested_by` is itself free text (`003:151`) and takes the envelope (§8.5). **Which fields beyond these are personal data is E03-B09's to name**, and its bead notes say so: *"Policy matches actual flows/contracts; deletion/export is technically tested."* This record fixes the *mechanism* — reference, not value — so that whatever list E03-B09 produces is purgeable without an UPDATE.
+
+### 8.5 `request_idempotency` is not a witness table
+
+040 §8.1 step 6 puts an append-only trigger on `request_idempotency`, and 040 §5.2's schema stores `response_body jsonb NOT NULL`. **Those two decisions are in tension with 022 P7**, and 040 §12 and A9 both flag the retention question as unanswered and hand it to E13-B01 — *"it is the one table this record adds that stores a response body, which may carry shop data, so it is the one with a real retention question."*
+
+A response body may contain a personal identifier. If the table is append-only, that identifier cannot be removed. §8.4's reference-not-value rule cannot apply, because the body is a verbatim copy of something already sent.
+
+**Decision: `request_idempotency` is an operational cache, not a witness, and it carries no append-only trigger. It is swept, and its sweep DELETEs.** It records no fact about the world — only what this server replied to a key it has already seen — and 029 §2.9 already places it in `platform`, the module that *"knows nothing about comics, prices or shops-as-businesses."* Deleting an expired idempotency key destroys no history, exactly as 036 §5.2 says of the arbiter: *"there is nothing here to preserve."*
+
+**The exemption must be explicit, never an omission**, and §9's declared list is what makes it so: `request_idempotency` appears on the list as `exempt`, with its reason, and the detector asserts the exemption is *declared* rather than merely observed. **The retention window itself stays E13-B01's** (040 A9), unchanged; this record decides only that the table is *capable* of being swept, which it is not under 040 §8.1 step 6. **§13 Q7 puts this to the cannon, because it is a proposed change to a ratified record's migration sketch.**
+
+### 8.6 The sweep is itself an append-only event
+
+022 P7 Q6 requires that *"a sweep is a no-op on held keys and writes its own receipt"*, and 019 T32 is non-waivable with a detector. A sweep that leaves no trace cannot answer *"did it run?"* — and 019 T34, also non-waivable, makes a stale detector itself a K1 trigger.
+
+So the sweep appends `retention_sweep_run`: the shop, the artifact class, the `retention_policy` row it applied (its `definition_version` under §2.4), the counts of objects destroyed and objects skipped for a hold, the window boundaries it used, and the envelope. **Absence is the signal**: no row for a period means the sweep did not run, which is what the T34 heartbeat reads. Holds are enumerated with their age on every run (022 P7 Q6), and a hold past 180 days from capture escalates as a 006 row — a number quoted from 022, not invented here.
+
+### 8.7 Holds, operator context, and the shape of the record (A6, `legal-advisor` — structural only)
+
+The legal lens returned four structural changes and two routing instructions. **It cites no statute and neither does this record** — see the last item.
+
+**(a) A hold has a kind, because two different things were wearing one name.** `retention_hold` today is one shape for both a shop's operational pause and a preservation obligation, and those have different placement authority, different release rules and different reporting:
+
+```sql
+ALTER TABLE retention_hold ADD COLUMN hold_kind text NOT NULL DEFAULT 'operational'
+  CHECK (hold_kind IN ('operational','litigation'));
+```
+
+- **`operational`** — a dispute, return, correction review or P9 complaint (022 P7 Q6's list). Scoped to **one row**, placed by shop staff, with a **30-day review default** on `review_date` (which is already `NOT NULL` at `003:218`, so a hold with no review date stays unrepresentable).
+- **`litigation`** — placed by counsel or the founder only, **preceded by a 006 row naming scope and trigger**, and **released only by a 006 row plus a `retention_hold_release`**. Never released by a sweep, never by expiry, never by staff.
+- **The T32 sweep reports the two kinds separately.** 022 P7 Q6 already requires holds be enumerated with their age and escalated past 180 days from capture; an operational hold sitting for 180 days is a process failure, and a litigation hold sitting for 180 days is the mechanism working. Reporting them in one number makes the first invisible.
+
+**(b) Operator context on a purged row is bounded, and severed by reference.** `operator_id` and `actor_verified` on a row whose media has been purged stay **break-glass-only** per 034 §3.3 and 019 T35 — and they are additionally **bounded at 24 months after the purge event**, matching `labor_shift`'s window (022 P7 Q6, 022 P3), after which the operator reference is **severed by the §8.4 reference mechanism** — the `app_user` row goes, the reference resolves to an erased person — **never by editing the purged row.** The row keeps saying a person did this; it stops saying which person.
+
+**(c) The purge record is minimal, and the minimality is the decision.** `media_deletion` carries exactly `id`, `shop_id`, `scan_photo_id`, `storage_key`, `reason_code`, `requested_by` (nullable), `created_at` — plus §8.3's `purge_digest` and §2's envelope. **It never carries the hold's scope, the dispute's subject, or any description of the item.** A deletion record that describes what was deleted is a second copy of the thing that was supposed to go, and `003:134-143`'s open-world `reason_code` registry is already the right level of detail: *why*, in one registry term, and nothing about *what*.
+
+**(d) The statutory questions are NEEDS COUNSEL and are not answered here.** Four of them: record-retention floors that may conflict with a deletion window; the standard that triggers a litigation hold and who may lift it; whether a keyed proof-of-deletion digest is itself regulated data; and the wording a data subject receives. **They go on the counsel batch list E01-B05 stage 2 carries** (the same batch 037 and 038 §6 feed). **No statute is cited anywhere in this record**, deliberately — a decision record that names a statute it has not had reviewed is worse than one that names the question.
+
+**(e) The data-subject response wording is registered copy, not engineering.** What a person is told when they exercise a deletion right is shop-facing text, so it is a **candidate C-row for 021** under the T26 pre-send step, drafted by E03-B09 with counsel, **not written in 041**. Noting it here is the whole of this record's involvement.
+
+### 8.8 The cadence
+
+**OPEN.** 022 P7 Q6 fixes the *windows* (originals 30 days from draft creation, ceiling 90 from capture; derivatives life-of-listing plus 90, ceiling 24 months; `labor_shift` 24 months from shift end) and 003 §8 seeds them at `003:261-272`. It does not fix how often the sweep runs, and the two are different questions: a 30-day window swept monthly can hold an object 59 days. **This record refuses to invent the number**, signs it OPEN in 040 §3.5's idiom, and names its closing evidence as the five-business-day revocation clock that 022 P7 and E01-B06's notes both fix — the cadence must be short enough that a revocation is honoured inside it. **E03-B09 owns it**, and the interaction is stated here so it is not discovered as a gap after the first revocation.
+
+## 9. Decision H — The append-only-trigger bypass detector, and the catalog tables
+
+### 9.1 The directive
+
+019 §3.6 files it as this bead's, by name: *"Detector gaps filed as directives (020 §Implementation): supply-chain compromise (E15-B04), **append-only-trigger bypass by migration or superuser (E02-B07)**, provider-side retention expiry (E04-B05), consent revocation (E01-B06)."* 020's council record names the gap and never analyses it. 020's own synthesis rule is why it matters: **"A non-waivable line without a live detector is a waiver by omission."**
+
+Fourteen triggers are the *sole* enforcement of locked decision 4 in the database, and 036 §7.2 leans on the same loop for thirteen more tables it has yet to create. §1 E13, E14 and E15 establish, by execution, exactly how that enforcement can fail.
+
+### 9.2 The four decisions, in order of strength
+
+**1. `ENABLE ALWAYS` on every append-only trigger.** E14: at the default `tgenabled='O'`, `SET session_replication_role='replica'` bypasses the trigger and `UPDATE` succeeds; at `'A'` the same `UPDATE` is refused. Every trigger created at `001:178-180` and `003:244-246` is `'O'`. The fix is one clause per trigger in the loop, it changes no row and no shape, and it closes one of the two bypass doors outright.
+
+**2. The application must not own the tables.** E15: a non-owner, non-superuser role cannot `SET session_replication_role` (*"permission denied to set parameter"*) and cannot `ALTER TABLE … DISABLE TRIGGER` (*"must be owner of table"*), and its `UPDATE` is refused by the trigger. E12: today one `DATABASE_URL` (`.env.example:7`) serves both `scripts/migrate.ts:12` — which creates the tables and therefore owns them — and `src/config.ts:28`. **So the strongest available mitigation is not a detector at all: it is a migration role that owns the schema and an application role that owns nothing.** That is a topology decision belonging to E03-B04 (RLS, which needs the same separation) and E13-B01 (the environment topology); this record names it as the primary control and hands it over, rather than shipping a detector for a hole that role separation closes.
+
+**3. The detector reads `pg_trigger.tgenabled`, never `information_schema.triggers`.** E13: the view lists a disabled trigger identically to an enabled one, so the repository's only trigger assertion (`tests/integration/migrations.test.ts:89-111`) **passes with every append-only trigger disabled**. The detector's query is the one §1 E13 was produced with:
+
+```sql
+SELECT c.relname, tg.tgname, tg.tgenabled
+FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
+WHERE NOT tg.tgisinternal AND tg.tgname LIKE '%\_append\_only'
+  AND tg.tgenabled <> 'A';
+-- zero rows = every append-only trigger is ENABLE ALWAYS
+```
+
+It runs in **three places, not two (A7, Kleppmann)**, because they catch three different failures:
+
+| Where | Catches | Instrument |
+|---|---|---|
+| **CI, required check** | a migration that forgets `ENABLE ALWAYS` | gate-test |
+| **At boot, in `src/server.ts`** | a deployment that started with the triggers already off. **The server refuses to serve.** | gate-test |
+| **Continuously, every five minutes, as a scheduled job on the estate notify path** | **an operator with `psql`** — someone who disables a trigger on a running system, does work, and re-enables it | **detector** |
+
+v1.0.0 had only the first two, and the cannon's objection is decisive: **a boot check on a service that is restarted weekly is a weekly check.** The window between "someone disabled the trigger" and "we noticed" would be however long until the next deploy, which is exactly the window in which mutations to an append-only table are possible and invisible. 019's vocabulary is explicit that these are different instruments: *"A gate-test alone never satisfies standing amendment 2 — a non-waivable line without a runtime detector is a waiver by omission."* The boot check is retained as the deployed-with-it-off catch; **the five-minute job is the detector.**
+
+The five-minute interval is not invented here: it matches the estate's existing dead-man cadence for this class of check (the memory-canary pattern), and the job reports through the same notify path the rest of the estate's alerting uses. **It is cheap** — one indexed catalog query, no application data touched.
+
+**4. One declared list, four readers, and equality in both directions.** The trigger set is spelled **five** times today — `001:174-176`, `003:240-242`, **`005:149`**, `migrations.test.ts:95-110`, and `append-only.test.ts:131-143` — and they already disagree in two ways: E11 shows the behavioural test omits **three** of the fourteen, and E9 shows a fifth spelling arrived in a migration whose author had every reason not to know about the other four. **Decision: one checked-in list in `src/`**, read by the migration loop, the CI gate, the boot check and the five-minute detector, asserting equality **both ways**: every table on the list has an `ENABLE ALWAYS` trigger, and no table carries such a trigger without being on the list.
+
+**Exemptions are rows on the list with a reason, never absences.** An absence is indistinguishable from an oversight — which is precisely how `listing_status_observation` came to have a trigger and no behavioural test. Three exemptions are declared today:
+
+| Table | Status | Reason |
+|---|---|---|
+| `scan_session` | **exempt, temporary** | the one mutable table in the scan chain, until 040 §8.2 step 4's contract step drops `status` and adds it to the set |
+| `request_idempotency` | **exempt, permanent (A11)** | not a witness table — an operational cache holding response bodies that must be sweepable so a deletion right can be honoured (§8.5) |
+| `physical_item_active_listing` | **exempt, permanent** | a materialized index over the log (036 §5.2, §6.2) — *"there is nothing here to preserve"*; deleting a row destroys no history. **Does not exist yet** (E19) |
+
+**And the list carries the §2.5 external-observation flag**, so the two properties a table's row declares — is it append-only, and may `observed_at` order its derivation — live in one place. `listing_status_observation` is the only table flagged external-observation today.
+
+### 9.3 What this is, in 019's vocabulary
+
+Item 3's runtime half is a **detector** — it fails closed and should emit a heartbeat. Item 3's CI half and item 4 are **gate-tests**. Item 1 is a schema change; item 2 is a topology control.
+
+**T34's seventh heartbeat: YES, at the five-minute interval (A7).** 019 T34 enumerates six — *"T19 watcher, T24 daily query, T31 scan, T32 sweep, T35 runtime assertion and the break-glass access-audit writer"* — and the cannon's ruling is that the trigger-set detector belongs on that list, because a detector guarding the sole enforcement mechanism of locked decision 4 that is not itself monitored for liveness is the failure 020 names, one level up: *"a line declared non-waivable … with no named, live, self-monitoring detector behind it."*
+
+**It is filed as a 019 amend-by-row candidate for E00-B03, not as an edit to 019 by this record.** 019 is a ratified contract with signed thresholds, and 041 has no standing to edit one — the same discipline 040 §8.5 follows for 029. E00-B03 owns 019's change control (018 §5); this record supplies the row's text and the interval, and E00-B03 applies it.
+
+### 9.4 Decision I — 030's catalog tables fit the envelope unchanged
+
+`lcid_registry` and `identity_resolution` are the next two append-only tables to be written (030 §7). Confirmed against §2, with three clarifications that keep the envelope from being applied wrongly:
+
+- **`lcid_registry` is insert-only and takes the envelope's *versioning* half only.** It is a catalog table, cross-shop by construction — 030 §7 lists it among tables *"none carrying `shop_id`"* — so it takes **no `shop_id`, no `operator_id`, no `session_seq`**. Locked decision 4 says *shop-scoped* tables carry `shop_id`, and 034 §2.5 already made the same call for `app_user`: *"locked decision 4 scopes shop data; `app_user` is not shop data, it is a party."* An LCID is not shop data either. **Nobody should add a `shop_id` to the catalog to satisfy a rule that does not apply to it**, and saying so here is cheaper than un-saying it later. It joins the §9.4 declared trigger list.
+- **`identity_resolution` takes the envelope in full.** It is workflow-owned and shop-scoped (030 §2.6), it FKs `human_confirmation`, and it is session-scoped through that FK. Its `corpus_version_id NOT NULL` **is** `definition_version` under §2.4's rule — the corpus is the rule that produced the resolution — so no second column is added. Its `resolved_by text NOT NULL` and `method` describe authorship: `method='human'` implies `authored_by='human'`, and the envelope's column makes that machine-checkable rather than a convention. It takes `supersedes_id` under §3, because a re-resolution is a superseding row and not an edit.
+- **No nullable `confirmed_edition_lcid` column. Confirmed, and the tree already honours the rule.** 030 A1 dropped it because its NULL carried two meanings that nothing could tell apart. `004:43-50` restates that reasoning in a shipped migration, in the tree, as the justification for `outcome`'s NULL being safe: *"030 A1 rejected a reserved nullable column (`confirmed_edition_lcid`) precisely because its NULL carried TWO meanings … That hazard does not arise here."* **The envelope introduces no nullable column whose NULL carries two meanings**, and §2.5's `observed_at` is the one to watch: its NULL means *"recorded and observed at the same instant"* and nothing else, which is why §2.5 adds it only to the three places the two can differ rather than to every table.
+
+## 10. The migrations this record implies, in order, unnumbered
+
+**Nothing in this section is written.** Numbers are deliberately omitted, and the reason is now a worked example rather than a principle. 006's decision log has moved these numbers **twice in one day**: `004` was reserved for 034 §4.1's tenancy migration and taken by the `human_confirmation.outcome` expand (E02-D03); `005` was then reserved for 034 §4.1 and **taken by `listing_status_observation`** (E02-D02, PR #52 — E20). **034 §4.1's and 036 §7.1's migrations are still unwritten and now take the next free numbers, whatever those turn out to be at write time.** A file number is claimed when the file is written, never reserved in prose — a migration file is never renamed once applied, because the runner's ledger keys on the filename, so a reservation can only ever move the *sketch*, never the shipped file. Reserving numbers here would repeat the collision twice over. **E02-B10 owns the ordering, the indexes, the rollback and the architecture gate.**
+
+Every migration below is expand-only, idempotent by hand (`IF NOT EXISTS` / `DROP-then-ADD`, following `003`'s style), touches no shipped migration, and adds no UPDATE path.
+
+| # | Artifact | What it does | Blocked on |
+|---|---|---|---|
+| **0** | *append-only hardening* — **a migration, and it ships ALONE** | `ENABLE ALWAYS` on every trigger in the declared set (§9.2 item 1), through the same `FOREACH … EXECUTE format` loop in `003:237-248`'s idempotent `DROP TRIGGER IF EXISTS` form; the `pg_trigger.tgenabled` test **replacing** `migrations.test.ts:89-111`'s `information_schema` check; the declared list and its exemptions. **Bead: E02-D05.** | **nothing** |
+| **1** | `src/db.ts` + the route changes — **CODE, NOT A MIGRATION** | `withTransaction` (§4.1), the `FOR UPDATE` anchor read (§4.2), the hold-placement path taking the same lock (§4.2's G-c decision), and the routes wrapped in §4.4's order. Nothing below can be tested without it, and §5's `session_seq` is unassignable without its lock. **Bead: E02-D04.** | 0 only by convention, not by dependency |
+| **2** | *the envelope expand* | `authored_by` + its CHECK on all fourteen append-only tables, backfilled per §10.1; the `authored_by='human'` CHECK on `condition_assessment` and `human_confirmation`; `actor_role`; `operator_id` + `actor_verified` on the append-only tables `003:63-73` did not reach; `definition_version` where §2.4 applies; `observed_at` and `created_at` per §2.5; `session_seq` nullable with `UNIQUE (scan_session_id, session_seq)` | 1; and 034's tenancy migration for `operator_id`'s FK target (`app_user`) |
+| **3** | *supersession integrity* | R3's `CHECK (supersedes_id IS DISTINCT FROM id)`, and **R1's composite FK — mandatory, not optional (A2)** — on `human_confirmation`, `condition_assessment`, `pricing_snapshot`, each with its redundant unique index on `(id, shop_id, scan_session_id)`; the `_current` views re-created on §5's canonical order | 2 (for `session_seq`, which R4 reads) |
+| **4** | *the purge envelope* | the envelope on `media_deletion`; `purge_digest` and the epoch-key reference (§8.3); `retention_hold.hold_kind` (§8.7a); `retention_sweep_run` (§8.6); `COMMENT ON COLUMN` deprecating `scan_session.created_by` and `human_confirmation.confirmed_by` (§8.4) | 2 |
+| **5** | *(E02-B10's contract step, after the last writer is gone)* | drop `created_by` and `confirmed_by`; whatever 040 §8.2 has not already done | E02-B08 |
+
+**Why the hardening goes first, alone, and ahead of the transaction (A1, Hickey — REQUIRED).** v1.0.0 put the transaction at row 0 and the hardening at row 3, marked *"independent; could ship first"*. **The cannon inverted it and the reasoning is hard to argue with once stated:**
+
+- **It shares no dependency with anything.** Rows 2–4 need the transaction; row 0 needs nothing, touches no application table's data, adds no column, and changes no shape. It is the only item in the sequence that can ship on its own.
+- **It closes a live bypass of locked decision 4.** E14 and E15 are not a design gap — at `12470b3` the application's own role can switch off the sole enforcement of the project's non-negotiable data model, and E13 shows the repository's test would not notice. Everything else in this record improves a log that is currently *guarded*; row 0 is the row that makes the guard real.
+- **Ordering it after the transaction means shipping the transaction against an unenforced model.** The transaction's whole purpose (029 §12 point 4) is that a `scan_session` never holds a half-written Hickey chain — a guarantee about append-only tables, made while the append-only property is bypassable.
+
+**Role separation (§9.2 item 2) is *not* part of row 0** and does not gate it. It is the stronger control and it belongs to E03-B04 and E13-B01 on their own schedule; row 0 is what one migration can do today without waiting for a topology change.
+
+### 10.1 `authored_by`'s backfill, per table (A10, Q1 answered YES)
+
+The cannon accepted `authored_by NOT NULL` **on the condition that the backfill is decided per table with the derivation stated in the migration comment**, and that any table where the value is not derivable takes NULL meaning "pre-envelope" rather than a guess (034 §4.4). Worked through, **all fourteen are either derivable or empty, so no NULL is needed anywhere** — which is a better outcome than v1.0.0 claimed and rests on a narrower argument:
+
+| Table | Rows today | `authored_by` | Derivation stated in the migration |
+|---|---|---|---|
+| `corpus_version` | **none** — 029 §1: no code references it | `'system'` | vacuous; the column is `NOT NULL` from an empty table |
+| `scan_photo` | yes | `'human'` | sole writer is `addScanPhoto` from `routes:149`; the content is a photograph a person took |
+| `candidate_set` | yes | **from `method`** | `method='barcode'` → `'system'`; `llm_vision`/`ximilar`/`index` → `'provider'`. **The one column-derivation rather than path-derivation**, and it is exact: the CHECK at `001:89` closes the domain |
+| `llm_rerank` | yes | `'provider'` | sole writer is `runIdentify`'s re-rank step; the content is the provider's |
+| `human_confirmation` | yes | `'human'` | sole writer is `POST …/confirm` (`routes:247`), human-driven by construction |
+| `condition_assessment` | yes | `'human'` | sole writer is `POST …/condition` (`routes:280`); 037 §1.1 makes any other value a defect |
+| `pricing_snapshot` | yes | `'system'` | written by `priceWithProviders`; the *comps* are the provider's, the *snapshot* is Longbox's computation |
+| `shopify_draft` | yes | `'system'` | sole writer is `POST …/draft` (`routes:408`) |
+| `cost_log` | yes | `'system'` | written by `costLog`; a meter reading |
+| `media_deletion` | **none** — E7 | `'human'`/`'system'` by `reason_code` | vacuous today; the rule is `reason_code='retention_sweep'` → `'system'`, else `'human'` |
+| `retention_policy` | **yes** — seeded at `003:261-272` and by `register-shop.ts:70` | `'system'` | both writers are migrations or a script; no person authored a default |
+| `retention_hold` | **none** — E7 | — | vacuous |
+| `retention_hold_release` | **none** — E7 | — | vacuous |
+| `listing_status_observation` | **none** — no poller or webhook exists (`005:131-134`) | `'system'` | vacuous; and 040 F1 means a Longbox-originated act is never a source here |
+
+**Seven of the fourteen are empty, and that is why this works.** The tables where authorship would be genuinely ambiguous — `media_deletion`'s sweep-versus-request, `listing_status_observation`'s channel-versus-watcher — have **no rows to guess about**. Every table with rows has a single writing path, or (for `candidate_set`) an existing column that closes the question exactly. **This is a statement about the code that wrote each row, not a guess about a person** — 034 §4.4's distinction when it permits `expanded_inspection`'s `false` default and forbids `item_slice`'s.
+
+**No other column is backfilled.** `operator_id` and `actor_verified` are never backfilled because pre-G2 rows are unattributable **by construction, not by policy** (`003:46-51`); `session_seq` is never backfilled because a reconstructed sequence would be a fabricated observation about the order things happened in; `observed_at` is never backfilled because nobody recorded when the shutter fired. **No seed. No other data statement.**
+
+## 11. Invariants, as numbered testable statements
+
+Each is falsifiable and names the test that will decide it. **None of these tests exists** (018: nothing here is TESTED). Unit tests flat in `tests/`, DB tests in `tests/integration/`, contract tests in `tests/contract/`, per the tree's convention.
+
+**Four are ⛔ UNWRITABLE until the §10 row-0 helper ships** — their subject is the transaction itself. Listing them without the mark would be the failure 018 exists to prevent: a test file name is not coverage, and a test that cannot be written is blocked, not pending.
+
+**Three are written to FAIL on the tree as it stands** — I8, I11 and I12 — and that is the point: they name a defect rather than a design.
+
+| # | Invariant | Test file |
+|---|---|---|
+| **I1** | **Every append-only table carries the envelope.** Read the declared table list (§9.2 item 4); for each non-exempt table assert `information_schema.columns` contains `shop_id`, `authored_by`, `created_at` and — for shop-scoped, session-scoped tables — `session_seq`; assert each exemption on the list carries a reason string. Catalog tables (§9.4) are declared shop-exempt and are asserted **not** to carry `shop_id`. | `tests/integration/observation-envelope.test.ts` |
+| **I2** | **A machine-authored condition is unrepresentable (T7 non-waivable, locked decision 5, 037 §1.1).** Attempt `INSERT INTO condition_assessment … authored_by='system'` and assert the CHECK refuses it; same for `human_confirmation` (022 P1). **This does not duplicate 037 I3** — that one forbids a rendered suggestion on a surface; this one forbids a non-human writer in the schema. Both are needed and they fail differently. | `tests/integration/condition-is-a-human-act.test.ts` |
+| **I3** | **A row cannot supersede itself (R3).** Reproduce E16's `WITH n AS (SELECT gen_random_uuid() …) INSERT … SELECT nid, …, nid` on each of the three tables and assert it is **refused**; assert the session's `_current` view still returns exactly one row. **This test fails on the current tree by construction** — E16 shows the insert succeeds today — and passing it is migration 2's acceptance. | `tests/integration/supersession-integrity.test.ts` |
+| **I4** | **A supersession cannot cross a shop or a session, and cannot form a cycle (R1, R4; T24 non-waivable).** Three assertions. (a) Reproduce E18 — a shop-`t` confirmation superseding a shop-`s` row — and assert it is **refused**. (b) The same across two sessions in one shop: refused. (c) Reproduce E17's mutual pair and assert the second row is refused, so the session never reaches zero current rows. **All three fail on the current tree**; (a) is a reproducible cross-tenant write, which 019 T24 makes `any → K1`. | `tests/integration/supersession-tenancy.test.ts` |
+| **I5** | **`observed_at` orders only where it is declared to (§2.5, corrected).** Two assertions. (a) For every table **not** flagged external-observation on §9.2 item 4's list, no `CREATE VIEW`, `ORDER BY`, `DISTINCT ON` or index definition names `observed_at` or `taken_at` in an ordering position. (b) For every table that **is** flagged — `listing_status_observation` today — the ordering is per subject, carries a deterministic tie-break, and appears in no derivation outside its own table; in particular no external clock contributes to `session_seq` or to a session's rung. **v1.0.0's flat prohibition would have failed against `005:94-95` on the current tree, and it was the record that was wrong** (§2.5). | `tests/contract/observed-at-ordering.test.ts` |
+| **I6** | **`session_seq` decides, the fallback is counted, and it is never read as act order (§5.3, A4).** Five assertions: (a) two rows written through the helper in one session carry strictly increasing `session_seq`; (b) `UNIQUE (scan_session_id, session_seq)` refuses a duplicate; (c) a legacy row with NULL `session_seq` orders by `(created_at, id)` and **increments the fallback counter**; (d) the counter is **zero** across a window in which every row was written through the helper; (e) **the dual-offline replay (A4)** — two writes queued against the same witness, replayed in each of the two possible orders — yields an **identical** outcome under both orders, decided by `against_*`. (e) is the one that fails if anything reads `session_seq` as act order; (d) is the one that fails if the clock rule creeps back. Mirrors 040 I18. | `tests/integration/session-sequence-ordering.test.ts` |
+| **I7** | **A `_current` view returns zero rows only when nothing was written (§3.4).** Seed a session with no confirmation: zero rows. Seed one with a confirmation: one row. Seed one with a three-row supersession chain: one row, the newest. Then, given I3 and I4, assert no construction reaches zero rows with rows present in the table. | `tests/integration/current-view-contract.test.ts` |
+| **I8** | **The draft path honours supersession.** Write a `condition_assessment`, then a superseding one with a different grade range, then call `POST …/draft`; assert the composed listing carries the **superseding** range. **This fails at `12470b3`**: `routes:374` takes the last row by insertion order from `getSessionEvents`, not from `condition_assessment_current` (E5), so 037 §4.4's owner correction is written and silently ignored. Repeat for `human_confirmation` (`routes:366`) and `pricing_snapshot` (`routes:370`). | `tests/integration/draft-reads-current.test.ts` |
+| **I9** | **A correction never hides the original from the trail (§3.6).** After a supersession, assert `GET …/:id`'s `events` payload contains **both** rows, and that the `_current` view contains only the newer. 022 P8's decision strip and 040 §3.6's history view are both projections of the trail and stop being computable if it is ever filtered at source. | `tests/integration/trail-is-complete.test.ts` |
+| **I10** | **Every append-only trigger is `ENABLE ALWAYS`, and the declared set is exact in both directions (§9.2).** Run §9.2 item 3's `pg_trigger` query and assert **zero rows**. Then assert the set of tables carrying a `%_append_only` trigger equals the declared list minus its declared exemptions, with no extras and no omissions. | `tests/integration/append-only-trigger-set.test.ts` |
+| **I11** | **The trigger-set assertion detects a disabled trigger.** `ALTER TABLE human_confirmation DISABLE TRIGGER human_confirmation_append_only`, then assert I10's query **fails**, and assert the existing `information_schema.triggers` assertion at `migrations.test.ts:89-111` **still passes** — proving the two queries differ and that the old one is blind (E13). This is 029 §5 move 8's *"prove the gate can fail"* applied to the mechanism that enforces locked decision 4: **an untested gate is not a gate.** | `tests/integration/append-only-trigger-set.test.ts` |
+| **I12** | **The `session_replication_role` bypass is closed (E14).** With the triggers `ENABLE ALWAYS`, `SET session_replication_role='replica'` and assert `UPDATE` on each append-only table still raises `append-only`. **This fails on the current tree**, where every trigger is `tgenabled='O'`. | `tests/integration/append-only-bypass.test.ts` |
+| **I13** | **All fourteen trigger-set tables are behaviourally covered (E11).** Extend `append-only.test.ts:131-143`'s `eventTables` to the full declared set and assert `UPDATE` and `DELETE` raise on every member. Three tables — `corpus_version`, `llm_rerank` and, since PR #52, `listing_status_observation` — have carried a trigger and no behavioural test. **Then the guard against a fourth: assert the test's table list is READ FROM the declared list rather than written beside it**, so a future migration cannot add a fifteenth trigger without adding a test. | `tests/integration/append-only.test.ts` (extended) |
+| **I14** ⛔ | **A partial failure commits nothing (029 §12 point 4).** Force a throw between the `human_confirmation` INSERT (`routes:247`) and the `setSessionStatus` call (`routes:259`); assert **neither** committed. Then the draft path: force a throw between the `shopify_draft` INSERT and the listing bind; assert neither committed. **⛔ UNWRITABLE until §10 row 0 ships** — there is nothing to force a failure inside. This is 040 I14 with its own subject named. | `tests/integration/request-transaction-atomicity.test.ts` |
+| **I15** ⛔ | **The transaction body performs no side effect (§4.1).** Static assertion that no function passed to `withTransaction` reaches a provider, the filesystem or `fetch`; plus a runtime assertion that the Shopify call at `routes:407` happens **before** the transaction opens. Without this, §4.5's retry duplicates a Shopify product — 036 E6's unprevented retry, one layer up. **⛔ blocked on row 0.** | `tests/contract/transaction-has-no-side-effects.test.ts` |
+| **I16** ⛔ | **A guard's read and its write are atomic, and write skew is constructed rather than assumed away (§4.2, A3).** For G-c, the interleaving the lock-coverage table forbids: **place a `retention_hold` from a transaction that does NOT take the session lock**, concurrent with a draft that has already passed its hold check, and assert the hold-placement path cannot commit that way — the guard is blocked by construction, not merely unlikely. For the confirmation check: two concurrent confirms, one commits and one gets a 409 with the winner's row. For G-a: place a consent revocation between the check and the first photo. **⛔ blocked on §10 row 1** — 040 marks the same guards ⛔ for the same reason. **A guard whose test cannot produce the anomaly it prevents has not been tested.** | `tests/integration/guard-atomicity.test.ts` |
+| **I17** ⛔ | **Retries are counted (§4.5).** Force a `40001` and assert the helper retries, the request succeeds, and the retry counter increments. **⛔ blocked on row 0.** The counter is `tx_max_retries`' closing evidence, so an uncounted retry leaves the parameter unclosable. | `tests/integration/request-transaction-retry.test.ts` |
+| **I18** | **A purge destroys bytes and never a row (§8.2, §8.3).** Sweep a photo past its window; assert the bytes are gone, the `scan_photo` row survives **with `storage_key` and `content_hash` intact**, and one `media_deletion` row exists. Then re-run the sweep and assert it is a no-op (`003:149`'s unique key). Then the ordering: force the tombstone INSERT to fail after the bytes are destroyed; assert the next run completes it. | `tests/integration/purge-destroys-bytes-not-rows.test.ts` |
+| **I19** | **A hold blocks a purge, and a cross-shop hold does not (T24, T32 both non-waivable).** Place an open `retention_hold` on a photo past its window; assert the sweep skips it and records the skip in `retention_sweep_run`. Then place a hold whose `shop_id` differs from the target row's and assert the sweep **ignores it** and purges — `003:208-213`'s obligation and E03-B09's note (b), which no constraint can express. | `tests/integration/retention-holds.test.ts` |
+| **I20** | **No append-only table gains a personal identifier as a value, and the legacy columns lose their writers (§8.4, A8).** Static assertion over the declared list: no column is a free-text actor field except the two deprecated legacy columns, which are named as such; plus an assertion that no file under `src/` writes `created_by` or `confirmed_by`. **A8: this assertion lands in the SAME PR as §10 row 4's deprecation comment, and it is an explicit E02-B08 acceptance line** — a comment saying a column is deprecated, with nothing asserting it stopped being written, is a note rather than a deprecation. Rides on E03-B03's route walk and complements 034 I9. | `tests/contract/no-personal-values-in-the-log.test.ts` |
+| **I21** | **The replay drill (§6.4).** Drop every derived view and materialized read model; recreate from definitions; assert every rebuilt table is byte-identical to what was dropped and every other invariant test still passes. Subsumes 036 I9 for the arbiter and generalises it. | `tests/integration/replay-drill.test.ts` |
+| **I22** | **A materialized read model holds only what its rule computes (§6.2, O-B).** For each entry on the declared materialized list, assert its column set equals its declared keys. For `physical_item_active_listing` that is exactly `{physical_item_id, shop_id, listing_link_id}` — 036 I18, generalised so the second instance is caught for free. | `tests/integration/materialized-shape.test.ts` |
+
+**I2, I4, I10, I11, I12, I19 and I20 map to a non-waivable line** (T7 for I2; T24 for I4 and I19; T24/T32/T33 for I10–I12, since the trigger set is the sole enforcement of the model those lines assume; T35 for I20). **I3, I4, I8, I11, I12 and I13 fail on the tree as it stands.** The rest are structural.
+
+## 12. Alternatives, consequences, and what this record does not decide
+
+### 12.1 Alternatives considered
+
+**A1 — One `event(kind, actor, payload jsonb, …)` table for everything.** The single most common shape for an append-only system, and the one a future reader will reach for first. *Rejected*, §2.2 in full. The short form: the database stops checking the contents, so locked decision 5 and 019 T7 — *numeric grades emitted: 0, non-waivable* — degrade from a CHECK constraint to a runtime hope; every read traverses a discriminator; and the property actually wanted ("every table has the envelope") is bought more cheaply by a list and a test. **The jsonb payload is where a schema goes to stop being checked.**
+
+**A2 — A base `observation` table with each witness table FK'd to it.** The respectable version of A1. *Rejected on the same ground plus one.* It asserts that a photo and a price are the same kind of thing when they share only their metadata; it puts a join on the hot path for data that could be a column; and it does not even deliver the property it is bought for, since a table can still be created outside the hierarchy and then the invariant is silently false with no test watching. **An abstraction that still needs the test is the test plus an abstraction.**
+
+**A3 — `SERIALIZABLE` on every request.** *Rejected*, §4.2. Easier, and it complects three independent things: unrelated statements share a serialization unit; correctness moves into a retry loop whose failure mode is invisible until pilot load; and the guard's actual dependency stops being readable. Most of the guards need neither serializable nor a lock, because a constraint already holds them — which is the answer §4.2 reaches by asking what each guard is about instead of reaching for one switch.
+
+**A4 — A global `bigserial` for ordering.** *Rejected*, §5.2. A sequence advances outside transaction control, so a rolled-back request burns a number and two transactions can commit against their sequence order. **It is a different proxy for commit order, not an escape from proxies**, and 040 A1's whole point was to stop inferring causality from one.
+
+**A5 — Renaming `created_at` to `recorded_at` across fourteen tables.** *Rejected*, §2.5. A large diff whose entire yield is a better word: four view definitions, every `ORDER BY` in `scanSession.ts:74-80`, and every test, in exchange for documentation that a sentence provides for free. **The column's meaning was never in doubt; only its statement was.**
+
+**A6 — A `field_redaction` fact that views apply, for erasing a personal value in place.** The obvious answer to §8.4 and it does not work: the value is still in the table, and anything reading the table directly — a support query, an export, a backup restore — sees it. A view is not an erasure. *Rejected in favour of reference-not-value*, which erases one row in one mutable table and leaves every reference in the log resolving to an erased person.
+
+**A7 — Keeping `request_idempotency` append-only, as 040 §8.1 step 6 sketches.** *Not adopted*, §8.5, and it is the one place this record proposes changing a ratified record's migration sketch. A table that stores response bodies and cannot delete a row cannot honour a deletion right, and 040 §12 and A9 both leave its retention explicitly unanswered. **§13 Q7 puts it to the cannon rather than assuming the answer.**
+
+**A8 — Deferring the trigger-bypass detector to E13's observability work.** *Rejected on ownership*: 019 §3.6 names E02-B07 by name, and 020's synthesis rule — *"a non-waivable line without a live detector is a waiver by omission"* — makes deferral the failure it describes. It is also the cheapest item in this record: one clause per trigger and two queries.
+
+### 12.2 Consequences
+
+**What gets better.**
+
+- **The log becomes falsifiable.** Every row says who caused it, who authored it, which rule produced it, when it was recorded and when the thing happened. Today a row says none of those (E8).
+- **A condition authored by a machine becomes unrepresentable rather than forbidden** (§2.3). 019 T7 is non-waivable, and a CHECK is a stronger guarantee than the absence of a code path.
+- **Three reproducible defects close.** E16, E17 and E18 are constructions the shipped schema permits today, and the third is a cross-tenant write against a non-waivable line. Each closes with one constraint or one trigger.
+- **040's four ⛔ invariants become writable**, and 034 §7's note that *"RLS is now visibly blocked on the transaction"* stops being true.
+- **037 §4.4's correction path starts working.** I8 records that the owner's superseding condition is written and ignored today (`routes:374`); reading `_current` is what makes 037 §4's owner-review gate have an effect.
+- **022 P7's deletion sentence gets a mechanism**, and the reference-not-value rule (§8.4) means erasure never requires an UPDATE — which is what makes 019 T33's *"a per-seller deletion path that actually deletes"* buildable at all under locked decision 4.
+- **The tie-break 040 owes is paid**, and paid with a fact rather than a proxy.
+
+**What gets worse, stated plainly.**
+
+- **Every writing function's signature changes.** 029 §12.3 point 3 requires the handle as the first parameter of every writing public function. That is a wide, mechanical diff across `src/services/` and `src/routes/`, and it lands before anything else in §10.
+- **Six columns arrive on tables that have five.** The envelope roughly doubles the metadata on the smallest witness tables. The justification is per-column in §2.1 and it is still a real cost, paid on every row forever.
+- **The correction path gets slower to write and harder to get wrong.** One helper, four integrity rules, a lock and a transaction, where today there is an `INSERT`. That is the trade, and E16/E17/E18 are what the fast version bought.
+- **`authored_by`'s backfill is the one data statement in §10**, and §10 states the trade rather than hiding it: a `NOT NULL` column with a defensible backfill, or a nullable one and no `condition_assessment` CHECK.
+- **Two of this record's own decisions cannot be executed yet.** §7's O-A needs tables 036's unwritten migration creates; §9.4's confirmation concerns tables 030's unwritten migration creates (E19). Specifying work that cannot start is honest only if it is labelled, and it is.
+- **The record is long and its sections are coupled.** §5 depends on §4's lock; §6 depends on §4's transaction; §8's tombstone depends on §4's atomicity; §3's writer depends on all three. **That coupling is real and it is why §10's row 0 is row 0**, but a reader who takes any section alone will find it under-specified.
+- **This record amends one ratified record by a row**, and the bookkeeping for that (a 040 change-log row, a 040 version bump, a 006 row) is not optional — it is what stops the ratified text and the built thing from silently differing.
+- **A same-day merge moved the ground under a citation for the second record running, and that is now a pattern rather than an incident.** 040 cited `routes:213`/`:373`, correct at `aa448bb` and wrong one merge later. This record cited migration `005` as non-existent, true at `be86db0` and wrong one merge later — and PR #52 landed a column (`observed_at`) that a rule in this very record forbade. **The lesson is not "cite more carefully"; it is that a `file:line` in a decision record is a perishable claim about a moving tree**, which is exactly why 029 §9 makes factual repair cheap and why §14 lists statements of fact as amendable by a patch. A record whose factual claims cost a superseding record to fix will simply stop being repaired.
+
+### 12.3 What this record does NOT decide
+
+- **It does not write the transaction, the migrations, the detector or any test.** §10 is a sequence; the implementing bead is named in §13 Q1's neighbour below and recommended in the report accompanying this record.
+- **It does not set `tx_max_retries`** (§4.5) or **the purge sweep's cadence** (§8.7). Both are signed OPEN with their closing evidence named, and neither is invented here.
+- **It does not decide `request_idempotency`'s retention window.** 040 A9 gives it to **E13-B01** and that stands; §8.5 decides only that the table is *capable* of being swept.
+- **It does not name the PII fields.** **E03-B09** owns the privacy policy and its bead's acceptance is *"deletion/export is technically tested"*; §8.4 fixes the mechanism so that whatever list E03-B09 produces is purgeable.
+- **It does not amend 019.** §9.3's seventh T34 heartbeat is filed as an **amend-by-row candidate for E00-B03**, which owns 019's change control (018 §5). A record that edits another record's signed threshold has skipped the process that makes the threshold mean anything.
+- **It amends 040 by exactly one row, and 029/030/034/036 not at all.** A9 collapses 040 §5.1's `observed_current_id` into `against_table`/`against_id` under 029 §9's amend-by-a-row clause — 040 → v1.2.0, with its own change-log row and a 006 row. **That is the whole of it**: no boundary, no invariant, no transition kind and no guard in any ratified record is touched. §8.5's `request_idempotency` exemption changes 040 §8.1's *sketch*, which 040 itself hands to this bead to execute, and is recorded in §9.2's declared list rather than in 040.
+- **It does not decide the API surface.** **E02-B08** versions it and owns the actor / tenant / correlation-id / idempotency-key / schema-version envelope on the *call*, which is a different envelope from §2's on the *row*.
+- **It does not decide the outbox.** **E02-B09**; 029 §12 is explicitly temporary and 034 §2.12 A3 already names the open item — which `task_event` kinds carry a cross-module effect.
+- **It does not decide the migration numbers.** §10 leaves them unnumbered; **E02-B10** owns ordering, indexes, locking, compatibility, rollback and the architecture gate.
+- **It does not decide the database topology or role separation.** §9.2 item 2 names role separation as the primary control and hands it to **E03-B04** and **E13-B01**.
+- **It does not reverse or amend a locked decision.** Locked decisions 2, 4 and 5 constrain this record; where anything here conflicts with one, the locked decision wins.
+
+## 13. The questions, as answered by the cannon
+
+v1.0.0 put seven questions to two architecture lenses and a legal lens; both architecture lenses returned **ACCEPT-WITH-CHANGES**. **Five came back as changes to the design** (A2 from Q3, A3 from Q5, A5 from Q6, A10 from Q1, A11 from Q7), two were answered as drafted, and **five amendments arrived that the draft had not asked for** (A1, A4, A6, A7, A8). The reasoning is kept rather than deleted, because the reasoning is the record.
+
+1. ~~**Is `authored_by` worth a `NOT NULL` column on fourteen tables and a backfill?**~~ — **ANSWERED: yes, with the backfill decided per table (A10).** The column stands, on the ground the draft gave: it converts 019 T7 and 037 §1.1 from *"no code path does this"* into *"the database refuses it"*, and a CHECK outlives a grep. The condition attached is that **no table may be backfilled by a general argument** — each states its derivation in its own migration comment, and any table where the value is not derivable takes NULL meaning "pre-envelope" (034 §4.4). Worked through in §10.1, **all fourteen turn out derivable or empty**, so no NULL is needed — a better outcome than the draft claimed, resting on a narrower argument. The draft's own worry, that "we know which route wrote every row" might be a fabrication, is answered by the per-table discipline: seven of the fourteen are **empty**, and the ambiguous ones are all in that set.
+
+2. ~~**May this record collapse 040's `observed_current_id` into `against_table`/`against_id`?**~~ — **ANSWERED: yes (A9).** 040 §5.1 calls the two *"one idea"* in its own text and 040 §8 is explicitly a sketch for this bead to execute, so implementing the general shape is executing 040 rather than amending it. **But the draft was right to be uneasy about the bookkeeping**, and the fix is bookkeeping: it is recorded as an **amend-by-a-row on 040** — a 006 decision-log row, a 040 change-log row, and 040 → **v1.2.0** — so the ratified text and the built thing do not silently differ. That is 029 §9's clause used for what it is for.
+
+3. ~~**Should R1 be a composite FK wherever expressible, or a trigger everywhere?**~~ — **ANSWERED, and the question was too permissive (A2).** Not "preferred" — **mandatory** on all three tables, which are session-scoped and on which the FK is expressible without exception. The decisive point is one the draft raised elsewhere and failed to apply here: **§1 E13–E15 establish that a trigger can be switched off and that the repository cannot see it.** Putting a non-waivable T24 boundary behind a trigger, in a record whose §9 exists because triggers are bypassable, would have been incoherent. The FK is checked by the planner, has no `tgenabled`, and needs no detector. The trigger fallback is **deferred**, not deleted, to whichever record first introduces a non-session-scoped supersession.
+
+4. ~~**Is §3.3's outcome-baseline rule a correction or a change?**~~ — **ANSWERED: a correction, as drafted.** The two readings coincide on every case the current code can produce and diverge only once corrections are written out of order, so it clarifies a rule that becomes load-bearing exactly when the supersession writer lands. 019 T20's *"the identity the owner INHERITED"* reads as *the row being replaced*, and neither lens read it otherwise. **T20's numerator is unchanged**, which is what the draft wanted confirmed before proceeding.
+
+5. ~~**Is §4.2 itself an unmeasured cost rejection?**~~ — **ANSWERED: partly, and it is split (A3).** The draft raised this against itself in §7.3 and then did not act on it. The cannon did: **(i) constraint over lock over isolation is DECIDED**, because it is structural — a constraint is correct at every isolation level, which is not a claim about speed. **(ii) `FOR UPDATE` versus `SERIALIZABLE` for anchorless guards is OPEN**, marked exactly as 040 §5.4 marks its plain view, and closed by **O-A arms (ii) and (iii)** on the same fixture. Kleppmann added the gap the split exposed: the record asserted the session lock closes four guards without enumerating **which rows the lock covers versus which rows the predicate reads**. §4.2 now carries that table, names **write skew** as the anomaly, and **decides G-c** — the hold-placement path takes the same session lock, so a hold that never touches the session row cannot exist by construction.
+
+6. ~~**Does retaining `content_hash` after the bytes are destroyed serve the deletion right or undermine it?**~~ — **ANSWERED: the goal was right and the mechanism was not (A5).** A raw SHA-256 of destroyed content is a **permanent, unrotatable re-identification key** in a row that can never be edited. The purge now retains only **HMAC-SHA256 under a per-shop purge-epoch key held outside the database**: re-upload detection still works, proof-of-deletion survives, and the retention becomes **revocable** — rotating the key unlinks every digest without touching one append-only row, which is the one remedy an append-only store can always offer because the key was never in it. The hash class is also pinned: SHA-256 of exact bytes, and **no perceptual hash without its own decision record**, because a fuzzy hash of deleted content is a similarity index over deleted content and a different thing to defend.
+
+7. ~~**Should `request_idempotency` be exempt from the append-only trigger?**~~ — **ANSWERED: yes (A11).** A table that stores response bodies and cannot delete a row cannot honour a deletion right, and 040 §12 and A9 both leave its retention explicitly unanswered. The draft's own mitigation carried it: the exemption is a **declared row with a reason** on §9.2 item 4's list, not an absence, so it cannot become a precedent by being overlooked. Its retention window remains **E13-B01's**, unchanged.
+
+**Five amendments the draft did not ask for.** **A1 (Hickey, the most consequential):** the record put the transaction at row 0 and the trigger hardening at row 3 marked *"could ship first"* — **inverted**, because the hardening shares no dependency with anything and closes a live bypass of locked decision 4, and shipping the transaction first means shipping it against an unenforced model. **A4 (Kleppmann):** `session_seq` is **commit order, not act order** — for the offline queue it is reconnect time, and two replayed writes are separated by `against_*` and never by the sequence; plus §2.0's one-sentence consistency model, so every future append-only table inherits the boundary instead of re-deriving it. **A6 (legal):** `hold_kind`, the 24-month bound on purged-row operator context, the minimal purge record, the counsel batch, and the 021 C-row candidate. **A7 (Kleppmann):** a boot check on a weekly-restarted service is a weekly check — the detector runs **every five minutes**, and T34's seventh heartbeat is **yes**. **A8 (Hickey):** I20 ships in the same PR as the deprecation comment, or the deprecation is a note.
+
+**What neither lens disputed.** Hickey re-executed E1–E22 by sample and Kleppmann re-executed E13–E18; **every claim reproduced verbatim and no §1 finding is contested.** Hickey additionally recorded §2.2 and §2.3 — the envelope as a specification rather than a base table, and `authored_by` as a second fact distinct from `actor_role` — as **adopted without change**.
+
+
+## 14. Ratification
+
+| Field | Value |
+|---|---|
+| Decision | **Adopt §2–§10** — the observation envelope and the §2.0 consistency model (§2); correction and supersession with R1–R4, the mandatory composite FK and a single writer (§3); 029 §12's request transaction, with (i) decided and (ii) OPEN, the per-guard lock-coverage table and the G-c lock decision (§4); the per-session `session_seq` as commit order, answering the tie-break 040 §3.4 owes (§5); the materialization rule and the replay drill (§6); 036 §13's O-A and O-B (§7); lawful purge with the keyed purge digest, `hold_kind` and the reference-not-value rule (§8); the trigger-bypass hardening, its three-place detector and the declared list with its exemptions (§9); and the migration sequence with the hardening first and the per-table `authored_by` decision (§10) — as the canonical design for append-only observations, correction, supersession, aggregation and lawful purge for intent-longbox, **with amendments A1–A12 absorbed, none declined**, together with §11's invariants and §12.1's rejected alternatives. Binding on E02-D04, E02-D05, E02-B08, E02-B09, E02-B10, E03-B04, E03-B09, E05-B08, E10-B05, E13-B01 and the bead that writes 036 §7.1's migration. Apply the **040 amend-by-a-row** (A9) under 029 §9's clause: 040 → v1.2.0, `observed_current_id` collapsed into `against_table`/`against_id`. File the **019 T34 seventh-heartbeat row** (A7) as an amend-by-row candidate for **E00-B03**, never as an edit by this record. |
+| Status | **RATIFIED.** |
+| Acting head of board | **Claude, acting head of board**, under Jeremy Longshore's 2026-09-03 delegation recorded in 006 |
+| Date | **2026-09-04** |
+| Cannon | `rich-hickey-reviewer` and `martin-kleppmann-reviewer`, 2026-09-04 — **both ACCEPT-WITH-CHANGES** — plus `legal-advisor` on §7, §8 and §13 Q6. **Both architecture lenses re-executed §1's E13–E18 against `001`–`005` on a clean `postgres:16`; Hickey re-ran E1–E22 by sample. Every claim reproduced verbatim. No §1 finding is disputed by either lens.** |
+| Amendments at ratification | **A1** (Hickey, REQUIRED) the `ENABLE ALWAYS` hardening plus the `pg_trigger` test ships as **migration 0, alone, before the transaction helper** — it shares no dependency, and shipping the transaction first means shipping it against an unenforced model; bead **E02-D05** · **A2** (Hickey + Kleppmann, REQUIRED) the composite FK is **mandatory** on the three session-scoped tables — a non-waivable T24 boundary may not sit behind a mechanism §9 exists because it is bypassable; the trigger fallback is deferred, and **Q3 is closed** · **A3** (Hickey + Kleppmann, REQUIRED) §4.2 **splits** into a decided preference order and an **OPEN** lock-versus-isolation question closed by O-A arms (ii)/(iii); adds the **per-guard lock-coverage table**, names **write skew**, and decides **G-c** by putting the hold-placement path behind the same session lock · **A4** (Kleppmann, REQUIRED) `session_seq` is **commit order, not act order**; for E05-B08 it is reconnect-and-replay time; two replayed writes are separated by `against_*` and never by the sequence — the **second sanctioned exception** beside `abandoned`'s `now()`; plus §2.0's one-sentence consistency model · **A5** (Hickey + Kleppmann + legal, REQUIRED) `content_hash` is **SHA-256 of exact bytes, no perceptual hash without its own record**, and the purge retains only a **keyed HMAC under a per-shop epoch key held outside the database**, so the retention is revocable by destroying a key rather than by editing a row; **Q6 answered** · **A6** (legal, structural only) `hold_kind ∈ {operational, litigation}`; purged-row operator context bounded at 24 months and severed by reference; the purge record is **minimal**; statutory questions to the **counsel batch**, uncited here; the data-subject wording is a **021 C-row candidate** · **A7** (Kleppmann, REQUIRED) the detector runs **every five minutes**, boot check retained; **T34's seventh heartbeat is yes**, filed for E00-B03 · **A8** (Hickey) I20 ships in the **same PR** as the deprecation comment, as an E02-B08 acceptance line · **A9** (Q2) **yes**, recorded as an **amend-by-a-row on 040** · **A10** (Q1) **yes**, with the backfill decided **per table** in §10.1 — all fourteen derivable or empty · **A11** (Q7) **yes**, as a **declared exemption with its reason** · **A12** implementing beads named: **E02-D04**, **E02-D05**, and a note-obligation on **E05-B08**. **None declined.** |
+| **Dissent preserved** | **`rich-hickey-reviewer`, on the record's overall cost — registered as an affirmation against the Beck-style objection that this is too much machinery for a pilot:** *"I want it exactly as hard as this record makes it: E16, E17, and E18 are what the easy version — a bare INSERT with an FK to nowhere in particular — already bought."* Recorded because that objection is the one a future reader will raise, and this is the answer to it. · **`martin-kleppmann-reviewer`, on the model's boundary:** *"the consistency model is per-guard and per-session, and the record never states the boundary of that model as a single sentence an operator or an auditor could hold onto."* **Answered by A4's §2.0 sentence** rather than overruled. · **`martin-kleppmann-reviewer`, the Lamport-lens gap:** *"enumerate, per guard, which rows the lock must cover versus which rows the predicate reads."* **Answered by A3's lock-coverage table**, which found one guard (G-c) where the two sets did not coincide and closed it by decision rather than by note. |
+| Adopted without change | **`rich-hickey-reviewer` on §2.2 and §2.3** — the envelope as a *specification with a test* rather than a base table or an `event(payload jsonb)`, and `authored_by` as a **second fact** distinct from `actor_role` (cause and authorship do not collapse). Recorded because both were the draft's least certain sections and neither lens moved them. |
+| Gate audit | *(pending)* — `longbox-gate-auditor` before the bead closes. |
+| Jeremy's revision right | **Standing.** Jeremy may revise any line by a 006 decision-log row naming date, old text, new text and reason (018 §5). Locked decisions 2, 4 and 5 outrank this record, as do 019's signed thresholds and every ratified record it cites. |
+| Recorded in | 006 decision-log row dated 2026-09-04 (flipped **in place** from the PROPOSED row filed earlier the same day, per 018 §4 C2 — the PROPOSED text is preserved in version control), plus a second 006 row for the 040 amend-by-a-row (A9); 016 §1 row 041; 000-INDEX row 041; 040's own change log at v1.2.0; the change log above; bead `longbox-e5b.2.7`'s close reason quotes this block. |
+
+Binding from 2026-09-04. Changing any **decision** above — the envelope's shape, an integrity rule, the isolation preference order, the ordering rule, the materialization conditions, the purge path, the detector's placement, or §10's sequence — requires a new decision record naming this one as superseded (018 §4 rule S4), never an in-place edit. Three things are explicitly **not** decisions and may be amended in place by a patch bump plus a change-log row, following 029 §9's precedent: **statements of fact about the existing tree** (a `file:line` that turns out wrong is a defect in the description, not the decision); **`tx_max_retries` (§4.5)** and **the purge cadence (§8.8)**, both designed to close by measurement; and **§4.2(ii)**, which is signed OPEN and closes when O-A reports.
+
+**Ratification is not evidence** (018 §2 A3). This block records that a design was argued by two architecture lenses and a legal lens and adopted. It does not make any claim in §2–§10 true of any running system: **nothing here is built, nothing is TESTED**, every invariant in §11 names a test file that does not exist, four are **⛔ blocked outright** on a transaction helper that does not exist, and six (I3, I4, I8, I11, I12, I13) are written to **fail on the current tree**. §1 stays REPRODUCED — six of it by execution — and everything else stays ASSERTED. **In particular, ratification does not retire the three live schema defects E16, E17 and E18, and it does not close the half-written-chain risk 029 §12 names. All four are live at `12470b3`, and the first thing that changes any of them is §10 row 0.**

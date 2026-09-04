@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.8] - 2026-09-04
+
+- docs(e00): ratify the workplace principles, amend 019 with T35, close out the E00-B05/B06/B07 governance deliverables (#22) (935c4f4)
+
+
 ## [v0.3.7] - 2026-09-03
 
 - docs(e00-b04): ratify the Product Success Contract (019) via ISEDC council; file the council record (020) (#21) (1ed9ffb)

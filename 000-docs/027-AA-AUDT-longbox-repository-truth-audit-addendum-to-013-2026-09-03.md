@@ -311,7 +311,7 @@ Nothing below is edited by this addendum: 013 is append-versioned and 018 §4 C2
 ---
 
 
-**008** (approved build plan) — added at v1.0.3 from the E15-B01 gate audit: `008:14` names the repo under the old org as current state (same class as the queued 006 C01) — correct to `jeremylongshore/intent-longbox` with a transfer note; `008:104` is true history of the transfer — label it as history. Neither is a register row; both were missing from this queue.
+**008** (approved build plan) — added at v1.0.3 from the E15-B01 gate audit: `008:14` names the repo under the old org as current state (same class as the queued 006 C01) — correct to `jeremylongshore/intent-longbox` with a transfer note; `008:104` is true history of the transfer — label it as history. Neither is a register row; both were missing from this queue. **Done 2026-09-03 (008 v1.1.0).**
 
 ## 8. Identity repair landed with this audit
 

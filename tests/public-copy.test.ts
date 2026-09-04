@@ -77,6 +77,14 @@ describe("public/ operator copy never shows a percentage or confidence figure (0
 
   it("app.js status line uses the registered band headings verbatim (021 C1-C3)", () => {
     expect(appJs).toContain("Best match");
+    // Bodies and the contradiction sentence, byte-for-byte from 021 C1–C3.
+    expect(appJs).toContain("Check the cover in your hand.");
+    expect(appJs).toContain("More than one book fits. Pick the one in your hand.");
+    expect(appJs).toContain("Search for it — type what's on the cover.");
+    expect(appJs).toContain(
+      "The barcode and the cover don't agree. Check the issue number before you confirm."
+    );
+    expect(appJs).toContain("Not this one — show other matches");
     expect(appJs).toContain("Close matches");
     expect(appJs).toContain("Not sure enough to guess");
   });

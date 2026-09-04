@@ -146,7 +146,9 @@ function renderCandidates(data) {
       };
       show("override-link");
     }
-  } else if (data.band === "medium" && candidates.length > 0) {
+  } else if ((data.band === "medium" || data.band === "high") && candidates.length > 0) {
+    // A high band that arrives with a contradiction (the server downgrades it today; this
+    // is belt and braces for locked decision 7) is forced to a pick, never to one-tap.
     renderCandidateGrid(data, "grid_pick");
   } else {
     // low band: manual search box

@@ -17,6 +17,7 @@ import type pg from "pg";
 import * as api from "../src/services/sessionApi.js";
 import { ShopRateLimiter } from "../src/services/rateLimit.js";
 import { fakeResponse, fakeTxPool, type FakeTxPool } from "./fakes.js";
+import { TEST_PIN_PEPPER } from "./testConfig.js";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -35,6 +36,8 @@ const CONFIG = {
   databaseUrl: "postgres://unused",
   uploadsDir: UPLOADS,
   bands: { high: 0.85, medium: 0.5 },
+  pinPepper: TEST_PIN_PEPPER,
+  publicOrigins: [],
 };
 
 /** "036000291452" is a check-digit-valid UPC-A; "30011" = issue 300, cover 1, printing 1. */

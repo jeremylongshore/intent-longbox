@@ -8,9 +8,11 @@ import { LongboxError } from "./contracts/v1/errors.js";
 import { API_PREFIX, TENANT_PREFIX } from "./contracts/v1/schemas.js";
 import { DEPRECATION_HEADERS } from "./contracts/v1/routes.js";
 import { registerErrorHandling } from "./http/errors.js";
+import { registerAuthRoutes } from "./routes/auth.js";
 import { registerScanSessionRoutes, registerShopRoutes } from "./routes/scanSessions.js";
 import { ShopRateLimiter } from "./services/rateLimit.js";
 import type { ApiDeps } from "./services/sessionApi.js";
+import { registerAuthentication } from "./services/auth/hook.js";
 
 export interface BuildAppOptions {
   /** Injected so the rate posture is testable without wall-clock sleeps. */
@@ -58,6 +60,26 @@ export async function buildApp(
 
   registerErrorHandling(app);
 
+  // ⚠ THE AUTHENTICATION HOOK IS REGISTERED HERE, AND THE POSITION IS THE DESIGN
+  // (048 §5.3 R10, §6.2).
+  //
+  // It is an APP-LEVEL `onRequest`, so it runs before every plugin-level hook —
+  // including the tenant plugin's rate bucket below, which is what lets that
+  // bucket be keyed on the SESSION's shop rather than on `req.params.shopId`.
+  // 046 G-20 assigned that fix to E13-B02 "after G-1"; it is not a separate
+  // change, it is one line of ordering inside a hook this bead adds anyway.
+  //
+  // It is registered BEFORE `@fastify/multipart`, and that is the load-bearing
+  // half. `onRequest` runs before any body parsing whatsoever, so a request that
+  // will be refused — for a cross-site `Sec-Fetch-Site`, a missing
+  // `Idempotency-Key` or a dead session — is refused having touched no disk, no
+  // database and no session. Today the header requirement lives inside each
+  // handler, which is AFTER multipart has begun consuming the body: a cross-site
+  // request with no header has by then had up to 25 MiB streamed to disk. I6(b)
+  // asserts the ORDERING and not merely the presence of the check, because a
+  // check in the right place and a check in the wrong place return the same code.
+  registerAuthentication(app, deps);
+
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
   // ONE static mount, and the second one is GONE (046 §6 Q5, E03-D05).
   //
@@ -74,6 +96,7 @@ export async function buildApp(
 
   app.get("/healthz", async () => ({ ok: true }));
 
+  registerAuthRoutes(app, deps);
   registerShopRoutes(app, deps);
 
   // 042 §3.4 half one — ONE prefix, ONE plugin. Every shop-scoped route is
@@ -86,7 +109,13 @@ export async function buildApp(
       // per-device bucket is a per-operator surface by the back door against a
       // line 019 signs at zero and marks non-waivable.
       scoped.addHook("onRequest", async (req) => {
-        const shopId = (req.params as { shopId?: string } | undefined)?.shopId;
+        // 048 §6.2, AND THIS IS THE WHOLE OF 046 G-20's FIX. The key is the
+        // SESSION's shop, resolved by the authentication hook that has already
+        // run, and `req.params.shopId` only when there is no session — which
+        // after this bead means a route the auth allowlist exempted. 042 §8.1's
+        // rule is "per shop, never per IP"; what ran before was "per
+        // shop-id-string a caller chose", which is not the same rule.
+        const shopId = req.auth?.shopId ?? (req.params as { shopId?: string } | undefined)?.shopId;
         if (!shopId) return;
         const decision = deps.limiter.takeOrdinary(shopId);
         if (!decision.allowed) {

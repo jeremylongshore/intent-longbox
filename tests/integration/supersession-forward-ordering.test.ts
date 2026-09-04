@@ -28,6 +28,8 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { SUPERSEDABLE_TABLES } from "../../src/services/supersession.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-supersession-uploads";
@@ -37,6 +39,8 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
   let pool: pg.Pool; // the APP role: what the server actually connects as
   let ownerPool: pg.Pool; // the schema owner: the only role that can disable a trigger
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
 
   beforeAll(async () => {
@@ -55,7 +59,13 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   }, 120_000);
 
   afterAll(async () => {
@@ -317,7 +327,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
   // The point of the whole bead: the two ratified callers write the column.
   describe("the routes write supersedes_id (041 §3.3's two callers)", () => {
     async function post(path: string, body: unknown): Promise<{ status: number; json: any }> {
-      const res = await app.inject({
+      const res = await inject({
         method: "POST",
         url: path,
         payload: body as object,

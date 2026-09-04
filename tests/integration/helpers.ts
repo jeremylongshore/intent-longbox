@@ -143,15 +143,28 @@ export async function restoreFixture(databaseUrl: string, fixturePath: string): 
   });
 }
 
-/** Insert a shop + default pricing policy; returns the shop id. */
+/**
+ * Insert an organization + shop + default pricing policy; returns the shop id.
+ *
+ * The `organization` row is not optional and is not scenery: `migrations/019`
+ * gives `shop` a validated `CHECK (organization_id IS NOT NULL)`, which is 034
+ * §4.3 (A4)'s "no committed state has a shop with no legal party" expressed
+ * without a `SET NOT NULL` (a contracting statement under 000-docs/044 §2). A
+ * consent row, a charter reference or a processor term filed against a BRAND
+ * points at the wrong party from the day it is written, and under append-only
+ * rules it is exactly the row that cannot be re-pointed.
+ */
 export async function seedShop(
   db: pg.Pool,
   opts: { name?: string; slug?: string; compPercent?: number; floorCents?: number } = {}
 ): Promise<string> {
-  const res = await db.query(`INSERT INTO shop (name, slug) VALUES ($1, $2) RETURNING id`, [
+  const org = await db.query(`INSERT INTO organization (name) VALUES ($1) RETURNING id`, [
     opts.name ?? "Test Shop",
-    opts.slug ?? `test-shop-${Date.now()}`,
   ]);
+  const res = await db.query(
+    `INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3) RETURNING id`,
+    [opts.name ?? "Test Shop", opts.slug ?? `test-shop-${Date.now()}`, (org.rows[0] as { id: string }).id]
+  );
   const shopId = (res.rows[0] as { id: string }).id;
   await db.query(
     `INSERT INTO shop_pricing_policy (shop_id, comp_percent, floor_cents, rounding_rule)

@@ -13,6 +13,7 @@ import { MESSAGES } from "../src/contracts/v1/errors.js";
 import { ShopRateLimiter } from "../src/services/rateLimit.js";
 import { requestHash } from "../src/services/idempotency.js";
 import { fakeResponse, fakeTxPool, type FakeTxPool } from "./fakes.js";
+import { TEST_PIN_PEPPER } from "./testConfig.js";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -22,6 +23,8 @@ const CONFIG = {
   databaseUrl: "postgres://unused",
   uploadsDir: "tests/.tmp-unused",
   bands: { high: 0.85, medium: 0.5 },
+  pinPepper: TEST_PIN_PEPPER,
+  publicOrigins: [],
 };
 
 function deps(pool: pg.Pool, limiter = new ShopRateLimiter()): api.ApiDeps {
@@ -89,7 +92,10 @@ describe("createSession", () => {
     expect(out.status).toBe(201);
     expect(out.body).toEqual({ session: { id: SESSION, shop_id: SHOP, created_at: "t" } });
     const insert = p.calls.find((c) => c.text.includes("INSERT INTO scan_session"))!;
-    expect(insert.values).toEqual([SHOP]);
+    // 048 §6.3: `operator_id` comes from the context the hook resolved. This
+    // fixture context carries none, so it is NULL — and `created_by` is still
+    // absent from the statement entirely.
+    expect(insert.values).toEqual([SHOP, null]);
   });
 
   it("refuses an unknown shop with SHOP_NOT_FOUND before opening a transaction", async () => {

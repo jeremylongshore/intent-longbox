@@ -54,6 +54,21 @@ const SNAPSHOTS = [
   // be two upgrade paths tested to prove one property, so `after-013` was dropped
   // rather than kept for symmetry.
   { name: "014", file: "tests/fixtures/schema/after-014.sql", applied: 14 },
+  // E03-D09: added because `019`/`020` pushed head SIX past `014`, two more
+  // than the assertion at the foot of this file allows — the third time that
+  // reminder has fired on schedule (E02-B10 wrote it; E02-D07 and E06-D01
+  // answered it before). `018` rather than `020`, for E06-D01's reason exactly:
+  // a snapshot is a schema somebody could be RUNNING, and `019`/`020` are the
+  // ones this PR is adding. `018` is E03-B07's, merged ahead of this branch, so
+  // it is also the newest RELEASED schema at the moment this fixture was cut.
+  //
+  // It is also the first fixture whose upgrade exercises a DATA statement:
+  // `019` creates one `organization` per existing `shop` and populates the FK in
+  // the same transaction (034 §4.3, A4), so this suite is where "a shop row that
+  // existed before the migration comes out the other side with a legal party" is
+  // PROVED rather than asserted — on a fixture whose `shop` row predates the
+  // column entirely.
+  { name: "018", file: "tests/fixtures/schema/after-018.sql", applied: 18 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -179,12 +194,45 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     }
   });
 
+  // 019's PRECONDITION, proved by making it fire (E03-D09; raised by the advisory
+  // review on PR #71). The migration adds `operator_id`'s foreign key on four
+  // tables and asserts, in a comment, that nothing has ever written the column.
+  // The `ALTER TABLE` would fail on its own if that were false — but it would
+  // fail with a bare foreign-key violation naming a constraint that did not
+  // exist a moment earlier, on a run at 7am. The explicit check says what the
+  // rows ARE and what the operator has to decide.
+  it("REFUSES to add the operator_id foreign key over a row naming an unknown operator", async () => {
+    const url = await createFreshDb("longbox_upgrade_orphan_operator");
+    await restoreFixture(url, "tests/fixtures/schema/after-018.sql");
+    const pool = new pg.Pool({ connectionString: url });
+    pools.push(pool);
+
+    // A row from a world this migration cannot account for: `operator_id` set to
+    // a uuid no `app_user` will ever have, because `app_user` does not exist yet
+    // in the fixture.
+    await pool.query(
+      `UPDATE scan_session SET operator_id = '99999999-9999-4999-8999-999999999999'
+        WHERE id = '22222222-2222-4222-8222-222222222221'`
+    );
+
+    await expect(runMigrations(url)).rejects.toThrow(
+      /refusing to add the operator_id foreign key: 1 row\(s\) in scan_session/
+    );
+
+    // And it refused BEFORE altering anything: the constraint is absent, so a
+    // second run after the operator has decided what the row is starts clean.
+    const constraint = await pool.query(
+      `SELECT 1 FROM pg_constraint WHERE conname = 'scan_session_operator_is_an_app_user'`
+    );
+    expect(constraint.rowCount).toBe(0);
+  });
+
   it("covers the newest released schema, so the fixture set cannot silently go stale", () => {
     // The newest fixture must stay within four migrations of head. E02-B10 wrote
     // this assertion with `006` as the newest and said in so many words that
     // shipping `011` was the moment to add `010`; E02-D07 shipped `011`/`012` and
     // added it; E06-D01 shipped `015`, which put head five past `010`, and added
-    // `014`. The next bead to push head past `018` adds the next one.
+    // `014`. The next bead to push head past `022` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

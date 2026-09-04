@@ -12,6 +12,8 @@ import { buildApp } from "../../src/app.js";
 import { listSessionPhotos } from "../../src/services/scanSession.js";
 import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { jpeg, png, pngOfExactly } from "../fixtures/media/index.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 
@@ -64,11 +66,13 @@ function multipart(parts: Part[]): { payload: Buffer; headers: Record<string, st
 describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photos (multipart)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
   let base: string;
 
   async function newSession(): Promise<string> {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: base,
       payload: {},
@@ -90,7 +94,14 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       databaseUrl: url,
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   });
 
   afterAll(async () => {
@@ -105,7 +116,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       { name: "kind", value: "cover" },
       { name: "file", value: PNG_BYTES, filename: "IMG_4821.png", contentType: "image/png" },
     ]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
     // 042 §3.5: `storage_url` is an INTERNAL reference and is never a response
     // field — a photo is addressed by a shop-scoped, time-bounded signed URL
@@ -134,7 +145,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       { name: "kind", value: "barcode" },
       { name: "file", value: jpegBytes, filename: "upc.jpg", contentType: "image/jpeg" },
     ]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
     expect(res.json().photo.kind).toBe("barcode");
     expect(res.json().photo).not.toHaveProperty("storage_url");
@@ -145,7 +156,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
   it("defaults kind to cover when the field is absent", async () => {
     const sessionId = await newSession();
     const req = multipart([{ name: "file", value: PNG_BYTES, filename: "c.png", contentType: "image/png" }]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
     expect(res.json().photo.kind).toBe("cover");
   });
@@ -156,7 +167,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       { name: "kind", value: "spine" },
       { name: "file", value: PNG_BYTES, filename: "c.png", contentType: "image/png" },
     ]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(400);
     // One envelope, everywhere (042 §4.1). The prose that used to be the whole
     // body is now a developer `message` nobody renders, and the branchable part
@@ -168,17 +179,23 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
   it("rejects a multipart body with no file part with 400", async () => {
     const sessionId = await newSession();
     const req = multipart([{ name: "kind", value: "cover" }]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("PHOTO_FIELD_REQUIRED");
   });
 
   it("rejects a non-multipart JSON body with 415 UNSUPPORTED_MEDIA_TYPE", async () => {
     const sessionId = await newSession();
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `${base}/${sessionId}/photos`,
       payload: { kind: "cover", file: PNG_BYTES.toString("base64") },
+      // E03-D09: the `Idempotency-Key` requirement moved INTO the authentication
+      // hook, ahead of the multipart parser (048 §5.3, R10). Without a key this
+      // request is now refused for the missing header BEFORE the media type is
+      // ever looked at — which is the ordering I6(b) asserts, and is the reason
+      // the header has to be supplied here to keep the media type under test.
+      headers: { "idempotency-key": randomUUID() },
     });
     expect(res.statusCode).toBe(415);
     // A framework error joins the envelope through the one handler (042 §4.5),
@@ -205,7 +222,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       { name: "kind", value: "cover" },
       { name: "file", value: oversize, filename: "huge.png", contentType: "image/png" },
     ]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(413);
     // 042 §4.5, named in the record rather than discovered here: this was the
     // ONE machine-readable code in the API and no handler composed it — it was
@@ -228,7 +245,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
       { name: "kind", value: "cover" },
       { name: "file", value: atLimit, filename: "exact.png", contentType: "image/png" },
     ]);
-    const res = await app.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    const res = await inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
     expect(res.statusCode).toBe(201);
     const photo = res.json().photo as { id: string };
     const rows = await listSessionPhotos(pool, shopId, sessionId);
@@ -240,7 +257,7 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
     const sessionId = await newSession();
     const otherShop = await seedShop(pool, { name: "Other Shop", slug: "other-photos" });
     const req = multipart([{ name: "file", value: PNG_BYTES, filename: "c.png", contentType: "image/png" }]);
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `/api/v1/shops/${otherShop}/scan-sessions/${sessionId}/photos`,
       ...req,
@@ -249,6 +266,16 @@ describe.skipIf(!dbUp)("HTTP: POST /api/v1/shops/:shopId/scan-sessions/:id/photo
     // One envelope (042 §4.1), and a code a client can branch on — where the
     // whole body used to be an untyped `error` key holding sometimes a string
     // and sometimes a validation object (042 E9).
-    expect(res.json().error.code).toBe("SESSION_NOT_FOUND");
+    //
+    // **The code changed at E03-D09 and the refusal got EARLIER** (048 §6.1,
+    // §6.5, I2). The tenant now comes from the session and the URL is a value
+    // checked against it, so this request is refused at the hook — before any
+    // handler, before the multipart parser, before the session table is touched
+    // — and the answer is `SHOP_NOT_FOUND`, byte-identical to the answer for a
+    // shop id that was never issued. That is deliberate: a distinct "you may not
+    // access this shop" code would confirm the shop exists, which is an
+    // enumeration oracle over the very table 019 T24 signs at zero.
+    expect(res.json().error.code).toBe("SHOP_NOT_FOUND");
+    expect(res.json().error.details).toEqual({});
   });
 });

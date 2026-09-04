@@ -36,6 +36,22 @@ function parse<T extends ZodTypeAny>(schema: T, value: unknown): ReturnType<T["p
   return result.data as ReturnType<T["parse"]>;
 }
 
+/**
+ * THE REQUIREMENT MOVED; THE READ STAYED (048 §5.3, R10; E03-D09).
+ *
+ * The `Idempotency-Key` header is now REQUIRED by the authentication hook, in an
+ * `onRequest` driven from the route table — ahead of `@fastify/multipart` and
+ * ahead of the session read. That matters and it is not tidiness: this function
+ * used to be the enforcement, and it runs inside a handler, which is AFTER
+ * multipart has begun consuming the body. A cross-site request that will be
+ * refused for a missing header had, by then, already had up to 25 MiB streamed to
+ * disk. I6(b) asserts the ORDERING, not the presence, for exactly that reason.
+ *
+ * The throw below is now UNREACHABLE and stays anyway, because "the hook
+ * guarantees it" is the kind of guarantee that stops holding when somebody edits
+ * an allowlist row — and an empty string reaching `request_idempotency` would be
+ * a row whose UNIQUE key is shared by every keyless request in the shop.
+ */
 function idempotencyKey(req: FastifyRequest): string {
   const raw = req.headers[IDEMPOTENCY_HEADER];
   const key = Array.isArray(raw) ? raw[0] : raw;
@@ -52,6 +68,12 @@ function context(req: FastifyRequest, route: string, shopId: string, sessionId?:
     idempotencyKey: idempotencyKey(req),
     route,
     method: req.method,
+    // 048 §6.3 and K1: the operator and the session lock come from the hook's
+    // resolved principal. The handler passes them along and never derives them —
+    // a route that computed either would be a second source of truth for who is
+    // asking, which is the defect this whole bead exists to remove.
+    ...(req.auth?.operatorId !== undefined ? { operatorId: req.auth.operatorId } : {}),
+    ...(req.auth?.sessionLock !== undefined ? { sessionLock: req.auth.sessionLock } : {}),
   };
 }
 

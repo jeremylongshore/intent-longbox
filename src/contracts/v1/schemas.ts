@@ -375,5 +375,55 @@ export const draftResponse = z.object({
 
 export const healthResponse = z.object({ ok: z.literal(true) });
 
+// ---------------------------------------------------------------------------
+// E03-D09 — the four authentication surfaces (048 §3.5, §6.2, §7.3).
+// ---------------------------------------------------------------------------
+
+/** A phone exchanges the secret it holds for a device session (048 §7.3's other half). */
+export const deviceSessionRequest = z.object({ device_secret: z.string().min(1).max(200) }).strict();
+
+/**
+ * What a device session tells the phone about itself.
+ *
+ * The shop's id and name, and nothing about a person. `location_id` is here
+ * because the client renders which counter it is at, and a phone that cannot say
+ * which location it belongs to cannot be told apart from another phone in the
+ * same shop by the person holding it.
+ */
+export const deviceSessionResponse = z.object({
+  device: z.object({ shop_id: uuid, shop_name: z.string(), location_id: uuid }),
+});
+
+/**
+ * The operator picker's payload (048 §3.5, I7).
+ *
+ * **Display name and id ONLY.** No count, no timestamp, no ordering key, no
+ * "last used", no badge and no streak — a roster is a list of who could be
+ * holding the phone, and a leaderboard is a list of what they did. The DTO is
+ * what makes that a schema-level fact instead of a habit of one query.
+ */
+export const operatorRosterResponse = z.object({
+  operators: z.array(z.object({ id: uuid, display_name: z.string() })),
+});
+
+/** Tap a name, enter six digits (048 §3.5). */
+export const operatorSessionRequest = z
+  .object({ app_user_id: uuid, pin: z.string().min(1).max(32) })
+  .strict();
+
+/**
+ * What a successful PIN returns: the operator's own id and display name — which
+ * the person just selected and typed a PIN for, so it discloses nothing — and
+ * the shop the session is scoped to.
+ */
+export const operatorSessionResponse = z.object({
+  operator: z.object({ id: uuid, display_name: z.string() }),
+  shop: z.object({ id: uuid, name: z.string() }),
+});
+
+/** Signing an operator out is a body-less act on the session the cookies name. */
+export const endOperatorSessionRequest = z.object({}).strict();
+export const endOperatorSessionResponse = z.object({ ended: z.literal(true) });
+
 export type SessionDetail = z.infer<typeof sessionDetailResponse>;
 export type IdentifyResponse = z.infer<typeof identifyResponse>;

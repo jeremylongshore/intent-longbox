@@ -1,6 +1,7 @@
 // Central env-derived config. Secrets stay in process.env; this module never
 // logs or re-exports raw key values beyond handing them to transport code.
 import "dotenv/config";
+import { requirePinPepper } from "./services/auth/secrets.js";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./services/media.js";
 
 export interface BandThresholds {
@@ -21,6 +22,37 @@ export interface AppConfig {
    * value, so an omission tightens rather than opens.
    */
   media?: MediaPolicy;
+  /**
+   * 048 §9.2 (R6) — the process-environment pepper mixed into every PIN hash.
+   *
+   * It is part of the CONFIG rather than read at the point of use so that the
+   * server refuses to boot without it (`loadConfig` throws), instead of
+   * discovering the absence at the first PIN a shop sets. Its VALUE never
+   * appears in a log line, an error body, a fixture or a `pg_dump` — I9's canary
+   * asserts that — and its custody, backup and rotation are E03-B05's
+   * (048 §12.4 row 3).
+   */
+  pinPepper: string;
+  /**
+   * 048 §5.1 (R9) — the origin(s) this deployment answers on.
+   *
+   * The `Sec-Fetch-Site` check is the primary mechanism; this list is the
+   * fallback for a request that carries no `Sec-Fetch-Site` at all (an older
+   * browser, a non-browser client). An absent `Origin` on a non-safelisted
+   * method is a refusal, so the list being empty makes the fallback closed
+   * rather than open.
+   */
+  publicOrigins: readonly string[];
+}
+
+/** The env var naming the deployment's public origin(s), comma-separated. */
+export const PUBLIC_ORIGIN_ENV = "LONGBOX_PUBLIC_ORIGIN";
+
+export function publicOrigins(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  return (env[PUBLIC_ORIGIN_ENV] ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
 }
 
 /** The policy in force for a request: the configured one, or the safe default. */
@@ -97,6 +129,12 @@ export function loadConfig(): AppConfig {
       shopPhotoLimit: num("MEDIA_SHOP_PHOTO_LIMIT", DEFAULT_MEDIA_POLICY.shopPhotoLimit),
       shopByteLimit: num("MEDIA_SHOP_BYTE_LIMIT", DEFAULT_MEDIA_POLICY.shopByteLimit),
     }),
+    // Throws when unset or too short. Fail-closed and unconditional, for the
+    // same reason `assertGatewayConfigOrThrow` and `assertMediaPolicyOrThrow`
+    // are: a check that only bites in production is a check no developer ever
+    // sees fail.
+    pinPepper: requirePinPepper(),
+    publicOrigins: publicOrigins(),
   };
 }
 

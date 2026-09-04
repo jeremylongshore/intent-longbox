@@ -131,6 +131,46 @@ export interface AppendOnlyTrigger {
  */
 export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
   {
+    table: "app_session",
+    trigger: "app_session_append_only",
+    since: "020_sessions_pin_and_auth_attempt.sql",
+    // An ISSUANCE FACT authored by this server (048 §3.3). Nothing external
+    // observes a session, so nothing here is ordered by an observation.
+    ordersByObservedAt: false,
+    // No `scan_session_id`: a session outlives, precedes and spans scans. 041
+    // I1's criterion is the column, not the tenancy.
+    sessionSeq: false,
+    // ⚠ THE SECOND ROW TO CARRY THIS FLAG, AND THE MECHANISM IS NAMED (E03-D09).
+    // 048 §3.3(a)/R3 requires the session read to take `SELECT … FOR NO KEY
+    // UPDATE` INSIDE the request transaction, and 048 §3.4/K3 requires the
+    // membership write to take the same lock over every live session of the
+    // affected person. PostgreSQL puts every locking `SELECT` clause — `FOR
+    // UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE` — under the **UPDATE**
+    // privilege, so on the uniform `SELECT, INSERT` grant the application could
+    // not take the lock its whole security model is built on. The append-only
+    // guarantee is unweakened: enforcement is the `ENABLE ALWAYS` trigger, which
+    // does not consult privileges, and `tests/integration/append-only.test.ts`
+    // proves an actual UPDATE is still refused while the privilege is held.
+    appLockable: true,
+  },
+  {
+    table: "app_session_revocation",
+    trigger: "app_session_revocation_append_only",
+    since: "020_sessions_pin_and_auth_attempt.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "auth_attempt",
+    trigger: "auth_attempt_append_only",
+    since: "020_sessions_pin_and_auth_attempt.sql",
+    // 048 §9.1: FAILURES ONLY, and it is SUBSTRATE rather than surface — read
+    // only by the single-pair lockout derivation and by an audited break-glass
+    // query (034 §3.3's accessor, extended to a fourth name by 048 R17).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "candidate_set",
     trigger: "candidate_set_append_only",
     since: "001_init.sql",
@@ -184,6 +224,22 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     // routed to counsel (047 §12.3). Adding a supersession chain here would
     // decide that bead's contract from a table definition, so this file records
     // the columns and asserts nothing about any licence.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "device_credential",
+    trigger: "device_credential_append_only",
+    since: "019_identity_core.sql",
+    // 034 §2.8 / §4.2: a minted credential is a thing that HAPPENED. Its ending
+    // is a separate row, never an edit (the grant/release idiom).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "device_credential_revocation",
+    trigger: "device_credential_revocation_append_only",
+    since: "019_identity_core.sql",
     ordersByObservedAt: false,
     sessionSeq: false,
   },
@@ -286,6 +342,23 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     table: "media_deletion",
     trigger: "media_deletion_append_only",
     since: "003_reserve_principle_slots.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "membership",
+    trigger: "membership_append_only",
+    since: "019_identity_core.sql",
+    // 034 §2.7: a grant is a thing that happened, and a role change is TWO rows.
+    // Using supersession here would make "Alice's operator role was revoked when
+    // she left" indistinguishable from "Alice's role was corrected to operator".
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "membership_revocation",
+    trigger: "membership_revocation_append_only",
+    since: "019_identity_core.sql",
     ordersByObservedAt: false,
     sessionSeq: false,
   },
@@ -507,6 +580,56 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
     table: "shop",
     kind: "permanent",
     reason: "Configuration, not a witness — a shop's name and slug are edited in place by design.",
+  },
+  // ---------------------------------------------------------------------------
+  // E03-D09's five (034 §4.2's split, 048 §10.1's restatement of it): "a record of
+  // something that happened is immutable; a statement about the present is
+  // corrected in place". A business changes its legal name, a store moves, a
+  // person changes their display name, a phone gets relabelled, and a member of
+  // staff changes their PIN. None of those is an event; all five are corrections.
+  // ---------------------------------------------------------------------------
+  {
+    table: "organization",
+    kind: "permanent",
+    reason:
+      "034 §2.2 / §4.2: configuration. The legal and billing entity — a business changes its " +
+      "legal name, and that is a correction to a fact about the present, not an event. The " +
+      "facts that BIND to it (consent, charter, processor terms) are append-only elsewhere.",
+  },
+  {
+    table: "location",
+    kind: "permanent",
+    reason:
+      "034 §2.4 / §4.2: configuration. A store moves and a timezone is corrected; the timezone " +
+      "is load-bearing for 034 §2.9's shift derivation, which is exactly why it must be " +
+      "fixable in place rather than by appending a second location.",
+  },
+  {
+    table: "app_user",
+    kind: "permanent",
+    reason:
+      "034 §2.5 / §4.2: configuration. A person changes their name and their email. It holds NO " +
+      "credential — the password hash, the MFA secret and the session token are separate tables " +
+      "(019, and E03-D06) — so nothing immutable is lost by correcting a row here.",
+  },
+  {
+    table: "device",
+    kind: "permanent",
+    reason:
+      "034 §2.8 / §4.2: configuration. A phone gets relabelled or moves between locations. Its " +
+      "CREDENTIAL is immutable and append-only, which is the same shop/shop_credentials split " +
+      "034 §2.8 names: the thing and its keys have different lifetimes and different sensitivity.",
+  },
+  {
+    table: "operator_pin",
+    kind: "permanent",
+    reason:
+      "048 §10.1: config, mutable, and the split is argued rather than assumed. A PIN is CHANGED " +
+      "in place; versioning the hash would keep every old PIN's hash forever, which is a " +
+      "liability rather than an audit trail. What happened to it IS recorded — a failure is an " +
+      "`auth_attempt` row (048 §9.1), and the row is also the LOCKOUT ANCHOR, taken " +
+      "`SELECT … FOR UPDATE` before the window count and held through the verify and the failure " +
+      "INSERT (048 R5), which needs the UPDATE privilege this exemption's full DML already grants.",
   },
   {
     table: "shop_credentials",

@@ -11,6 +11,8 @@ import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-stale-uploads";
@@ -18,6 +20,8 @@ const UPLOADS_DIR = "tests/.tmp-stale-uploads";
 describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
   let base: string;
 
@@ -33,8 +37,15 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
     base = `/api/v1/shops/${shopId}/scan-sessions`;
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   });
 
   afterAll(async () => {
@@ -43,7 +54,7 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
   });
 
   async function newSession(): Promise<string> {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: base,
       payload: {},
@@ -53,7 +64,7 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
   }
 
   async function post(url: string, payload: object) {
-    return app.inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
+    return inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
   }
 
   it("accepts a write made against the session's current witness", async () => {

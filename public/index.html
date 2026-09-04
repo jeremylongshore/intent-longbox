@@ -133,7 +133,42 @@
   <body>
     <h1>Longbox — scan a book</h1>
 
-    <section id="shop-section">
+    <!--
+      THE OPERATOR PICKER (048 §3.5, I7). A roster of names and a keypad, and
+      NOTHING else: no count, no "last used", no badge, no ordering by activity.
+      A roster is a list of who could be holding the phone; a leaderboard is a
+      list of what they did, and the difference is one sort order.
+
+      It renders only when the phone already holds a device session — "who works
+      here" is a per-shop datum a passer-by on the same Wi-Fi has no claim on.
+    -->
+    <section id="operator-section" class="hidden">
+      <h2>Who's using the phone?</h2>
+      <div id="operator-list"></div>
+      <div id="pin-entry" class="hidden">
+        <p id="pin-prompt"></p>
+        <label
+          >Your code
+          <input
+            type="password"
+            id="pin-input"
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="6"
+            placeholder="six digits"
+          />
+        </label>
+        <button id="pin-btn" class="primary">Start</button>
+        <button id="pin-cancel-btn">Someone else</button>
+      </div>
+    </section>
+
+    <section id="signed-in-section" class="hidden">
+      <span id="signed-in-name"></span>
+      <button id="switch-operator-btn">Switch</button>
+    </section>
+
+    <section id="shop-section" class="hidden">
       <label
         >Shop
         <select id="shop-select"></select>

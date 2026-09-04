@@ -145,20 +145,32 @@ const INSERT_SQL: Record<SupersedableTable, string> = {
   // still exists with its DEFAULT; what stops is a writer putting a person's
   // identifier into an append-only row that can never be corrected. 019 T35
   // signs per-operator rendering at zero, non-waivable.
+  // `operator_id` is the LAST parameter on all three, and `actor_verified` is
+  // derived from it in the same statement (048 §6.3, E03-D09): a correction is
+  // an act by a person too, and a successor that dropped the attribution the
+  // predecessor carried would make "who fixed this" unanswerable at exactly the
+  // moment 022 P1 needs it answered.
   human_confirmation: `INSERT INTO human_confirmation
-      (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq, supersedes_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at, session_seq`,
+      (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq, supersedes_id,
+       operator_id, actor_verified)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
   condition_assessment: `INSERT INTO condition_assessment
-      (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq, supersedes_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at, session_seq`,
+      (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq, supersedes_id,
+       operator_id, actor_verified)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
   pricing_snapshot: `INSERT INTO pricing_snapshot
       (scan_session_id, shop_id, source, query, comps, suggested_cents, override_cents, policy_id,
-       session_seq, supersedes_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, created_at, session_seq`,
+       session_seq, supersedes_id, operator_id, actor_verified)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$11::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
 };
 
 /** The successor's column values, in the order its INSERT above declares. */
-function successorValues(row: SupersedingRow, sessionSeq: number, priorId: string): unknown[] {
+function successorValues(
+  row: SupersedingRow,
+  sessionSeq: number,
+  priorId: string,
+  operatorId: string | null
+): unknown[] {
   switch (row.table) {
     case "human_confirmation":
       return [
@@ -167,6 +179,7 @@ function successorValues(row: SupersedingRow, sessionSeq: number, priorId: strin
         row.values.outcome,
         sessionSeq,
         priorId,
+        operatorId,
       ];
     case "condition_assessment":
       return [
@@ -176,6 +189,7 @@ function successorValues(row: SupersedingRow, sessionSeq: number, priorId: strin
         row.values.notes,
         sessionSeq,
         priorId,
+        operatorId,
       ];
     case "pricing_snapshot":
       return [
@@ -187,6 +201,7 @@ function successorValues(row: SupersedingRow, sessionSeq: number, priorId: strin
         row.values.policyId,
         sessionSeq,
         priorId,
+        operatorId,
       ];
   }
 }
@@ -197,6 +212,8 @@ export interface SupersedeArgs {
   /** The row being replaced — read from the table's `_current` view (041 §3.4). */
   readonly priorId: string;
   readonly row: SupersedingRow;
+  /** 048 §6.3 — the operator, from the session and from nowhere else. */
+  readonly operatorId?: string | null;
 }
 
 /**
@@ -269,7 +286,7 @@ export async function supersede(tx: Tx, args: SupersedeArgs): Promise<Superseded
   const res = await tx.query(INSERT_SQL[table], [
     args.sessionId,
     args.shopId,
-    ...successorValues(args.row, sessionSeq, args.priorId),
+    ...successorValues(args.row, sessionSeq, args.priorId, args.operatorId ?? null),
   ]);
   return res.rows[0] as SupersededRow;
 }

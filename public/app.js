@@ -93,6 +93,13 @@ const ERROR_COPY = {
   VALIDATION_FAILED: "Something in that entry didn't fit. Check it and try again.",
   SESSION_NOT_FOUND: "That scan isn't there any more.",
   SHOP_NOT_FOUND: "That shop isn't there any more.",
+  // E03-D09 (048 §6.1, §3.5, §9.3). Three sentences that say WHAT TO DO NEXT and
+  // never what went wrong: 022 P6, and 048 §9.3's constant answer means this
+  // screen genuinely cannot tell an expired session from a stolen one from a
+  // cross-site attempt — so it must not pretend to.
+  SESSION_REQUIRED: "This phone needs to be set up for the shop. Ask the owner.",
+  OPERATOR_REQUIRED: "Tap your name to carry on.",
+  PIN_INVALID: "That didn't work. Try again in a moment.",
   INTERNAL_ERROR: "Something went wrong on our side. Try again.",
 };
 const FALLBACK_COPY = "Something went wrong. Try again.";
@@ -172,16 +179,137 @@ function hide(id) {
 
 async function loadShops() {
   const res = await fetch("/api/v1/shops");
+  if (!res.ok) return false;
   const data = await res.json();
   const sel = $("shop-select");
   sel.innerHTML = "";
-  for (const s of data.shops) {
+  for (const s of data.shops || []) {
     const o = document.createElement("option");
     o.value = s.id;
     o.textContent = s.name;
     sel.appendChild(o);
   }
-  if (data.shops.length === 0) status("No shops registered. Run: pnpm register-shop");
+  if (!data.shops || data.shops.length === 0) status("No shops registered. Run: pnpm register-shop");
+  return true;
+}
+
+/* ---------------------------------------------------------------------------
+ * WHO IS HOLDING THE PHONE (E03-D09; 048 §3.5, §3.6, I7)
+ *
+ * TWO PRINCIPALS, TWO COOKIES, AND THE BROWSER HOLDS BOTH. This screen never
+ * reads a token: both cookies are `HttpOnly`, `Secure`, `SameSite=Strict` and
+ * `__Host-` prefixed, so page script cannot see them and a sibling subdomain
+ * cannot set them. Everything below is about which SCREEN to show, never about
+ * which credential to send.
+ *
+ * The device session says which shop the phone belongs to and lives for weeks.
+ * The operator session says who is holding it and lives for the gap between two
+ * customers. Switching operator is one tap and six digits — never an email and a
+ * password — because 022 P2 makes friction on this path a design defect and
+ * 033 A13 requires no re-login between books.
+ *
+ * WHAT THIS SCREEN MAY NOT SHOW (022 P3, 019 T35 non-waivable): a count, a
+ * timestamp, a "last used", a badge, a streak, or any per-person datum beside a
+ * name. The server does not send one; this screen does not invent one.
+ * ------------------------------------------------------------------------- */
+
+let operatorName = null;
+let pendingOperator = null;
+
+async function loadOperators() {
+  const res = await fetch("/api/v1/operators");
+  if (!res.ok) return false;
+  const data = await res.json();
+  const list = $("operator-list");
+  list.innerHTML = "";
+  // Defensive `|| []`: a response whose shape is not the one declared is a
+  // response this screen shows nothing for. It never throws at a person standing
+  // at a long box, and it never renders a field it was not promised.
+  for (const person of data.operators || []) {
+    const row = el("div", "candidate", person.display_name);
+    row.onclick = () => askForPin(person);
+    list.appendChild(row);
+  }
+  if (!data.operators || data.operators.length === 0) {
+    list.appendChild(el("p", null, "Nobody is set up for this shop yet. Ask the owner."));
+  }
+  return true;
+}
+
+function askForPin(person) {
+  pendingOperator = person;
+  $("pin-prompt").textContent = `${person.display_name} — enter your code`;
+  $("pin-input").value = "";
+  show("pin-entry");
+  $("pin-input").focus();
+}
+
+$("pin-cancel-btn").onclick = () => {
+  pendingOperator = null;
+  hide("pin-entry");
+};
+
+$("pin-btn").onclick = async () => {
+  if (!pendingOperator) return;
+  const res = await fetch("/api/v1/operator-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": newKey() },
+    body: JSON.stringify({ app_user_id: pendingOperator.id, pin: $("pin-input").value }),
+  });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    // ONE sentence for every refusal — a wrong code, an unknown pair, a code
+    // still inside its growing delay. The server answers the same thing for all
+    // of them (048 §9.3) and this screen must not pretend to know more than it
+    // was told.
+    $("pin-input").value = "";
+    return status(copyFor(data));
+  }
+  operatorName = data.operator.display_name;
+  pendingOperator = null;
+  hide("pin-entry");
+  hide("operator-section");
+  $("signed-in-name").textContent = `Signed in: ${operatorName}`;
+  show("signed-in-section");
+  show("shop-section");
+  await loadShops();
+  status("Ready.");
+};
+
+$("switch-operator-btn").onclick = async () => {
+  await fetch("/api/v1/operator-sessions/end", {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": newKey() },
+    body: JSON.stringify({}),
+  });
+  // The DEVICE session survives: the next person is one tap and a code away,
+  // and the phone never loses its enrollment (048 §3.5, 033 A13).
+  operatorName = null;
+  hide("signed-in-section");
+  hide("shop-section");
+  show("operator-section");
+  await loadOperators();
+  status("");
+};
+
+/**
+ * What loads first, and what each failure means.
+ *
+ * No device session at all → the phone has not been set up for a shop, and the
+ * fix is an owner with an enrollment code, not anything this screen can do. The
+ * copy says exactly that and stops.
+ */
+async function boot() {
+  const hasDevice = await loadOperators();
+  if (!hasDevice) {
+    show("operator-section");
+    $("operator-list").innerHTML = "";
+    $("operator-list").appendChild(
+      el("p", null, "This phone is not set up for a shop yet. Ask the owner to set it up.")
+    );
+    return;
+  }
+  show("operator-section");
 }
 
 $("start-btn").onclick = async () => {
@@ -577,4 +705,6 @@ $("draft-btn").onclick = async () => {
   status("Done. Start another scan when ready.");
 };
 
-loadShops();
+// A boot failure is a screen that says what to do next, never an unhandled
+// rejection in a console nobody at a shop counter is looking at (022 P6).
+boot().catch(() => status(FALLBACK_COPY));

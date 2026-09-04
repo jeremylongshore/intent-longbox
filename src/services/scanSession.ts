@@ -35,11 +35,24 @@ const SCAN_SESSION_COLUMNS = "id, shop_id, created_at";
  * 041 §8.4 / 042 I1: `created_by` IS NOT WRITTEN. The column keeps its DEFAULT
  * so existing rows and the deploy are undisturbed; what stops is a writer
  * putting a person's identifier into a row nothing can correct.
+ *
+ * `operator_id` IS written, from the SESSION and from nowhere else (048 §6.3,
+ * E03-D09), with `actor_verified` derived from its presence in the same
+ * statement so the two can never disagree. This is the moment 046 E23 named:
+ * the column that five migrations reserved acquires a writer, and the audited
+ * accessor (034 §3.3) finally has something to gate. **No pre-G2 row is
+ * backfilled and no `actor_verified` is ever flipped to true** — the column is
+ * the machine-readable line between the two eras (`003:44-51`).
  */
-export async function createScanSession(db: Queryable, shopId: string): Promise<ScanSessionRow> {
+export async function createScanSession(
+  db: Queryable,
+  shopId: string,
+  operatorId?: string | null
+): Promise<ScanSessionRow> {
   const res = await db.query(
-    `INSERT INTO scan_session (shop_id) VALUES ($1) RETURNING ${SCAN_SESSION_COLUMNS}`,
-    [shopId]
+    `INSERT INTO scan_session (shop_id, operator_id, actor_verified)
+     VALUES ($1, $2::uuid, $2::uuid IS NOT NULL) RETURNING ${SCAN_SESSION_COLUMNS}`,
+    [shopId, operatorId ?? null]
   );
   return res.rows[0] as ScanSessionRow;
 }
@@ -340,12 +353,15 @@ export async function insertHumanConfirmation(
     outcome: string;
     /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
     sessionSeq: number;
+    /** 048 §6.3 — from the session. Never from the body; `confirmed_by` stays unwritten. */
+    operatorId?: string | null;
   }
 ): Promise<HumanConfirmationRow> {
   const res = await tx.query(
     `INSERT INTO human_confirmation
-       (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at, outcome, session_seq`,
+       (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq,
+        operator_id, actor_verified)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$7::uuid IS NOT NULL) RETURNING id, created_at, outcome, session_seq`,
     [
       args.sessionId,
       args.shopId,
@@ -353,6 +369,7 @@ export async function insertHumanConfirmation(
       args.source,
       args.outcome,
       args.sessionSeq,
+      args.operatorId ?? null,
     ]
   );
   return res.rows[0] as HumanConfirmationRow;

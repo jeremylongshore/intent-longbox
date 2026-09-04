@@ -301,12 +301,71 @@ export const ERROR_CODES = {
     copyRow: "021 C3 — the manual-search path",
     implements: "042 §4.2 — routes:182, and the adapter's exception message stops being the body (E10)",
   },
+  // -------------------------------------------------------------------------
+  // E03-D09 (048 §6.5, §9.3). THREE CODES, AND NO FORBIDDEN CODE (048 E10, §6.5).
+  //
+  // A distinct "you may not access this shop" answer would confirm the shop
+  // exists, which is an enumeration oracle over exactly the table `GET
+  // /api/v1/shops` enumerates today — and 019 T24 signs cross-tenant access at
+  // zero, NON-WAIVABLE. **A wrong tenant keeps answering `SHOP_NOT_FOUND`, with
+  // no `details`**, byte-identical to a shop id that was never issued. The cost is
+  // stated: an operator who mistypes a shop id gets "no shop with that id" rather
+  // than "you are not a member of that shop", and a support conversation is
+  // cheaper than an oracle.
+  //
+  // The three below are about the CALLER's own state, which the caller already
+  // knows, so none of them tells anybody anything they could not already see.
+  // -------------------------------------------------------------------------
+  SESSION_REQUIRED: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §6.1 / I1 — every route not on the AUTH allowlist refuses an anonymous request. It is " +
+      "also the answer to a REFUSED cookie (unknown, revoked, expired, reused, mismatched pair) " +
+      "and to a cross-site-shaped request (§5.1's Sec-Fetch-Site check), and that sameness is " +
+      "the point: §9.3 requires every failure at this boundary to answer the same thing, so a " +
+      "caller cannot tell a stolen cookie from a missing one from a cross-site attempt.",
+  },
+  OPERATOR_REQUIRED: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §3.5 / R8 / I1 — a live DEVICE session with no live OPERATOR session reaches exactly " +
+      "the operator picker and the shops route, and every other route refuses it. Distinct from " +
+      "SESSION_REQUIRED because the ACTION differs and the client must be able to choose it " +
+      "without parsing prose: this one means 'tap your name', that one means 'this phone is not " +
+      "signed in to a shop'.",
+  },
+  PIN_INVALID: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §9.1 / §9.3 — ONE code for every PIN outcome that is not success: an unknown pair, a " +
+      "retired PIN, a wrong PIN, and a pair still inside its growing lockout delay. It carries " +
+      "NO `details` and, in particular, no retry-after: the delay is real (§9.1, R5) and " +
+      "publishing it would tell a caller that THIS pair has recent failures, which is a " +
+      "per-operator fact leaking out of an authentication boundary (022 P3). The delay is " +
+      "enforced by refusing until it passes, which is what R5's 'refused UNTIL' means.",
+  },
   RATE_LIMITED: {
     status: 429,
     retryable: true,
     operatorRenderable: true,
     copyRow: "021 — E05 owes the registered string",
-    implements: "042 §8.2 — the ordinary class only; the METERED class degrades to manual (§8.3)",
+    implements:
+      "042 §8.2 — the ordinary class only; the METERED class degrades to manual (§8.3). THREE KEYS " +
+      "share this code and the message names none of them: the shop (042 §8.1), the device and the " +
+      "route itself (048 R14, E03-D09 — `POST /api/v1/device-sessions` is bucketed before any " +
+      "session exists, so there is no shop to name). `message` is developer English no client " +
+      "renders (§4.3); naming the key in it would be both wrong on two of the three paths and a " +
+      "statement about WHICH bucket fired, which is closer to a per-operator surface than a " +
+      "developer needs (019 T35).",
   },
   WRITE_CONFLICT_RETRY_EXHAUSTED: {
     status: 409,
@@ -366,7 +425,10 @@ export const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: "this idempotency key was already used for a different request body",
   IDENTIFY_FAILED: "the vision provider returned no usable answer",
   IDENTIFY_PROVIDER_UNAVAILABLE: "no vision provider is configured for this shop",
-  RATE_LIMITED: "this shop's request rate exceeded the provisional floor",
+  SESSION_REQUIRED: "this route requires a session and none resolved",
+  OPERATOR_REQUIRED: "this route requires the second of the two session chains",
+  PIN_INVALID: "the submitted credential was not accepted",
+  RATE_LIMITED: "a provisional rate floor was exceeded for the key this route is bucketed on",
   WRITE_CONFLICT_RETRY_EXHAUSTED: "a write conflict survived the transaction retry budget",
   INTERNAL_ERROR: "an unhandled error occurred",
 };

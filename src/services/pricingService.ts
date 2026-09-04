@@ -54,6 +54,8 @@ export interface PricingArgs {
   policyId: string;
   query: PricingQuery;
   overrideCents?: number;
+  /** 048 §6.3 — the operator, from the session and from nowhere else. */
+  operatorId?: string | null;
 }
 
 /**
@@ -129,9 +131,12 @@ export async function recordPricing(
   const { fulfilled, outcomes, suggested, queryText } = plan;
   for (const result of fulfilled) {
     const res = await db.query(
+      // `operator_id` / `actor_verified` come from the SESSION (048 §6.3) and are
+      // derived in one statement so the pair can never disagree.
       `INSERT INTO pricing_snapshot
-         (scan_session_id, shop_id, source, query, comps, suggested_cents, override_cents, policy_id, fetched_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+         (scan_session_id, shop_id, source, query, comps, suggested_cents, override_cents, policy_id,
+          fetched_at, operator_id, actor_verified)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid,$10::uuid IS NOT NULL) RETURNING id`,
       [
         args.sessionId,
         args.shopId,
@@ -142,6 +147,7 @@ export async function recordPricing(
         args.overrideCents ?? null,
         args.policyId,
         result.fetched_at,
+        args.operatorId ?? null,
       ]
     );
     const outcome = outcomes.find((o) => o.source === result.source && o.status === "ok");

@@ -153,6 +153,69 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   },
 
   // ---------------------------------------------------------------------------
+  // E03-D09 — THE IDENTITY CLUSTER (048 §10.1, migrations 018/019). Seven tables,
+  // ONE rule, stated once and cited by each row:
+  //
+  //   AN AUTHENTICATION FACT IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // 043 §3.3's catalogue names the nine events one SCAN SESSION produces, and
+  // every consumer of them is downstream of a shop's pipeline. A grant, a session
+  // issuance and a failed PIN are not steps in a book's journey: they carry no
+  // `scan_session_id`, they happen between sessions as often as during one, and
+  // no consumer could act on one without becoming a surface 022 P3 forbids.
+  //
+  // **And the strong form, which is why this is a rule rather than a shrug**: an
+  // event carrying an operator identifier out of the identity module and into a
+  // consumer registry would be a per-operator surface arriving through the outbox
+  // — 019 T35 signs that at zero, NON-WAIVABLE, and 034 §3.3's accessor rule
+  // exists precisely so those columns have ONE reader. An event bus is many.
+  // ---------------------------------------------------------------------------
+  {
+    table: "membership",
+    rule:
+      "048 §10.1 / 034 §3.3: an authentication fact is not a subject of the session event stream. " +
+      "A grant carries no scan_session_id and names a person — an event about it would carry an " +
+      "operator identifier past the audited accessor (019 T35, non-waivable).",
+  },
+  {
+    table: "membership_revocation",
+    rule:
+      "As `membership`: the ending of a grant is the same kind of fact as the grant. Its EFFECT " +
+      "on live sessions is synchronous and in the same transaction (048 §3.4, K3), not eventual — " +
+      "a fired employee's phone must stop at the next request, not at the next poll.",
+  },
+  {
+    table: "device_credential",
+    rule:
+      "048 §7.3 / 034 §2.8: minting a credential is an act on a PHONE, with no session in scope. " +
+      "Its consumers are the authentication hook and nothing else.",
+  },
+  {
+    table: "device_credential_revocation",
+    rule:
+      "As `device_credential`. Revocation takes effect by DERIVATION at the next request " +
+      "(048 §3.3, §7.3) — there is no sweep to trigger and therefore no event to trigger it.",
+  },
+  {
+    table: "app_session",
+    rule:
+      "048 §3.3: an issuance fact. Emitting one would publish a per-operator sign-in log to every " +
+      "consumer in the registry, which is the surface 022 P3 forbids and 019 T35(c) explicitly " +
+      "reconciles FROM this table rather than from a stream.",
+  },
+  {
+    table: "app_session_revocation",
+    rule: "As `app_session`. A chain ending is read by the liveness predicate and by nothing else.",
+  },
+  {
+    table: "auth_attempt",
+    rule:
+      "048 §9.1 (R17): SUBSTRATE, not surface. It is read ONLY by the single-pair lockout " +
+      "derivation and by an audited break-glass query; any other read is an architecture-gate " +
+      "failure. An event about a failed PIN is, by construction, one of those other reads.",
+  },
+
+  // ---------------------------------------------------------------------------
   // E04-D01 — THE CATALOG CLUSTER (030 §7, 047 §4–§9), landed by migrations
   // 014/015. Twelve tables, ONE rule, stated once and cited by each row so that a
   // reader does not have to reconstruct it twelve times:

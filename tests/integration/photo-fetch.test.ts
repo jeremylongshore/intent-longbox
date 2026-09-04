@@ -27,6 +27,8 @@ import { buildApp } from "../../src/app.js";
 import { listSessionPhotos } from "../../src/services/scanSession.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { png } from "../fixtures/media/index.js";
+import { injectAs, signIn, type AuthedInject } from "./authHelpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const dbUp = await probeDb();
 
@@ -62,6 +64,10 @@ function multipartPng(): { payload: Buffer; headers: Record<string, string> } {
 describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos/:photoId", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
+  /** The cookie header, for the second app instance this suite builds. */
+  let cookie: string;
   let shopId: string;
   let otherShopId: string;
   let sessionId: string;
@@ -71,7 +77,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
   let migrateUrl: string;
 
   async function newSession(shop: string): Promise<string> {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `/api/v1/shops/${shop}/scan-sessions`,
       payload: {},
@@ -94,11 +100,19 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
+
+    // E03-D09: the photo route lives INSIDE the tenant plugin, so it is behind a
+    // device session and an operator session like every other shop-scoped route
+    // (048 I1). Deleting the public mount (E03-D05) and putting the replacement
+    // behind the hook are the same change seen from two beads.
+    ({ inject, cookie } = await signIn(pool, app, shopId));
 
     sessionId = await newSession(shopId);
     otherSessionId = await newSession(shopId);
-    const upload = await app.inject({
+    const upload = await inject({
       method: "POST",
       url: `/api/v1/shops/${shopId}/scan-sessions/${sessionId}/photos`,
       ...multipartPng(),
@@ -119,7 +133,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
   }
 
   it("returns the bytes to the shop and session that own the photo", async () => {
-    const res = await app.inject({ method: "GET", url: url(shopId, sessionId, photoId) });
+    const res = await inject({ method: "GET", url: url(shopId, sessionId, photoId) });
     expect(res.statusCode).toBe(200);
     expect(res.rawPayload).toEqual(PNG_BYTES);
     // The content type is derived from the extension THIS SERVER wrote at
@@ -129,28 +143,36 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
   });
 
   it("serves it private and unstored: a shop's photograph does not sit in a cache", async () => {
-    const res = await app.inject({ method: "GET", url: url(shopId, sessionId, photoId) });
+    const res = await inject({ method: "GET", url: url(shopId, sessionId, photoId) });
     expect(res.headers["cache-control"]).toBe("private, no-store");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
   });
 
   it("404s the SAME photo id under another shop — never 403 (019 T24)", async () => {
-    const res = await app.inject({ method: "GET", url: url(otherShopId, sessionId, photoId) });
+    const res = await inject({ method: "GET", url: url(otherShopId, sessionId, photoId) });
     expect(res.statusCode).toBe(404);
-    // The session lookup refuses first, and that is the honest code: from
-    // outside, this shop has no such session. What matters is that neither
-    // answer is a 403 and neither differs by whether the photo exists.
-    expect(res.json().error.code).toBe("SESSION_NOT_FOUND");
+    // **The code moved EARLIER at E03-D09, and the property got stronger.**
+    // Before the authentication hook, the session lookup refused first and the
+    // honest answer was "this shop has no such session". Now the tenant comes
+    // from the SESSION and the URL is a value checked against it (048 §6.1), so
+    // the request is refused before any handler, any query and any file — and
+    // the answer is `SHOP_NOT_FOUND`, byte-identical to the answer for a shop id
+    // that was never issued (§6.5).
+    //
+    // What has not changed is what this test is for: neither answer is a 403,
+    // and neither differs by whether the photo exists.
+    expect(res.json().error.code).toBe("SHOP_NOT_FOUND");
+    expect(res.json().error.details).toEqual({});
   });
 
   it("404s the SAME photo id under another session of the SAME shop", async () => {
-    const res = await app.inject({ method: "GET", url: url(shopId, otherSessionId, photoId) });
+    const res = await inject({ method: "GET", url: url(shopId, otherSessionId, photoId) });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe("PHOTO_NOT_FOUND");
   });
 
   it("404s a photo id that exists nowhere, with the same body as one that does", async () => {
-    const res = await app.inject({ method: "GET", url: url(shopId, sessionId, MISSING) });
+    const res = await inject({ method: "GET", url: url(shopId, sessionId, MISSING) });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe("PHOTO_NOT_FOUND");
   });
@@ -167,7 +189,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
     ["an absolute path", "%2Fetc%2Fpasswd"],
     ["a storage key", encodeURIComponent(`${UPLOADS_DIR}/session/1-cover.png`)],
   ])("refuses %s in :photoId without reading anything", async (_name, attempt) => {
-    const res = await app.inject({ method: "GET", url: url(shopId, sessionId, attempt) });
+    const res = await inject({ method: "GET", url: url(shopId, sessionId, attempt) });
     // 400 when it routes and fails UUID validation, 404 when it does not route.
     // Both are refusals; neither is a file.
     expect([400, 404]).toContain(res.statusCode);
@@ -185,7 +207,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
     const decoy = join(tmpdir(), `longbox-decoy-${randomUUID()}.png`);
     writeFileSync(decoy, Buffer.from("NOT-A-SHOP-PHOTO"));
     const session = await newSession(shopId);
-    const upload = await app.inject({
+    const upload = await inject({
       method: "POST",
       url: `/api/v1/shops/${shopId}/scan-sessions/${session}/photos`,
       ...multipartPng(),
@@ -200,7 +222,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
     rmSync(key);
     symlinkSync(decoy, key);
 
-    const res = await app.inject({ method: "GET", url: url(shopId, session, escapee) });
+    const res = await inject({ method: "GET", url: url(shopId, session, escapee) });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe("PHOTO_NOT_FOUND");
     expect(res.rawPayload.includes(Buffer.from("NOT-A-SHOP-PHOTO"))).toBe(false);
@@ -220,9 +242,11 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: linkedRoot,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
     try {
-      const res = await linked.inject({ method: "GET", url: url(shopId, sessionId, photoId) });
+      const res = await injectAs(linked, cookie)({ method: "GET", url: url(shopId, sessionId, photoId) });
       expect(res.statusCode).toBe(200);
       expect(res.rawPayload).toEqual(PNG_BYTES);
     } finally {
@@ -234,14 +258,14 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
   it("404s the URL that used to serve the bytes: the public mount is GONE", async () => {
     // `storageUrl` is the exact on-disk key, and `/${storageUrl}` is the exact
     // string the deleted `@fastify/static` mount answered 200 to (046 §3.3 B5).
-    const res = await app.inject({ method: "GET", url: `/${storageUrl}` });
+    const res = await inject({ method: "GET", url: `/${storageUrl}` });
     expect(res.statusCode).toBe(404);
     expect(res.rawPayload).not.toEqual(PNG_BYTES);
   });
 
   it("404s a directory under the old mount: there is no listing to walk", async () => {
     for (const path of [`/${UPLOADS_DIR}/`, `/${UPLOADS_DIR}/${sessionId}/`, `/${UPLOADS_DIR}`]) {
-      const res = await app.inject({ method: "GET", url: path });
+      const res = await inject({ method: "GET", url: path });
       expect(res.statusCode, `${path} still answers`).toBe(404);
     }
   });

@@ -96,6 +96,22 @@ export interface CallContext {
   /** The route TEMPLATE (042 §5.2), never the resolved path. */
   route: string;
   method: string;
+  /**
+   * 048 §6.3 — the operator, FROM THE SESSION AND FROM NOWHERE ELSE.
+   *
+   * Every write records it and sets `actor_verified = true`; neither is ever
+   * accepted from a request body (I8, and the `.strict()` schemas make a body
+   * that tries a `VALIDATION_FAILED`). It is optional in the TYPE only because a
+   * route on the auth allowlist has no operator; every shop-scoped route runs
+   * behind a `device+operator` requirement, so on those it is always present.
+   *
+   * `created_by` and `confirmed_by` stay unwritten (041 §8.4) and are never
+   * resurrected as a fallback: a system that writes both a verified id and an
+   * unverified string has two attributions and no rule for which is true.
+   */
+  operatorId?: string;
+  /** 048 K1's session lock, run by `runIdempotent` at its declared position. */
+  sessionLock?: (tx: Tx) => Promise<void>;
 }
 
 interface ShopRow {
@@ -131,6 +147,7 @@ function idempotentRequest(ctx: CallContext, body: unknown) {
     method: ctx.method,
     params: ctx.sessionId ? { shopId: ctx.shopId, id: ctx.sessionId } : { shopId: ctx.shopId },
     body,
+    ...(ctx.sessionLock ? { sessionLock: ctx.sessionLock } : {}),
   };
 }
 
@@ -201,7 +218,7 @@ export async function createSession(deps: ApiDeps, ctx: CallContext): Promise<Id
     // a value in the log, and a comment saying a column is deprecated with
     // nothing asserting it stopped being written is a note rather than a
     // deprecation (041 A8).
-    const session = await createScanSession(tx, shop.id);
+    const session = await createScanSession(tx, shop.id, ctx.operatorId);
     return {
       status: 201,
       body: { session: { id: session.id, shop_id: session.shop_id, created_at: session.created_at } },
@@ -604,6 +621,7 @@ export async function confirm(
           shopId: ctx.shopId,
           sessionId: session.id,
           priorId: baseline.priorConfirmationId,
+          operatorId: ctx.operatorId ?? null,
           row: {
             table: "human_confirmation",
             values: { confirmedIssue: body.issue, source: body.source, outcome },
@@ -615,6 +633,7 @@ export async function confirm(
           confirmedIssue: body.issue,
           source: body.source,
           outcome,
+          operatorId: ctx.operatorId ?? null,
           sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
         });
     await setSessionStatus(tx, ctx.shopId, session.id, "confirmed");
@@ -674,12 +693,14 @@ export async function assessCondition(
           shopId: ctx.shopId,
           sessionId: session.id,
           priorId: prior.id,
+          operatorId: ctx.operatorId ?? null,
           row: { table: "condition_assessment", values },
         })
       : await insertConditionAssessment(tx, {
           sessionId: session.id,
           shopId: ctx.shopId,
           ...values,
+          operatorId: ctx.operatorId ?? null,
           sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
         });
     return { status: 201, body: { assessment: { id: row.id, created_at: row.created_at } } };
@@ -748,6 +769,7 @@ export async function price(
     policy: found.policy,
     policyId: found.id,
     query,
+    operatorId: ctx.operatorId ?? null,
     ...(body.override_cents !== undefined ? { overrideCents: body.override_cents } : {}),
   };
   // Outside the transaction, for 041 §4.1's reason: a retried attempt must not

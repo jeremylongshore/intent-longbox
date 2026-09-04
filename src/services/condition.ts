@@ -106,12 +106,20 @@ export async function insertConditionAssessment(
     notes: string | null;
     /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
     sessionSeq: number;
+    /**
+     * 048 §6.3 — from the session, never from the body. `authored_by` is already
+     * CHECKed to `'human'` on this table (007, 041 §2.3): the two say different
+     * things and both are true — a condition is a human act, and THIS is which
+     * human, verified.
+     */
+    operatorId?: string | null;
   }
 ): Promise<{ id: string; created_at: string; session_seq: string | number }> {
   const res = await tx.query(
     `INSERT INTO condition_assessment
-       (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at, session_seq`,
+       (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq,
+        operator_id, actor_verified)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
     [
       args.sessionId,
       args.shopId,
@@ -120,6 +128,7 @@ export async function insertConditionAssessment(
       args.defects,
       args.notes,
       args.sessionSeq,
+      args.operatorId ?? null,
     ]
   );
   return res.rows[0] as { id: string; created_at: string; session_seq: string | number };

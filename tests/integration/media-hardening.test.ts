@@ -29,6 +29,8 @@ import {
   webpVp8Chunk,
   webpVp8xChunk,
 } from "../fixtures/media/index.js";
+import { cookieHeader, injectAs, openDevice, openOperator, seedIdentity } from "./authHelpers.js";
+import { testConfig } from "../testConfig.js";
 
 const dbUp = await probeDb();
 
@@ -82,9 +84,21 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
   let byteApp: FastifyInstance;
   let shopId: string;
   let base: string;
+  /**
+   * The signed-in `Cookie` header (048 I1).
+   *
+   * ONE header serves all three app instances: a session is a row in the
+   * database, not state inside a Fastify instance, so three apps over one pool
+   * see the same live session — which is also why 048 §3.2 rejected sticky
+   * in-process session state in the first place.
+   */
+  let cookie: string;
 
   async function newSession(instance: FastifyInstance = app): Promise<string> {
-    const res = await instance.inject({
+    const res = await injectAs(
+      instance,
+      cookie
+    )({
       method: "POST",
       url: base,
       payload: {},
@@ -104,7 +118,7 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
       { name: "kind", value: "cover" },
       { name: "file", value: bytes, filename: declared.filename, contentType: declared.contentType },
     ]);
-    return instance.inject({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
+    return injectAs(instance, cookie)({ method: "POST", url: `${base}/${sessionId}/photos`, ...req });
   }
 
   async function photoRows(sessionId: string): Promise<PhotoRow[]> {
@@ -130,8 +144,15 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
     shopId = await seedShop(pool, { name: "Gotham City Limit", slug: "gotham-media" });
     base = `/api/v1/shops/${shopId}/scan-sessions`;
     mkdirSync(UPLOADS_DIR, { recursive: true });
-    const config = { port: 0, databaseUrl: url, uploadsDir: UPLOADS_DIR, bands: { high: 0.85, medium: 0.5 } };
+    const config = testConfig({ databaseUrl: url, uploadsDir: UPLOADS_DIR });
     app = await buildApp(pool, config);
+
+    // E03-D09: the photo routes are inside the tenant plugin and behind a
+    // device session plus an operator session (048 I1).
+    const identity = await seedIdentity(pool, shopId);
+    const device = await openDevice(pool, identity);
+    const operator = await openOperator(pool, device, identity.operatorId);
+    cookie = cookieHeader(device.token, operator.token);
     // A second app whose quota is one photo per session and 4 KiB per session:
     // the ceilings are PROVISIONAL and generous by design, so the only honest
     // way to exercise the refusal is to configure a small one.
@@ -195,7 +216,13 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
     expect(stored.includes(Buffer.from("GPSPAYLOAD"))).toBe(false);
 
     // And the tenant-scoped read route hands back exactly those bytes.
-    const read = await app.inject({ method: "GET", url: `${base}/${sessionId}/photos/${photoId}` });
+    const read = await injectAs(
+      app,
+      cookie
+    )({
+      method: "GET",
+      url: `${base}/${sessionId}/photos/${photoId}`,
+    });
     expect(read.statusCode).toBe(200);
     expect(read.headers["content-type"]).toBe("image/png");
     expect(read.rawPayload.equals(stored)).toBe(true);
@@ -331,16 +358,23 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
     // uploads — and a fourth app whose shop ceiling is one photo.
     const soloShop = await seedShop(pool, { name: "Solo Shop", slug: "solo-media" });
     const soloBase = `/api/v1/shops/${soloShop}/scan-sessions`;
-    const shopApp = await buildApp(pool, {
-      port: 0,
-      databaseUrl: "",
-      uploadsDir: UPLOADS_DIR,
-      bands: { high: 0.85, medium: 0.5 },
-      media: { ...DEFAULT_MEDIA_POLICY, shopPhotoLimit: 1 },
-    });
+    const shopApp = await buildApp(
+      pool,
+      testConfig({
+        uploadsDir: UPLOADS_DIR,
+        media: { ...DEFAULT_MEDIA_POLICY, shopPhotoLimit: 1 },
+      })
+    );
+    // Its own shop needs its own phone and its own operator: a session at one
+    // shop cannot reach another (048 I2), which is the property this suite gets
+    // for free and the reason the fixture is not shared.
+    const soloIdentity = await seedIdentity(pool, soloShop);
+    const soloDevice = await openDevice(pool, soloIdentity);
+    const soloOperator = await openOperator(pool, soloDevice, soloIdentity.operatorId);
+    const soloInject = injectAs(shopApp, cookieHeader(soloDevice.token, soloOperator.token));
     try {
       const session = async (): Promise<string> => {
-        const res = await shopApp.inject({
+        const res = await soloInject({
           method: "POST",
           url: soloBase,
           payload: {},
@@ -353,7 +387,7 @@ describe.skipIf(!dbUp)("media hardening: what the upload route accepts and refus
           { name: "kind", value: "cover" },
           { name: "file", value: png(), filename: "a.png", contentType: "image/png" },
         ]);
-        return shopApp.inject({ method: "POST", url: `${soloBase}/${id}/photos`, ...req });
+        return soloInject({ method: "POST", url: `${soloBase}/${id}/photos`, ...req });
       };
       expect((await post(await session())).statusCode).toBe(201);
 

@@ -19,6 +19,8 @@ import { buildApp } from "../../src/app.js";
 import { buildConsumerRegistry } from "../../src/consumers/index.js";
 import { DEFAULT_OUTBOX_PARAMS, drainOnce } from "../../src/services/outbox.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { TEST_PIN, injectAs, seedIdentity, type AuthedInject, type SeededIdentity } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 
@@ -28,6 +30,9 @@ const UPLOADS_DIR = "tests/.tmp-smoke-uploads";
 describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
+  let identity: SeededIdentity;
   let shopId: string;
 
   beforeAll(async () => {
@@ -62,7 +67,44 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
       databaseUrl: url,
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
+
+    // E03-D09: THE SMOKE TEST LOGS IN, over HTTP, exactly as the phone does.
+    //
+    // Every other suite issues its sessions directly (`signIn`) because the
+    // session is not what it is testing. This one is the end-to-end walk, so it
+    // goes through the two REAL routes: the phone exchanges the credential it
+    // was enrolled with for a device session, then a person taps their name and
+    // enters six digits for an operator session on top of it (048 §3.5, §7.3).
+    // Anything less would leave the front door untested in the one suite whose
+    // job is to walk through it.
+    identity = await seedIdentity(pool, shopId);
+
+    const opened = await app.inject({
+      method: "POST",
+      url: "/api/v1/device-sessions",
+      headers: { "sec-fetch-site": "same-origin", "idempotency-key": randomUUID() },
+      payload: { device_secret: identity.deviceSecret },
+    });
+    expect(opened.statusCode).toBe(201);
+    const deviceCookie = firstCookie(opened.headers["set-cookie"]);
+
+    const signedIn = await app.inject({
+      method: "POST",
+      url: "/api/v1/operator-sessions",
+      headers: {
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": randomUUID(),
+        cookie: deviceCookie,
+      },
+      payload: { app_user_id: identity.operatorId, pin: TEST_PIN },
+    });
+    expect(signedIn.statusCode).toBe(201);
+    const operatorCookie = firstCookie(signedIn.headers["set-cookie"]);
+
+    inject = injectAs(app, `${deviceCookie}; ${operatorCookie}`);
   });
 
   afterAll(async () => {
@@ -77,12 +119,12 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
    * and a key is a fact about an act, not about an attempt.
    */
   async function post(url: string, payload: object = {}): Promise<ReturnType<typeof app.inject>> {
-    return app.inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
+    return inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
   }
 
   it("goes register shop → session → confirm → condition → price → draft → drafted", async () => {
     // Shop shows up in the picker list.
-    const shops = await app.inject({ method: "GET", url: "/api/v1/shops" });
+    const shops = await inject({ method: "GET", url: "/api/v1/shops" });
     expect(shops.statusCode).toBe(200);
     expect(shops.json().shops.map((s: { id: string }) => s.id)).toContain(shopId);
 
@@ -159,7 +201,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     expect(draft.json().already_requested).toBe(false);
 
     // The listing does not exist yet, and the session does not claim it does.
-    const midway = await app.inject({ method: "GET", url: `${base}/${sessionId}` });
+    const midway = await inject({ method: "GET", url: `${base}/${sessionId}` });
     expect(midway.json().events.shopify_draft).toHaveLength(0);
     // The DERIVED state, not a column: nothing witnesses `drafted` yet, so the
     // session reads `priced` (040 §3.2's ladder).
@@ -172,7 +214,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     expect(drained).toMatchObject({ claimed: 1, delivered: 1, failed: 0, deadLettered: 0 });
 
     // GET shows the drafted session with its full event trail.
-    const final = await app.inject({ method: "GET", url: `${base}/${sessionId}` });
+    const final = await inject({ method: "GET", url: `${base}/${sessionId}` });
     expect(final.statusCode).toBe(200);
     const body = final.json();
     expect(body.state).toBe("drafted");
@@ -219,12 +261,12 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
   // aliases with `Deprecation` on them until E02-B10's contract step removes
   // them. 308 and not 301, because 301 lets an agent rewrite a POST into a GET.
   it("redirects the unversioned aliases with 308 and a Deprecation header", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/shops" });
+    const res = await inject({ method: "GET", url: "/api/shops" });
     expect(res.statusCode).toBe(308);
     expect(res.headers.location).toBe("/api/v1/shops");
     expect(res.headers.deprecation).toBe("true");
 
-    const write = await app.inject({
+    const write = await inject({
       method: "POST",
       url: `/api/shops/${shopId}/scan-sessions`,
       payload: {},
@@ -236,7 +278,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
 
   // 042 §5.1: not "should", and not "on the paths that matter".
   it("refuses a mutating call with no Idempotency-Key", async () => {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `/api/v1/shops/${shopId}/scan-sessions`,
       payload: {},
@@ -248,7 +290,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
   // 042 I10 / §4.5: one envelope, no exceptions — including the paths no handler
   // authored. Fastify's own 404 was its own shape.
   it("answers an unrouted path in the envelope", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/v1/nope" });
+    const res = await inject({ method: "GET", url: "/api/v1/nope" });
     expect(res.statusCode).toBe(404);
     expect(Object.keys(res.json().error).sort()).toEqual([
       "code",
@@ -260,3 +302,15 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     expect(res.json().error.code).toBe("ROUTE_NOT_FOUND");
   });
 });
+
+/**
+ * The first `Set-Cookie` value, as a `Cookie` header sends it back.
+ *
+ * The attributes are asserted in `session-tenant-isolation.test.ts` (I6(a)); all
+ * this needs is the `name=value` pair, which is the only part a browser ever
+ * sends — and the only part this server ever reads.
+ */
+function firstCookie(header: string | string[] | undefined): string {
+  const all = Array.isArray(header) ? header : [String(header)];
+  return all[0]!.split(";")[0]!;
+}

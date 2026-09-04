@@ -99,7 +99,17 @@ describe("the route table (042 §3.1, I6)", () => {
     const mutating = ROUTES.filter((r) => r.mutating).map((r) => `${r.method} ${r.path}`);
     // "All eight mutating routes. Not 'should' and not 'on the paths that
     // matter'." (`POST …/transitions` is 040 §7's and is not built.)
-    expect(mutating).toHaveLength(7);
+    //
+    // TEN at E03-D09: the seven shop-scoped writes plus the three authentication
+    // writes (048 §6.2's `device-sessions`, `operator-sessions` and its `/end`).
+    // All three REQUIRE the header — the hook enforces it, ahead of the multipart
+    // parser (R10) — because 048 §5.2's second CSRF mechanism is exactly "a
+    // cross-site HTML form cannot set a custom header", and the routes that mint
+    // credentials are the last place to drop that. What they do NOT do is store a
+    // replay: an authentication act's effect is its `Set-Cookie`, which
+    // `request_idempotency` does not hold, so a replayed 201 would be a screen
+    // that says signed-in while the browser holds nothing.
+    expect(mutating).toHaveLength(10);
     for (const route of ROUTES) {
       expect(route.mutating).toBe(route.method === "POST");
     }

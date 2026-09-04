@@ -46,6 +46,10 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
   let shopId: string;
   let sessionId: string;
   let catalog: CatalogSeed;
+  /** The identity fixtures the 019/020 recipes hang off (048 §10.1). */
+  let locationId: string;
+  let deviceId: string;
+  let credentialId: string;
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_append_only_e02d05");
@@ -54,6 +58,26 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     superuserPool = new pg.Pool({ connectionString: superuserUrl(url) });
     shopId = await seedShop(pool);
     sessionId = (await createScanSession(pool, shopId)).id;
+
+    // The identity substrate. `device.location_id` is NOT NULL (034 I7): a
+    // device belongs to exactly one location, and an enrollment that cannot
+    // name one fails rather than guessing — so the location comes first.
+    const location = await pool.query(
+      `INSERT INTO location (shop_id, kind, name) VALUES ($1,'store','Counter') RETURNING id`,
+      [shopId]
+    );
+    locationId = (location.rows[0] as { id: string }).id;
+    const device = await pool.query(
+      `INSERT INTO device (shop_id, location_id, label, kind)
+       VALUES ($1,$2,'counter phone','phone') RETURNING id`,
+      [shopId, locationId]
+    );
+    deviceId = (device.rows[0] as { id: string }).id;
+    const credential = await pool.query(
+      `INSERT INTO device_credential (shop_id, device_id, token_hash) VALUES ($1,$2,$3) RETURNING id`,
+      [shopId, deviceId, `sha256:${randomUUID()}`]
+    );
+    credentialId = (credential.rows[0] as { id: string }).id;
 
     // E04-D01: the catalog cluster's recipes all need a registered vertical, a
     // pack version, a corpus version and a rights row before they can insert
@@ -86,6 +110,32 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
       dataSourceId: (source.rows[0] as { id: string }).id,
     };
   });
+
+  /**
+   * A fresh `app_user` per recipe that needs one.
+   *
+   * `membership` has no uniqueness constraint that forces this, but reusing one
+   * person across recipes would make the two `membership` cases interfere: the
+   * revocation recipe's `UNIQUE (membership_id)` is per grant, and a shared
+   * subject makes a reader wonder whether it is per person.
+   */
+  async function freshUser(): Promise<string> {
+    const r = await pool.query(
+      `INSERT INTO app_user (email, display_name) VALUES ($1,'Recipe Person') RETURNING id`,
+      [`recipe-${randomUUID()}@example.invalid`]
+    );
+    return (r.rows[0] as { id: string }).id;
+  }
+
+  /** A fresh phone, for the recipes whose row hangs off one. */
+  async function freshDevice(): Promise<string> {
+    const r = await pool.query(
+      `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'recipe phone','phone')
+       RETURNING id`,
+      [shopId, locationId]
+    );
+    return (r.rows[0] as { id: string }).id;
+  }
 
   /** A fresh three-letter vertical code, for the `vertical_pack` recipe. */
   let verticalCodeCounter = 0;
@@ -428,6 +478,80 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
             await mintLcid("edition"),
             catalog.corpusVersionId,
           ]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      // 019 / 020 (E03-D09): the identity cluster. 048 §10.1's split — a grant, a
+      // revocation, a minted credential, a session issuance and a failed attempt
+      // are things that HAPPENED; an organization, a location, a person, a phone
+      // and a PIN are statements about the present and are declared exemptions.
+      // The recipes had to be written in the same PR as the migration, which is
+      // the declared list doing its job for the third time on new tables.
+      case "membership": {
+        const r = await pool.query(
+          `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
+           VALUES ($1,$2,'shop','operator') RETURNING id`,
+          [await freshUser(), shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "membership_revocation": {
+        const grant = await pool.query(
+          `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
+           VALUES ($1,$2,'shop','operator') RETURNING id`,
+          [await freshUser(), shopId]
+        );
+        const r = await pool.query(
+          `INSERT INTO membership_revocation (shop_id, membership_id, reason)
+           VALUES ($1,$2,'left the shop') RETURNING id`,
+          [shopId, (grant.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "device_credential": {
+        const r = await pool.query(
+          `INSERT INTO device_credential (shop_id, device_id, token_hash) VALUES ($1,$2,$3) RETURNING id`,
+          [shopId, await freshDevice(), `sha256:${randomUUID()}`]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "device_credential_revocation": {
+        const credential = await pool.query(
+          `INSERT INTO device_credential (shop_id, device_id, token_hash) VALUES ($1,$2,$3) RETURNING id`,
+          [shopId, await freshDevice(), `sha256:${randomUUID()}`]
+        );
+        const r = await pool.query(
+          `INSERT INTO device_credential_revocation (shop_id, credential_id, reason)
+           VALUES ($1,$2,'phone lost') RETURNING id`,
+          [shopId, (credential.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "app_session": {
+        const r = await pool.query(
+          `INSERT INTO app_session
+             (chain_id, kind, shop_id, location_id, device_id, device_credential_id, token_hash,
+              rotate_after, idle_expires_at, absolute_expires_at)
+           VALUES (gen_random_uuid(),'device',$1,$2,$3,$4,$5,
+                   now() + interval '1 day', now() + interval '2 days', now() + interval '30 days')
+           RETURNING id`,
+          [shopId, locationId, deviceId, credentialId, `sha256:${randomUUID()}`]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "app_session_revocation": {
+        const r = await pool.query(
+          `INSERT INTO app_session_revocation (shop_id, chain_id, reason)
+           VALUES ($1, gen_random_uuid(), 'signed_out') RETURNING id`,
+          [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "auth_attempt": {
+        const r = await pool.query(
+          `INSERT INTO auth_attempt (shop_id, device_id, app_user_id, method, failure_class)
+           VALUES ($1,$2,$3,'operator_pin','wrong_pin') RETURNING id`,
+          [shopId, deviceId, await freshUser()]
         );
         return (r.rows[0] as { id: string }).id;
       }

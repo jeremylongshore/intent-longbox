@@ -362,6 +362,60 @@ describe("042 I22 — the fixed lock order", () => {
     expect(findings[0]!.message).toContain("BEFORE its request_idempotency INSERT");
   });
 
+  // 048 K1 inserted a THIRD position between 042's two, and the same reasoning
+  // applies to it: a rule that has never failed is indistinguishable from one
+  // that cannot. Both new pairs get a fixture.
+  it("fails on a handler that locks the session BEFORE its idempotency INSERT (048 K1)", () => {
+    const findings = checkLockOrder([
+      {
+        path: "src/services/sessionApi.ts",
+        text:
+          "export async function confirm(deps, ctx, body) {\n" +
+          "  await lockAndRotate(tx, ctx.session, new Date());\n" +
+          "  return runIdempotent(deps.pool, idem, async (tx) => ({ status: 201 }));\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the app_session lock BEFORE its request_idempotency INSERT");
+  });
+
+  it("fails on a handler that takes the scan_session anchor BEFORE the session lock (048 K1)", () => {
+    const findings = checkLockOrder([
+      {
+        path: "src/services/sessionApi.ts",
+        text:
+          "export async function confirm(deps, ctx, body) {\n" +
+          "  return runIdempotent(deps.pool, idem, async (tx) => {\n" +
+          "    await lockOrRefuse(tx, ctx.shopId, session.id);\n" +
+          "    await lockAndRotate(tx, ctx.session, new Date());\n" +
+          "  });\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the scan_session anchor lock BEFORE the app_session lock");
+  });
+
+  it("passes on the real three-position order (idempotency → session → anchor)", () => {
+    // The order the tree actually takes, spelled the way `runIdempotent` reaches
+    // it: the session lock is a closure the idempotent request carries, run
+    // immediately after the INSERT and before `fn`.
+    expect(
+      checkLockOrder([
+        {
+          path: "src/services/sessionApi.ts",
+          text:
+            "export async function confirm(deps, ctx, body) {\n" +
+            "  return runIdempotent(deps.pool, { ...idem, sessionLock: ctx.sessionLock }, async (tx) => {\n" +
+            "    await lockOrRefuse(tx, ctx.shopId, session.id);\n" +
+            "  });\n" +
+            "}\n",
+        },
+      ])
+    ).toEqual([]);
+  });
+
   it("passes on a handler that takes only one of the two locks", () => {
     // Nothing to order. This is not the same as a rule with nothing to see: the
     // case below is.

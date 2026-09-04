@@ -127,6 +127,57 @@ export class ShopRateLimiter {
   }
 
   /**
+   * The DEVICE class (048 R14) — for the routes that have no session yet to be
+   * keyed on, because they are how a caller acquires one.
+   *
+   * Keyed on `device_id`: the device is authenticated and the person is what is
+   * being tested, so a stranger cannot exhaust a NAMED PERSON'S budget by
+   * guessing at their PIN — which is 048 §9.1's "never a global lock a stranger
+   * can trigger against a named person" arriving as a rate limit instead of as a
+   * lockout. **This is not the per-operator surface 019 T35 forbids**: the key is
+   * a phone, the counter is never rendered, never grouped and never exported, and
+   * the class exists to bound cost while 048 §9.1's growing delay does the actual
+   * credential-stuffing work.
+   *
+   * It reuses the ordinary floor rather than inventing a second number: an
+   * authentication burst on one phone is not a different SHAPE of traffic from a
+   * scan burst on the same phone, and a second provisional number would be a
+   * second thing nobody has measured.
+   */
+  takeDevice(deviceId: string): RateDecision {
+    const decision = this.take(this.ordinary, `device:${deviceId}`, this.ordinaryPerMinute, MINUTE_MS);
+    if (!decision.allowed) this.events.ordinaryThrottled += 1;
+    return decision;
+  }
+
+  /**
+   * The bucket for a route that has NO principal to key on yet (E03-D09).
+   *
+   * `POST /api/v1/device-sessions` is anonymous by construction — the credential
+   * in the body IS the authentication — so at `onRequest` there is no device, no
+   * shop and no person. 042 §8.1 forbids an IP, and the alternative on the table
+   * was no bucket at all: the invariant review found the route taking four
+   * hundred anonymous POSTs, answering four hundred refusals and appending four
+   * hundred `auth_attempt` rows without one throttle.
+   *
+   * So the key is the ROUTE ITSELF. It is coarse and it is deliberate: it bounds
+   * the aggregate, and `openDeviceSession` takes a second bucket keyed on the
+   * presented credential's DIGEST (048 R14) for the question this one cannot
+   * answer — how many times this exact secret has been tried.
+   *
+   * **The trade is stated rather than discovered**: a flood can make device
+   * enrollment unavailable estate-wide for a minute, on a route a shop touches
+   * once per phone. That is the same shape 048 §9.1 accepts for the lockout —
+   * the worst outcome available to a flooder is a wait — and it is strictly
+   * better than the unmetered write path it replaces.
+   */
+  takeRoute(routeTemplate: string): RateDecision {
+    const decision = this.take(this.ordinary, `route:${routeTemplate}`, this.ordinaryPerMinute, MINUTE_MS);
+    if (!decision.allowed) this.events.ordinaryThrottled += 1;
+    return decision;
+  }
+
+  /**
    * `POST …/identify`. A refusal here is NOT an error: the caller degrades to
    * the manual-search path, which is "not a failure; a different route to the
    * same rung" (040 §4.6).

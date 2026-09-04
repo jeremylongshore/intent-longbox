@@ -30,14 +30,20 @@ const sessionRow = {
 };
 
 describe("createScanSession", () => {
-  it("inserts shop_id ALONE — `created_by` has no writer (041 §8.4, 042 I1)", async () => {
+  it("inserts shop_id and the SESSION's operator — `created_by` has no writer (041 §8.4, 048 §6.3)", async () => {
     const { pool, calls } = fakePool((text) =>
       text.includes("INSERT INTO scan_session") ? { rows: [sessionRow] } : undefined
     );
     const row = await createScanSession(pool, "shop-1");
     expect(row).toEqual(sessionRow);
-    expect(calls[0]?.values).toEqual(["shop-1"]);
+    // `operator_id` is NULL when the caller passes none; `actor_verified` is
+    // derived from it in the same statement (048 §6.3). `created_by` still has
+    // no writer and never gets one — a system that wrote both a verified id and
+    // an unverified string would have two attributions and no rule for which is
+    // true.
+    expect(calls[0]?.values).toEqual(["shop-1", null]);
     expect(calls[0]?.text).not.toMatch(/created_by/);
+    expect(calls[0]?.text).toMatch(/operator_id, actor_verified/);
     // The read model names its columns; a star projection here is what put the
     // retired `status` column into a response body (042 E15).
     expect(calls[0]?.text).toContain("RETURNING id, shop_id, created_at");
@@ -167,6 +173,8 @@ describe("insertHumanConfirmation", () => {
       // 041 §5.3: the per-session commit counter travels on the INSERT, assigned by
       // `assignSessionSeq` under the anchor lock the caller already holds.
       1,
+      // 048 §6.3's `operator_id`, NULL when the caller passes none.
+      null,
     ]);
   });
 });

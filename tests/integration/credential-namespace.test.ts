@@ -20,6 +20,7 @@ const DB = "longbox_test_credential_namespace";
 let enabled = false;
 let pool: pg.Pool | undefined;
 let shopId: string | undefined;
+let orgId: string;
 
 beforeAll(async () => {
   enabled = await probeDb();
@@ -27,10 +28,16 @@ beforeAll(async () => {
   const migrateUrl = await createFreshDb(DB);
   await runMigrations(migrateUrl);
   pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
-  const res = await pool.query(`INSERT INTO shop (name, slug) VALUES ($1, $2) RETURNING id`, [
-    "Namespace Test Shop",
-    "nstest",
-  ]);
+  // `migrations/019` gives `shop` a validated CHECK that it names a legal party
+  // (034 §4.3 A4), so every shop this suite writes carries an organization —
+  // including the ones it expects to be REFUSED, or they would be refused for
+  // the wrong reason and the slug charset would stop being what is under test.
+  const org = await pool.query(`INSERT INTO organization (name) VALUES ('Namespace Org') RETURNING id`);
+  orgId = (org.rows[0] as { id: string }).id;
+  const res = await pool.query(
+    `INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3) RETURNING id`,
+    ["Namespace Test Shop", "nstest", orgId]
+  );
   shopId = (res.rows[0] as { id: string }).id;
 }, 120_000);
 
@@ -115,11 +122,19 @@ describe("shop_credentials refuses a row that could exfiltrate a key (migrations
     // entered from the other end.
     for (const bad of ["gotham_city", "gotham.city", "Gotham", "gotham city"]) {
       await expect(
-        pool!.query(`INSERT INTO shop (name, slug) VALUES ($1, $2)`, ["Bad Slug Shop", bad])
+        pool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
+          "Bad Slug Shop",
+          bad,
+          orgId,
+        ])
       ).rejects.toThrow(/shop_slug_charset/);
     }
     await expect(
-      pool!.query(`INSERT INTO shop (name, slug) VALUES ($1, $2)`, ["Sibling Shop", "gotham-city"])
+      pool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
+        "Sibling Shop",
+        "gotham-city",
+        orgId,
+      ])
     ).resolves.toBeDefined();
   });
 

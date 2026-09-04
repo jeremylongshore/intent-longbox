@@ -1,0 +1,26 @@
+# A document index whose rebase was never finished
+
+This is the shape that reached a commit at `889763e` and that nothing in the
+repository noticed. The extension is `.md.fixture` rather than `.md` on purpose:
+the check refuses `.md`, and a fixture that the check would refuse cannot itself
+be committed as one.
+
+| 047 | a row that survived the rebase |
+<<<<<<< HEAD
+| 048 | main's version of the row |
+||||||| parent of abc1234 (a commit message)
+| 048 | the common ancestor's version |
+=======
+| 048 | this branch's version of the row |
+>>>>>>> abc1234 (a commit message)
+| 050 | another row that survived |
+
+Below are the shapes that are NOT markers and must never be flagged, because a
+check whose false positives are routine is a check people learn to bypass:
+
+=====
+
+---
+
+> a blockquote
+>>> a nested blockquote, which is three characters and not seven

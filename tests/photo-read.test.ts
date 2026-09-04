@@ -23,6 +23,7 @@ import * as api from "../src/services/sessionApi.js";
 import { findSessionPhoto } from "../src/services/scanSession.js";
 import { ShopRateLimiter } from "../src/services/rateLimit.js";
 import { fakePool } from "./fakes.js";
+import { testConfig } from "./testConfig.js";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -62,7 +63,7 @@ function poolFor(storageUrl: string | null): { pool: pg.Pool; calls: { text: str
 function deps(pool: pg.Pool, uploadsDir = root): api.ApiDeps {
   return {
     pool,
-    config: { port: 0, databaseUrl: "postgres://unused", uploadsDir, bands: { high: 0.85, medium: 0.5 } },
+    config: testConfig({ databaseUrl: "postgres://unused", uploadsDir }),
     limiter: new ShopRateLimiter(),
   };
 }

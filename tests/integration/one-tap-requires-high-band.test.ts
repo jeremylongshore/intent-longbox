@@ -21,6 +21,8 @@ import { buildApp } from "../../src/app.js";
 import { ERROR_CODES } from "../../src/contracts/v1/errors.js";
 import { ShopRateLimiter } from "../../src/services/rateLimit.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-one-tap-uploads";
@@ -30,6 +32,8 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
   let pool: pg.Pool;
   let ownerPool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
   let base: string;
 
@@ -46,10 +50,17 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
         databaseUrl: appUrl(migrateUrl),
         uploadsDir: UPLOADS_DIR,
         bands: { high: 0.85, medium: 0.5 },
+        pinPepper: TEST_PIN_PEPPER,
+        publicOrigins: [],
       },
       { limiter: new ShopRateLimiter({ ordinaryPerMinute: 10_000 }) }
     );
     base = `/api/v1/shops/${shopId}/scan-sessions`;
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   });
 
   afterAll(async () => {
@@ -61,7 +72,7 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
 
   /** A session carrying one `llm_rerank` row with the given band, written as the schema owner. */
   async function sessionWithRerank(band: string, contradiction: boolean, bandInputs: unknown) {
-    const created = await app.inject({
+    const created = await inject({
       method: "POST",
       url: base,
       payload: {},
@@ -95,7 +106,7 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
   }
 
   function oneTap(sessionId: string) {
-    return app.inject({
+    return inject({
       method: "POST",
       url: `${base}/${sessionId}/confirm`,
       payload: { issue: ASM300, source: "one_tap" },
@@ -142,7 +153,7 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
   });
 
   it("refuses a one-tap on a session with NO re-rank at all — absent is not high", async () => {
-    const created = await app.inject({
+    const created = await inject({
       method: "POST",
       url: base,
       payload: {},
@@ -170,7 +181,7 @@ describe.skipIf(!dbUp)("a one-tap needs the high band, not the absence of a cont
 
   it("lets a grid pick through on the low-band session — F3 forbids the one-tap, not the confirmation", async () => {
     const sessionId = await sessionWithRerank("low", false, { band: "low" });
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `${base}/${sessionId}/confirm`,
       payload: { issue: ASM300, source: "grid_pick" },

@@ -67,6 +67,22 @@ export interface IdempotentRequest {
    * `scan_photo.content_hash` will want.
    */
   body: unknown;
+  /**
+   * 048 §3.3(a) / K1 — THE SESSION LOCK, AT ITS DECLARED POSITION.
+   *
+   * Set by the authentication hook when the request's session is due to rotate.
+   * `runIdempotent` runs it immediately after the `request_idempotency` INSERT
+   * and before `fn` (which takes the `scan_session` anchor), which is the
+   * three-position order 048 K1 inserts into 042 §5.3(b):
+   *
+   *   `request_idempotency` INSERT → `app_session` (`FOR NO KEY UPDATE`) →
+   *   `scan_session` anchor (`FOR UPDATE`)
+   *
+   * It is NOT part of the request hash: it is a function, and the hash covers
+   * (method, route, params, body). A rotation is a fact about the CONNECTION,
+   * not about the act, and two retries of one act must still be one act.
+   */
+  sessionLock?: (tx: Tx) => Promise<void>;
 }
 
 /**
@@ -259,6 +275,13 @@ export async function runIdempotent(
       pool,
       async (tx) => {
         const id = await beginIdempotency(tx, req, hash);
+        // 048 K1: the session row is locked and rotated HERE — after the
+        // request's identity is established and before `fn` takes any lock on
+        // domain state. A request that is going to be refused for a dead session
+        // must not first take a lock on a live session's anchor; a request that
+        // ROLLS BACK must issue no successor, and this closure rolling back with
+        // the rest of the transaction is what makes that true.
+        if (req.sessionLock) await req.sessionLock(tx);
         const result = await fn(tx);
         await completeIdempotency(tx, id, result);
         return { ...result, replayed: false };

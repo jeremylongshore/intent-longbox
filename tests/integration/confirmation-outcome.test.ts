@@ -13,6 +13,8 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 
@@ -23,6 +25,8 @@ const HULK181 = { title: "Hulk", issue: "181" };
 describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
 
   beforeAll(async () => {
@@ -36,7 +40,14 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
       databaseUrl: url,
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   });
 
   afterAll(async () => {
@@ -145,7 +156,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   // --- the confirm route ------------------------------------------------------
 
   async function newSession(): Promise<string> {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `/api/v1/shops/${shopId}/scan-sessions`,
       payload: {},
@@ -207,7 +218,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
     sessionId: string,
     body: { issue: Record<string, unknown>; source: string }
   ): Promise<string | null> {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `/api/v1/shops/${shopId}/scan-sessions/${sessionId}/confirm`,
       payload: body,

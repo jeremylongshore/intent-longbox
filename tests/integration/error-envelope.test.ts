@@ -15,6 +15,8 @@ import { buildApp } from "../../src/app.js";
 import { ERROR_CODES, type ErrorCode } from "../../src/contracts/v1/errors.js";
 import { ShopRateLimiter } from "../../src/services/rateLimit.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-envelope-uploads";
@@ -26,6 +28,8 @@ const ENVELOPE_KEYS = ["code", "correlation_id", "details", "message", "retryabl
 describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
   let base: string;
   let sessionId: string;
@@ -44,13 +48,20 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
         databaseUrl: appUrl(migrateUrl),
         uploadsDir: UPLOADS_DIR,
         bands: { high: 0.85, medium: 0.5 },
+        pinPepper: TEST_PIN_PEPPER,
+        publicOrigins: [],
       },
       // A generous bucket so the flow below cannot throttle itself; the throttle
       // has its own test at the bottom with its own instance.
       { limiter: new ShopRateLimiter({ ordinaryPerMinute: 10_000 }) }
     );
     base = `/api/v1/shops/${shopId}/scan-sessions`;
-    const created = await app.inject({
+
+    // E03-D09: there is no anonymous route left to open a session on (048 I1),
+    // so the phone signs in before the flow the envelope assertions run over.
+    ({ inject } = await signIn(pool, app, shopId));
+
+    const created = await inject({
       method: "POST",
       url: base,
       payload: {},
@@ -89,7 +100,7 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
         "unknown shop",
         "SHOP_NOT_FOUND",
         () =>
-          app.inject({
+          inject({
             method: "POST",
             url: `/api/v1/shops/${MISSING}/scan-sessions`,
             payload: {},
@@ -99,23 +110,23 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
       [
         "unknown session",
         "SESSION_NOT_FOUND",
-        () => app.inject({ method: "GET", url: `${base}/${MISSING}` }) as never,
+        () => inject({ method: "GET", url: `${base}/${MISSING}` }) as never,
       ],
       [
         "malformed uuid",
         "VALIDATION_FAILED",
-        () => app.inject({ method: "GET", url: `${base}/not-a-uuid` }) as never,
+        () => inject({ method: "GET", url: `${base}/not-a-uuid` }) as never,
       ],
       [
         "missing key",
         "IDEMPOTENCY_KEY_REQUIRED",
-        () => app.inject({ method: "POST", url: base, payload: {} }) as never,
+        () => inject({ method: "POST", url: base, payload: {} }) as never,
       ],
       [
         "no confirmation",
         "SESSION_HAS_NO_CONFIRMATION",
         () =>
-          app.inject({
+          inject({
             method: "POST",
             url: `${base}/${sessionId}/draft`,
             payload: {},
@@ -125,7 +136,7 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
       [
         "unrouted path",
         "ROUTE_NOT_FOUND",
-        () => app.inject({ method: "GET", url: "/api/v1/nothing-here" }) as never,
+        () => inject({ method: "GET", url: "/api/v1/nothing-here" }) as never,
       ],
     ];
     for (const [name, expected, run] of cases) {
@@ -138,7 +149,7 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
     // "A prose match is the only discriminator that exists, in the tests and in
     // the client alike." Now: `draft` before a confirmation and `draft` before a
     // price are distinguishable without reading English.
-    const noConfirmation = await app.inject({
+    const noConfirmation = await inject({
       method: "POST",
       url: `${base}/${sessionId}/draft`,
       payload: {},
@@ -146,13 +157,13 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
     });
     expect(noConfirmation.json().error.code).toBe("SESSION_HAS_NO_CONFIRMATION");
 
-    await app.inject({
+    await inject({
       method: "POST",
       url: `${base}/${sessionId}/confirm`,
       payload: { issue: { title: "Hulk", issue: "181" }, source: "grid_pick" },
       headers: { "idempotency-key": randomUUID() },
     });
-    const noPrice = await app.inject({
+    const noPrice = await inject({
       method: "POST",
       url: `${base}/${sessionId}/draft`,
       payload: {},
@@ -163,7 +174,7 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
   });
 
   it("puts the validation detail in `details`, where it has a type (042 E9)", async () => {
-    const res = await app.inject({
+    const res = await inject({
       method: "POST",
       url: `${base}/${sessionId}/condition`,
       payload: { grade_range_low: "ZZ", grade_range_high: "VF" },
@@ -177,14 +188,14 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
   });
 
   it("returns a correlation id on SUCCESS as well as on failure (§4.7)", async () => {
-    const ok = await app.inject({ method: "GET", url: `${base}/${sessionId}` });
+    const ok = await inject({ method: "GET", url: `${base}/${sessionId}` });
     expect(ok.statusCode).toBe(200);
     expect(ok.headers["x-correlation-id"]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("honours a caller's own correlation id so a trace can be joined end to end", async () => {
     const supplied = "trace-from-the-caller";
-    const res = await app.inject({
+    const res = await inject({
       method: "GET",
       url: `${base}/${MISSING}`,
       headers: { "x-correlation-id": supplied },
@@ -197,12 +208,24 @@ describe.skipIf(!dbUp)("the one error envelope (042 §4)", () => {
     const limiter = new ShopRateLimiter({ ordinaryPerMinute: 1 });
     const throttled = await buildApp(
       pool,
-      { port: 0, databaseUrl: "", uploadsDir: UPLOADS_DIR, bands: { high: 0.85, medium: 0.5 } },
+      {
+        port: 0,
+        databaseUrl: "",
+        uploadsDir: UPLOADS_DIR,
+        bands: { high: 0.85, medium: 0.5 },
+        pinPepper: TEST_PIN_PEPPER,
+        publicOrigins: [],
+      },
       { limiter }
     );
+    // A SECOND app instance needs its own signed-in phone. The bucket is now
+    // keyed on the SESSION's shop rather than on `req.params.shopId` (048 §6.2,
+    // closing 046 G-20), so a throttle test that sent no cookies would be
+    // throttling nothing and asserting a 401.
+    const { inject: throttledInject } = await signIn(pool, throttled, shopId);
     try {
-      await throttled.inject({ method: "GET", url: `${base}/${sessionId}` });
-      const res = await throttled.inject({ method: "GET", url: `${base}/${sessionId}` });
+      await throttledInject({ method: "GET", url: `${base}/${sessionId}` });
+      const res = await throttledInject({ method: "GET", url: `${base}/${sessionId}` });
       expect(res.statusCode).toBe(429);
       expect(res.json().error.code).toBe("RATE_LIMITED");
       expect(res.json().error.retryable).toBe(true);

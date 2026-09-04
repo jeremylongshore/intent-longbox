@@ -100,6 +100,11 @@ describe("the condition module's reads and writes", () => {
     });
     expect(calls[0]!.text).toContain("INSERT INTO condition_assessment");
     expect(calls[0]!.text).not.toContain("supersedes_id");
-    expect(calls[0]!.values).toEqual(["session-1", "shop-1", "VG", "FN", ["spine_ticks"], null, 1]);
+    // The last value is `operator_id`, NULL here because this call passes none —
+    // 048 §6.3 stamps it from the session and never from a body, and
+    // `actor_verified` is derived from it IN THE STATEMENT so the pair cannot
+    // disagree.
+    expect(calls[0]!.values).toEqual(["session-1", "shop-1", "VG", "FN", ["spine_ticks"], null, 1, null]);
+    expect(calls[0]!.text).toContain("actor_verified");
   });
 });

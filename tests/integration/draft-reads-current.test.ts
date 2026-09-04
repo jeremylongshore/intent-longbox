@@ -20,6 +20,8 @@ import { buildConsumerRegistry } from "../../src/consumers/index.js";
 import { DEFAULT_OUTBOX_PARAMS, drainOnce } from "../../src/services/outbox.js";
 import { fakeShopifyClient } from "../fakes.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-draftcurrent-uploads";
@@ -27,6 +29,8 @@ const UPLOADS_DIR = "tests/.tmp-draftcurrent-uploads";
 describe.skipIf(!dbUp)("the draft is composed from the CURRENT records (041 I8)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
   let shopId: string;
   let base: string;
 
@@ -44,8 +48,15 @@ describe.skipIf(!dbUp)("the draft is composed from the CURRENT records (041 I8)"
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
     base = `/api/v1/shops/${shopId}/scan-sessions`;
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopId));
   });
 
   afterAll(async () => {
@@ -54,7 +65,7 @@ describe.skipIf(!dbUp)("the draft is composed from the CURRENT records (041 I8)"
   });
 
   async function post(url: string, payload: object) {
-    return app.inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
+    return inject({ method: "POST", url, payload, headers: { "idempotency-key": randomUUID() } });
   }
 
   it("drafts the SUCCESSOR's issue after an owner correction, never the superseded one", async () => {

@@ -24,7 +24,7 @@ flaky.tolerance: 0/3runs
 ## Installed gates (observational)
 
 L0: @intentsolutions/audit-harness@1.3.1 (devDep, hash manifest initialized)
-L1: husky@9 + lint-staged (pre-commit: lint-staged → typecheck → unit tests → escape-scan → verify; beads hooks chained)
+L1: husky@9 + lint-staged (pre-commit: conflict-marker refusal → lint-staged → typecheck → unit tests → escape-scan → verify; beads hooks chained). The conflict-marker step is the REPO'S OWN (`scripts/conflictMarkers.ts`, first lint-staged entry, refusing `<<<<<<< / ||||||| / ======= / >>>>>>>` at line start in staged .ts/.md/.sql/.json/.js) rather than a pattern added to the harness's escape-scan, because the harness's policy files are hash-pinned and this repository does not edit them. It exists because the class already escaped once: a three-way rebase left all four diff3 markers inside `000-docs/000-INDEX.md` and the commit was made — prettier reformats markdown without parsing it, eslint and tsc do not read `.md`, and no test asserted about a file nobody had changed. `tests/conflict-markers.test.ts` proves the refusal against a fixture and proves the near-misses (`=====`, `---`, `>>>`) are not flagged.
 L2: eslint@10 flat config (typescript-eslint) + prettier@3 (pnpm lint / pnpm format:check, CI-enforced)
 L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers + src/consumers (pnpm test:coverage, CI-enforced)
 L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, role separation, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)

@@ -13,6 +13,8 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { runIdempotent } from "../../src/services/idempotency.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { TEST_PIN_PEPPER } from "../testConfig.js";
+import { signIn, type AuthedInject } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-idem-uploads";
@@ -20,6 +22,19 @@ const UPLOADS_DIR = "tests/.tmp-idem-uploads";
 describe.skipIf(!dbUp)("request idempotency (042 §5)", () => {
   let pool: pg.Pool;
   let app: FastifyInstance;
+  /** `app.inject` carrying a live device + operator session (048 I1). */
+  let inject: AuthedInject;
+  /**
+   * A SECOND signed-in phone, at shop B.
+   *
+   * It exists because E03-D09 made the cross-shop case unreachable from one
+   * session: `shop_id` comes from the session and the URL is checked against it
+   * (048 §6.1), so shop A's phone calling shop B's path now gets
+   * `SHOP_NOT_FOUND` — I2's property — and the key could not have crossed even
+   * if the idempotency scope had been wrong. Proving 042 I12 therefore needs two
+   * phones, which is also what the real world looks like.
+   */
+  let injectB: AuthedInject;
   let shopA: string;
   let shopB: string;
   let base: string;
@@ -37,8 +52,16 @@ describe.skipIf(!dbUp)("request idempotency (042 §5)", () => {
       databaseUrl: appUrl(migrateUrl),
       uploadsDir: UPLOADS_DIR,
       bands: { high: 0.85, medium: 0.5 },
+      pinPepper: TEST_PIN_PEPPER,
+      publicOrigins: [],
     });
     base = `/api/v1/shops/${shopA}/scan-sessions`;
+
+    // E03-D09: every shop-scoped route is behind a device session plus an
+    // operator session now (048 I1), so the suite signs one phone in and uses
+    // `inject` in place of `app.inject`.
+    ({ inject } = await signIn(pool, app, shopA));
+    ({ inject: injectB } = await signIn(pool, app, shopB));
   });
 
   afterAll(async () => {
@@ -49,9 +72,10 @@ describe.skipIf(!dbUp)("request idempotency (042 §5)", () => {
   async function post(
     url: string,
     key: string,
-    payload: object = {}
+    payload: object = {},
+    as: AuthedInject = inject
   ): Promise<ReturnType<typeof app.inject>> {
-    return app.inject({ method: "POST", url, payload, headers: { "idempotency-key": key } });
+    return as({ method: "POST", url, payload, headers: { "idempotency-key": key } });
   }
 
   it("makes the retry a no-op at every step, with a byte-identical body (019 T23)", async () => {
@@ -111,9 +135,13 @@ describe.skipIf(!dbUp)("request idempotency (042 §5)", () => {
   });
 
   it("never lets a key cross a shop (042 I12; 019 T24, non-waivable)", async () => {
+    // TWO PHONES since E03-D09, and the reason is the stronger property: one
+    // session cannot reach the other shop's path at all (048 §6.1, I2), so this
+    // now proves the idempotency SCOPE with the tenancy boundary already closed
+    // underneath it rather than instead of it.
     const key = randomUUID();
     const inA = await post(`/api/v1/shops/${shopA}/scan-sessions`, key);
-    const inB = await post(`/api/v1/shops/${shopB}/scan-sessions`, key);
+    const inB = await post(`/api/v1/shops/${shopB}/scan-sessions`, key, {}, injectB);
     expect(inA.statusCode).toBe(201);
     expect(inB.statusCode).toBe(201);
     // Shop B gets its OWN session, never shop A's stored response.
@@ -200,7 +228,7 @@ describe.skipIf(!dbUp)("request idempotency (042 §5)", () => {
   });
 
   it("refuses a mutating call with no key at all (§5.1)", async () => {
-    const res = await app.inject({ method: "POST", url: base, payload: {} });
+    const res = await inject({ method: "POST", url: base, payload: {} });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("IDEMPOTENCY_KEY_REQUIRED");
     // And it refuses BEFORE writing anything.

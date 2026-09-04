@@ -307,6 +307,25 @@ const IDEMPOTENCY_INSERT =
 /** The anchor lock, however it is spelled. */
 const ANCHOR_LOCK = /(FROM\s+scan_session[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockScanSession|lockOrRefuse)\s*\(/i;
 
+/**
+ * The SESSION lock — the third position, added by E03-D09 (048 K1).
+ *
+ * 048 inserts the authentication row's `SELECT … FOR NO KEY UPDATE` BETWEEN
+ * 042's two, and the position is argued rather than assumed: identity-of-the-
+ * request stays first because a replay must be recognised before it locks any
+ * domain state, and the session lock comes second because **authentication is a
+ * precondition of touching the subject at all** — a request that is going to be
+ * refused for a dead session must not first take a lock on a live session's
+ * anchor.
+ *
+ * Recognised through its helpers as well as its SQL, for the reason the widening
+ * at E02-D08 taught: a rule that only reads SQL is one refactor away from blind,
+ * and that is not hypothetical here — every caller reaches this lock through
+ * `sessionLock` on the idempotent request rather than by spelling it.
+ */
+const SESSION_LOCK =
+  /(FROM\s+app_session[\s\S]{0,200}?FOR\s+NO\s+KEY\s+UPDATE)|\b(lockSession|lockAndRotate|sessionLock)\s*[(:]/i;
+
 /** The layers where a handler can live. A rule keyed on one layout goes blind on the next. */
 const HANDLER_LAYERS = ["src/routes/", "src/services/"];
 
@@ -327,17 +346,33 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
     for (const [i, body] of splitMutatingHandlers(file.text).entries()) {
       const insert = body.search(IDEMPOTENCY_INSERT);
       const lock = body.search(ANCHOR_LOCK);
-      if (insert === -1 || lock === -1) continue; // this chunk takes at most one of them
-      if (insert > lock) {
+      const session = body.search(SESSION_LOCK);
+      // THREE POSITIONS SINCE E03-D09 (048 K1), checked pairwise so a chunk that
+      // takes only two of the three is still policed:
+      //   request_idempotency INSERT → app_session (FOR NO KEY UPDATE)
+      //     → scan_session anchor (FOR UPDATE)
+      const violations: Array<[first: string, second: string]> = [];
+      if (insert !== -1 && lock !== -1 && insert > lock) {
+        violations.push(["the scan_session anchor lock", "its request_idempotency INSERT"]);
+      }
+      if (insert !== -1 && session !== -1 && insert > session) {
+        violations.push(["the app_session lock", "its request_idempotency INSERT"]);
+      }
+      if (session !== -1 && lock !== -1 && session > lock) {
+        violations.push(["the scan_session anchor lock", "the app_session lock"]);
+      }
+      for (const [first, second] of violations) {
         findings.push({
           rule: "fixed-lock-order",
           message:
-            `${file.path}: mutating handler #${i + 1} takes the scan_session anchor lock BEFORE ` +
-            `its request_idempotency INSERT (042 §5.3(b), I22). The fixed order is idempotency ` +
-            `row first, anchor second, in every handler, always — the idempotency row is the ` +
-            `request's IDENTITY and the session is its SUBJECT, so a replay must be recognised ` +
-            `before it takes any lock on domain state. Two handlers with opposite orders ` +
-            `deadlock (40P01) intermittently, at a counter, reproducing on nobody's laptop.`,
+            `${file.path}: mutating handler #${i + 1} takes ${first} BEFORE ` +
+            `${second} (042 §5.3(b) I22, extended to three positions by 048 K1). The fixed ` +
+            `order is request_idempotency INSERT, then the app_session row FOR NO KEY UPDATE, ` +
+            `then the scan_session anchor FOR UPDATE, in every handler, always — the ` +
+            `idempotency row is the request's IDENTITY, authentication is a precondition of ` +
+            `touching the SUBJECT at all, and the session is that subject. Two handlers with ` +
+            `opposite orders deadlock (40P01) intermittently, at a counter, reproducing on ` +
+            `nobody's laptop.`,
         });
       }
     }

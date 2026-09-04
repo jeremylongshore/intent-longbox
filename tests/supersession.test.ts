@@ -170,7 +170,8 @@ describe("supersede()", () => {
   });
 
   // The union is the point of the typed helper: each table's INSERT names its own
-  // columns, in its own order, and `supersedes_id` is always last.
+  // columns, in its own order, `supersedes_id` is second-from-last and
+  // `operator_id` is last (048 §6.3, E03-D09).
   it.each([
     [
       "condition_assessment",
@@ -178,7 +179,7 @@ describe("supersede()", () => {
         table: "condition_assessment" as const,
         values: { gradeRangeLow: "VG", gradeRangeHigh: "FN", defects: ["spine_ticks"], notes: null },
       },
-      8,
+      9,
     ],
     [
       "pricing_snapshot",
@@ -193,7 +194,7 @@ describe("supersede()", () => {
           policyId: null,
         },
       },
-      10,
+      11,
     ],
   ])("writes %s with its own column list", async (table, row, argc) => {
     const { tx, calls } = fakeTx([priorRow(), noSuccessor, seqRead, inserted]);
@@ -201,8 +202,15 @@ describe("supersede()", () => {
     const insert = calls.find((c) => /INSERT INTO/.test(c.text))!;
     expect(insert.text).toContain(`INSERT INTO ${table as SupersedableTable}`);
     expect(insert.values).toHaveLength(argc);
-    expect(insert.values?.[argc - 1]).toBe(PRIOR);
-    expect(insert.values?.[argc - 2]).toBe(5);
+    // 048 §6.3, E03-D09: `operator_id` is the LAST parameter on all three
+    // successors and `actor_verified` is derived from it in the statement. A
+    // correction is an act by a person too, and a successor that dropped the
+    // attribution its predecessor carried would make "who fixed this"
+    // unanswerable at exactly the moment 022 P1 needs it answered.
+    expect(insert.values?.[argc - 1]).toBe(null);
+    expect(insert.text).toContain("actor_verified");
+    expect(insert.values?.[argc - 2]).toBe(PRIOR);
+    expect(insert.values?.[argc - 3]).toBe(5);
   });
 
   it("sends jsonb payloads as strings, not as objects", async () => {

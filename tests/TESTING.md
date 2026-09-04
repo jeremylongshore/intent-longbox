@@ -68,6 +68,60 @@ journeys.partial: 3 (scanning 6/7, reviewing-drafts 2/3, correcting 3/4; only bu
 
 ## Operational notes (observational)
 
+### Never build cases from a live `readdir` of `src/` (E02-D14, 2026-09-04)
+
+`pnpm test` reported **1049 on some runs and 1050 on others, on a byte-identical
+tree**, and every run was green. The whole difference was
+`tests/contract/outbox-declarations.test.ts`, which emitted 18 or 19 cases.
+
+The mechanism, because it will recur in any suite written the same way:
+`tests/contract/architecture-gate.test.ts` proves the Architecture gate can
+actually fail by WRITING `src/routes/__arch_fixture_violation__.ts` into the real
+tree, running depcruise, and deleting it in a `finally` — the fixture has to live
+there, because the rule it violates is scoped to `src/routes/**`. Vitest runs
+test FILES in parallel workers and evaluates a `describe` body at collection, so
+that write window overlapped another file's collection. Its `readdirSync` of
+`src/routes` saw two entries or three, and `it.each` sized itself accordingly.
+
+**That file writes TWO fixtures into the live tree, and both are hazards.** The
+second is `src/modules/__arch_fixture__/{index,sibling}.ts`, written to prove the
+`module-public-surface-only` rule stays green on a sibling import. Nothing sizes
+cases off `src/modules` today, so it has never bitten — but it is the same
+window, and the next suite to enumerate that directory inherits the same bug.
+
+Nothing failed, which is the point: **a case count that moves on its own turns a
+green suite into a claim it cannot support** — it says some case ran somewhere,
+not that a named case ran here.
+
+The rule that follows: a test may not turn a live directory listing under `src/`
+into cases. Enumerate from **`git ls-files`**, which reads the index — it is
+deterministic against any concurrent untracked write, and it is not a narrower
+sweep, because a new file is in the index the moment it is staged, which is when
+the pre-commit lane and CI both see it.
+`tests/contract/secret-fixture-convention.test.ts` already did it this way.
+
+Two guards now exist: the enumeration itself, and a case-count assertion in
+`outbox-declarations.test.ts` that pins the file's own total to a literal.
+
+**The count it compares against is DERIVED FROM THAT FILE'S OWN SOURCE TEXT** —
+comment-stripped, every `it(` call site counted, every `it.each(…)` expanded by
+the length of the array it names — and it throws rather than guesses when it
+meets an `it` form it cannot read. That detail is the whole guard. The first
+version added up two hand-maintained constants, so a new `it()` anywhere in the
+file made it report one more case and the assertion still passed: the guard was
+blind to exactly the change it exists to catch. A guard that a human has to
+remember to update is not a guard; it is a comment that runs.
+
+So today: a new test, a new file under `src/routes`, or a re-broken enumeration
+all fail one named assertion with a message saying which case you are in.
+
+Still enumerating a live `src/` tree at module scope, and worth converting if
+either ever flakes: `tests/contract/catalog-surface.test.ts` and
+`tests/contract/server-emits-no-operator-copy.test.ts` (both via
+`collectSources`), and `tests/contract/consumer-write-shape.test.ts` (a
+`readdirSync` of `src/consumers`, into which no suite currently writes). None
+size an `it.each` off a directory a test mutates today.
+
 ### The coverage include gained `src/consumers/**` (E02-D07, 2026-09-04)
 
 The floor is unchanged at 80. What changed is its SCOPE: `src/consumers/` now

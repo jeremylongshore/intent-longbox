@@ -68,6 +68,21 @@ describe("dependency-cruiser (the import-graph half)", () => {
   }, 60_000);
 
   // 029 §5 move 8: "a deliberately-added forbidden import exits non-zero".
+  //
+  // THIS TEST WRITES INTO THE REAL `src/` TREE, and it has to: depcruise's
+  // `routes-do-not-touch-the-database` rule is scoped to `src/routes/**`, so a
+  // fixture proving the rule can fail cannot live anywhere else. Vitest runs
+  // test FILES in parallel workers, so for the width of this `try` the tree
+  // another suite is reading has one extra file in it. That is not a bug here;
+  // it is a standing hazard for every OTHER suite. The rule that follows from it
+  // (E02-D14): no test file may enumerate a live directory under `src/` and turn
+  // the result into cases — enumerate from `git ls-files`, which reads the index
+  // and cannot see this fixture. `tests/contract/outbox-declarations.test.ts`
+  // learned it the expensive way, reporting 18 or 19 cases on an identical tree.
+  //
+  // The same applies to the `src/modules/__arch_fixture__/` pair written by the
+  // sibling-import test below. Nothing enumerates `src/modules` today; the rule
+  // is the same the day something does.
   it("exits non-zero on a deliberately violating file", async () => {
     const fixture = join(repoRoot, "src/routes/__arch_fixture_violation__.ts");
     writeFileSync(

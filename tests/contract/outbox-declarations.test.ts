@@ -17,7 +17,8 @@
 //
 // Bead: longbox-e5b.2.17 (E02-D07). Docs: 043 §2.3, §2.4, §2.5, §2.6, §6.4, §11.
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -33,6 +34,43 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const migration = readFileSync(path.join(root, "migrations", "011_outbox.sql"), "utf8");
 const outboxSrc = readFileSync(path.join(root, "src", "services", "outbox.ts"), "utf8");
 const OUTBOX_TABLES = ["outbox", "outbox_attempt"] as const;
+
+/**
+ * The route files this file sweeps — from git's INDEX, never from a live `readdirSync`.
+ *
+ * WHY THE ENUMERATION MOVED (E02-D14). `tests/contract/architecture-gate.test.ts`
+ * proves the Architecture gate can fail the only way a gate can be proven to
+ * fail: it WRITES `src/routes/__arch_fixture_violation__.ts` into the real tree,
+ * runs depcruise, and deletes it in a `finally`. Vitest runs test FILES in
+ * parallel workers, and a `describe` body is evaluated when its file is
+ * collected — so that write window overlapped this file's collection. A
+ * `readdirSync` here saw two route files on some runs and three on others, which
+ * made `it.each` emit 18 or 19 cases and the whole suite report 1049 or 1050 on
+ * a byte-identical tree. Every run passed, which is what made it a lie rather
+ * than a failure: a case count that moves on its own cannot be read as evidence
+ * that a case ran.
+ *
+ * `git ls-files` reads the index, so it is deterministic under any concurrent
+ * UNTRACKED write, and it is not a narrower sweep: a brand-new route is in the
+ * index the moment it is staged, which is exactly when husky's pre-commit lane
+ * and CI both see it. Nothing that can reach a commit escapes this. Same
+ * mechanism, same reason, as `tests/contract/secret-fixture-convention.test.ts`.
+ *
+ * Sorted because `ls-files` order is git's, and an assertion whose ORDER is
+ * borrowed from a tool is one upgrade away from a diff nobody asked for.
+ *
+ * REPO-RELATIVE, and deliberately NOT basenamed. `ls-files` recurses, so the day
+ * someone adds `src/routes/admin/x.ts` a basename would read `x.ts` from the
+ * wrong directory and this file would ENOENT instead of sweeping the new route.
+ * The path git hands back is the path that opens.
+ */
+const routeFiles = execFileSync("git", ["ls-files", "-z", "--", "src/routes"], {
+  cwd: root,
+  encoding: "utf8",
+})
+  .split("\0")
+  .filter((f) => f.endsWith(".ts"))
+  .sort();
 
 /**
  * The migration with its `--` comment lines removed.
@@ -203,15 +241,12 @@ describe("the synchronous Shopify call does not come back into the route (043 §
   // the request, outside and before the transaction that records it (043 §1 E4's
   // orphaned-draft window) — has no structural guard at all. This is it: a
   // by-name check for the two symbols that would bring it back.
-  const routesDir = path.join(root, "src", "routes");
-  const routeFiles = readdirSync(routesDir).filter((f) => f.endsWith(".ts"));
-
   it("finds route files to scan — an empty sweep is not a pass", () => {
-    expect(routeFiles).toContain("scanSessions.ts");
+    expect(routeFiles).toContain("src/routes/scanSessions.ts");
   });
 
   it.each(routeFiles)("%s neither calls createDraft nor imports the Shopify service", (file) => {
-    const src = readFileSync(path.join(routesDir, file), "utf8");
+    const src = readFileSync(path.join(root, file), "utf8");
     // Comments are stripped: the route's own prose explains at length what it no
     // longer does, and a guard that punished the explanation would push the next
     // author to delete it.
@@ -237,5 +272,81 @@ describe("the app role's privileges follow from the declaration, with no third l
     // neither declared list names, so this is also the assertion that a
     // `pnpm migrate` will not fail loudly at the grant step.
     for (const table of OUTBOX_TABLES) expect(APPEND_ONLY_TABLE_NAMES).toContain(table);
+  });
+});
+
+describe("this file reports a fixed number of cases on an identical tree (E02-D14)", () => {
+  /**
+   * The number of cases `pnpm test` must attribute to THIS FILE, every run.
+   *
+   * Pinned to a literal, and the number it is compared against is DERIVED FROM
+   * THIS FILE'S OWN SOURCE TEXT rather than from hand-maintained constants. The
+   * first version of this guard added up two constants a human had to remember
+   * to bump, which meant a new `it()` anywhere above made the file report one
+   * more case and this assertion still pass — the guard failed on exactly the
+   * change it exists to catch.
+   */
+  const DECLARED_CASES = 19;
+
+  /**
+   * The arrays this file is allowed to parameterise over, by the identifier the
+   * `it.each` call site names. An `it.each` over anything not listed here fails
+   * the count LOUDLY rather than being silently miscounted as one case.
+   */
+  const EACH_SOURCES: Readonly<Record<string, readonly unknown[]>> = { OUTBOX_TABLES, routeFiles };
+
+  /**
+   * This file's case count, read off this file.
+   *
+   * Comments are stripped first, for the reason every other scan in this file
+   * strips them: a commented-out `it(` is not a case, and prose that mentions
+   * one is not a case either.
+   */
+  function ownCaseCount(): number {
+    const own = readFileSync(fileURLToPath(import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^[ \t]*\/\/.*$/gm, " ");
+    // Every `it` call site that opens a line, however it is written…
+    const sites = [...own.matchAll(/^\s*it\s*[.(]/gm)].length;
+    // …split into the two forms this file uses.
+    const plain = [...own.matchAll(/^\s*it\(/gm)].length;
+    const each = [...own.matchAll(/^\s*it\.each\(([A-Za-z_$][\w$]*)\)\(/gm)];
+    // FAIL CLOSED. If a third form appears — `it.each` over an inline array, an
+    // `it.skip`, a call site this parse does not recognise — the two counts
+    // disagree and this throws, rather than quietly under-counting and leaving
+    // DECLARED_CASES looking correct.
+    if (plain + each.length !== sites) {
+      throw new Error(
+        `${sites - plain - each.length} \`it\` call site(s) in this file are written in a form ` +
+          `the case count cannot read. Add the form to ownCaseCount() — a count that skips a ` +
+          `case it does not understand is the drift this guard exists to catch (E02-D14).`
+      );
+    }
+    let total = plain;
+    for (const [, name] of each) {
+      const rows = EACH_SOURCES[name!];
+      if (rows === undefined) {
+        throw new Error(
+          `it.each(${name}) parameterises over an array ownCaseCount() does not know. Add it to ` +
+            `EACH_SOURCES so its rows are counted (E02-D14).`
+        );
+      }
+      total += rows.length;
+    }
+    return total;
+  }
+
+  it("counts its own cases from its own source, so ANY drift fails the literal", () => {
+    // A green suite whose case count moves between runs is not evidence: it says
+    // some case ran somewhere, not that THIS case ran. So the count is asserted
+    // rather than observed — and asserted against something derived, so that a
+    // new `it()`, a new route file, and a re-broken enumeration all land here.
+    expect(
+      ownCaseCount(),
+      "This file's case count no longer matches DECLARED_CASES. If you deliberately added a " +
+        "case — a new test, or a new file under src/routes — bump the literal. If you did NOT, " +
+        "the enumeration has gone unstable again: `routeFiles` must come from git's index, " +
+        "never from a live readdir of a tree another suite writes fixtures into (E02-D14)."
+    ).toBe(DECLARED_CASES);
   });
 });

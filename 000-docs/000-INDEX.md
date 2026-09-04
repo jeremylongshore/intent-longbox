@@ -1,6 +1,6 @@
 # 000-docs Index: intent-longbox
 
-**Version:** 1.19.2
+**Version:** 1.20.0
 
 **Last Updated:** 2026-09-03
 

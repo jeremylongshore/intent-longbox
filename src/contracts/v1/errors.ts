@@ -95,6 +95,17 @@ export const ERROR_CODES = {
     copyRow: null,
     implements: "042 §4.2 — the seven `scan session not found` sends",
   },
+  PHOTO_NOT_FOUND: {
+    status: 404,
+    retryable: false,
+    operatorRenderable: false,
+    copyRow: null,
+    implements:
+      "046 §6 Q5 / E03-D05 — the photo-fetch route. It is 404 and NEVER 403, deliberately: 019 " +
+      "T24 signs cross-tenant access at zero, and a 403 would confirm that a photo id exists in " +
+      "some other shop. A photo belonging to another shop, to another session, or whose bytes " +
+      "are missing are ONE answer from outside.",
+  },
   ROUTE_NOT_FOUND: {
     status: 404,
     retryable: false,
@@ -265,6 +276,7 @@ export const MESSAGES: Record<ErrorCode, string> = {
   PHOTO_FIELD_REQUIRED: "a multipart file field is required",
   SHOP_NOT_FOUND: "no shop with that id",
   SESSION_NOT_FOUND: "no scan session with that id in this shop",
+  PHOTO_NOT_FOUND: "no photo with that id in this session",
   ROUTE_NOT_FOUND: "no route matches this request",
   UNSUPPORTED_MEDIA_TYPE: "this route accepts multipart/form-data only",
   PHOTO_TOO_LARGE: "the uploaded file exceeds the configured multipart limit",

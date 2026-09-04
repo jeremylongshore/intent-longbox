@@ -94,6 +94,31 @@ export function registerScanSessionRoutes(app: FastifyInstance, deps: ApiDeps): 
     );
   });
 
+  /**
+   * The photo preview (E03-D05), and the reason it is HERE rather than a mount.
+   *
+   * `app.ts` used to publish `uploads/` statically: every shop's photographs on
+   * one unscoped tree with no auth, no signature and no expiry (046 §3.3 B5).
+   * 046 §6 Q5 ruled DELETE rather than replace, because the only consumer was
+   * this preview — Shopify is handed root-relative paths it cannot fetch (E28).
+   * Registered here, the route inherits the tenant prefix structurally and will
+   * inherit E03-B02's authentication the moment it lands, which is the property
+   * a mount could never have had.
+   *
+   * `private, no-store` because a shop's photograph must not sit in a shared
+   * cache or on disk in a counter phone's browser after the shift ends.
+   */
+  app.get("/scan-sessions/:id/photos/:photoId", async (req, reply) => {
+    const { shopId, id, photoId } = parse(contract.photoParams, req.params);
+    const photo = await api.readPhoto(deps, shopId, id, photoId);
+    return reply
+      .header("cache-control", "private, no-store")
+      .header("content-length", photo.contentLength)
+      .header("x-content-type-options", "nosniff")
+      .type(photo.contentType)
+      .send(photo.stream);
+  });
+
   app.post("/scan-sessions/:id/identify", async (req, reply) => {
     const { shopId, id } = parse(contract.sessionParams, req.params);
     const body = parse(contract.identifyRequest, req.body ?? {});

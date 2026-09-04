@@ -119,6 +119,15 @@
       .hidden {
         display: none;
       }
+      #photo-previews {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      #photo-previews .preview {
+        max-height: 96px;
+        border-radius: 4px;
+      }
     </style>
   </head>
   <body>
@@ -143,6 +152,9 @@
         >Barcode digits, if your scanner read them (optional)
         <input type="text" id="barcode-digits" inputmode="numeric" placeholder="12 or 17 digits" />
       </label>
+      <!-- E03-D05: previews load from the tenant-scoped photo route, not from a
+           public /uploads/ tree (that mount is deleted; 046 §3.3 B5, §6 Q5). -->
+      <div id="photo-previews"></div>
       <button id="identify-btn" class="primary">Identify</button>
     </section>
 

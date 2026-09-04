@@ -164,10 +164,19 @@ export function buildOpenApiDocument(): JsonSchema {
 
   for (const route of ROUTES) {
     const template = pathTemplate(route);
+    // A route that streams bytes declares `response: null` and its media type.
+    // `string/binary` is OpenAPI's own spelling for "the body is the file"; the
+    // alternative — inventing a Zod object for a photograph — would put a
+    // fiction in the artifact, which is the failure the converter's throwing
+    // `default` branch exists to prevent.
+    const successMediaType = route.responseMediaType ?? "application/json";
+    const successSchema = route.response
+      ? toJsonSchema(route.response)
+      : { type: "string", format: "binary" };
     const responses: JsonSchema = {
       [String(route.successStatus)]: {
         description: "Success",
-        content: { "application/json": { schema: toJsonSchema(route.response) } },
+        content: { [successMediaType]: { schema: successSchema } },
       },
     };
     for (const code of route.errors) {

@@ -80,21 +80,23 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
 ];
 
 /**
- * The two static mounts, which 042 §3.1 states are NOT routes and treats in
- * §3.5. They are listed so the walk can tell "declared as a mount" from
+ * The static mounts, which 042 §3.1 states are NOT routes and treats in §3.5.
+ * They are listed so the walk can tell "declared as a mount" from
  * "unclassified", which is the whole point of an allowlist.
  *
- * ⚠ The uploads mount is a LIVE tenancy exposure (042 E5, 022 P7, 019 §3.0's G2
- * item): every shop's photo bytes on one unscoped tree, no auth, no signature,
- * no expiry. It is not on the route allowlist because a mount is not a route,
- * and it is not this bead's to close — §3.5 fixes the CONTRACT shape (a
- * shop-scoped, time-bounded, signed URL issued by the owning module) and hands
- * the mechanism to E03-B07. What E02-D08 does close is the response half:
- * `storage_url` is no longer a field of any DTO.
+ * **THERE IS NOW ONE, AND THAT IS THE CHANGE E03-D05 MADE.** The uploads mount
+ * was a live tenancy exposure (042 E5, 046 §3.3 B5, 022 P7, 019 §3.0's G2 item):
+ * every shop's photo bytes on one unscoped tree, no auth, no signature, no
+ * expiry. 046 §6 Q5 ruled DELETE rather than replace — the mount's only
+ * surviving consumer was the phone preview, because Shopify is handed
+ * root-relative paths it cannot fetch (046 E28), so deleting it removed a reader
+ * and added no design debt. The preview is now
+ * `GET /api/v1/shops/:shopId/scan-sessions/:id/photos/:photoId`, an ORDINARY
+ * tenant route in the table below. E03-B07 still owns signed, time-bounded URLs
+ * — it now decides them against a surface that is already private.
  */
 export const STATIC_MOUNTS = [
   { prefix: "/", reason: "public/ — the phone client itself (042 §3.5)" },
-  { prefix: "uploads", reason: "config.uploadsDir — E03-B07 owns the signed-URL replacement (042 §3.5, E5)" },
 ] as const;
 
 export type RateClass = "metered" | "ordinary" | "none";
@@ -109,7 +111,16 @@ export interface RouteSpec {
   /** 042 §8.2 — only `identify` spends money. */
   readonly rateClass: RateClass;
   readonly request: ZodTypeAny | null;
-  readonly response: ZodTypeAny;
+  /**
+   * The success body's schema, or `null` when the route answers BYTES rather
+   * than JSON. Null is not "undescribed": `responseMediaType` then carries what
+   * the route sends, and the OpenAPI emitter renders `string/binary` for it. A
+   * Zod schema for a photograph would be a fiction, and 042 §3.3 property 3
+   * refuses fictions in the generated artifact.
+   */
+  readonly response: ZodTypeAny | null;
+  /** Defaults to `application/json`. Set only by a route that streams bytes. */
+  readonly responseMediaType?: string;
   readonly successStatus: number;
   readonly errors: readonly ErrorCode[];
   readonly summary: string;
@@ -190,6 +201,26 @@ export const ROUTES: readonly RouteSpec[] = [
     successStatus: 201,
     errors: [...MUTATING, "PHOTO_FIELD_REQUIRED", "PHOTO_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"],
     summary: "Upload one photo (multipart).",
+  },
+  {
+    // E03-D05. An ORDINARY tenant route, not an exemption and not a mount: it is
+    // the tenant-scoped replacement for the deleted public `uploads/` tree, and
+    // the whole point is that it is spelled inside the same prefix plugin as
+    // every other shop-scoped route, so it cannot be reached without naming a
+    // shop and a session that own the photo.
+    method: "GET",
+    path: `${s.TENANT_PREFIX}/scan-sessions/:id/photos/:photoId`,
+    pluginPath: "/scan-sessions/:id/photos/:photoId",
+    mutating: false,
+    rateClass: "ordinary",
+    request: null,
+    response: null,
+    responseMediaType: "application/octet-stream",
+    successStatus: 200,
+    errors: [...COMMON, "PHOTO_NOT_FOUND"],
+    summary:
+      "Stream one photo's bytes. Private by construction: `Cache-Control: private, no-store`, " +
+      "no directory listing, and a photo outside this shop or session is 404 and never 403.",
   },
   {
     method: "POST",

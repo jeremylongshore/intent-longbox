@@ -181,6 +181,10 @@ $("start-btn").onclick = async () => {
   const out = await write("/scan-sessions", {}, { noAgainst: true });
   if (!out.ok) return;
   sessionId = out.data.session.id;
+  // A new book gets a clean strip: the previous session's photographs are not
+  // this one's evidence. `innerHTML = ""` is the one permitted assignment
+  // (E03-D03) — it clears nodes and parses nothing.
+  $("photo-previews").innerHTML = "";
   show("photo-section");
   status("Scan started.");
 };
@@ -201,11 +205,40 @@ async function uploadPhoto(input, kind) {
     status(copyFor(await res.json().catch(() => null)));
     return false;
   }
+  const body = await res.json().catch(() => null);
+  if (body && body.photo && body.photo.id) showPreview(body.photo.id, kind);
   return true;
+}
+
+/**
+ * Show what the counter just photographed (E03-D05).
+ *
+ * The `src` is the TENANT-SCOPED route — `/api/v1/shops/<shop>/scan-sessions/
+ * <session>/photos/<id>` — and never `/uploads/…`, which no longer exists. That
+ * mount published every shop's photographs to anyone with a URL (046 §3.3 B5),
+ * and this screen was its only real consumer, which is why deleting it cost one
+ * `img` src rather than a subsystem.
+ *
+ * The id comes from the upload's own response, so this builds no path from
+ * anything a person typed.
+ */
+function showPreview(photoId, kind) {
+  const strip = $("photo-previews");
+  if (!strip) return;
+  const img = document.createElement("img");
+  img.className = "preview";
+  img.alt = kind === "barcode" ? "Barcode photo just taken" : "Cover photo just taken";
+  img.src = api(`/scan-sessions/${sessionId}/photos/${photoId}`);
+  strip.appendChild(img);
 }
 
 $("identify-btn").onclick = async () => {
   status("Uploading photos…");
+  // Clear WITHIN the session too, not only at "New scan": tapping Identify twice
+  // uploads two more photos and used to append two more thumbnails beside the
+  // first pair, so the strip stopped meaning "what this book looks like" and
+  // started meaning "everything you have ever taken here".
+  $("photo-previews").innerHTML = "";
   const haveCover = await uploadPhoto($("cover-input"), "cover");
   await uploadPhoto($("barcode-input"), "barcode");
   if (!haveCover) return status("A cover photo is required.");

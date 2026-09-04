@@ -26,9 +26,15 @@ const app = await buildApp(inertPool, {
   bands: { high: 0.85, medium: 0.5 },
 });
 
-/** The static mounts are NOT routes (042 §3.1) and are treated in §3.5. */
+/**
+ * The static mounts are NOT routes (042 §3.1) and are treated in §3.5.
+ *
+ * There is ONE now: E03-D05 deleted the `uploads/` mount, so a URL under the
+ * uploads dir is no longer "a declared mount" here — it is unclassified, which
+ * is what makes the assertion below bite if anyone re-registers it.
+ */
 function isStaticMount(url: string): boolean {
-  return url === "/" || url === "/*" || url.startsWith(`/${UPLOADS_DIR}/`);
+  return url === "/" || url === "/*";
 }
 
 describe("the registered route table (042 §3.4, 019 T35(b))", () => {
@@ -62,12 +68,24 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
     }
   });
 
-  it("mounts the two static trees the record declares, and no third one", () => {
+  it("mounts the ONE static tree the record declares, and nothing under uploads", () => {
     // `@fastify/static` registers one wildcard per mount; the bare `/` is the
     // index it serves from the same wildcard.
     const mounts = registered.filter((r) => isStaticMount(r.url)).map((r) => r.url);
-    expect(mounts.sort()).toEqual(["/*", `/${UPLOADS_DIR}/*`].sort());
-    expect(STATIC_MOUNTS).toHaveLength(2);
+    expect(mounts).toEqual(["/*"]);
+    expect(STATIC_MOUNTS).toHaveLength(1);
+    // E03-D05 / 046 §6 Q5: the public uploads tree is GONE. Asserted on the
+    // registered table rather than on the record, because the record is a
+    // declaration and this is the thing that actually serves bytes.
+    expect(registered.filter((r) => r.url.includes(UPLOADS_DIR))).toEqual([]);
+  });
+
+  it("walks the tenant-scoped photo route (E03-D05), which replaced that mount", () => {
+    expect(
+      registered.some(
+        (r) => r.method === "GET" && r.url === `${TENANT_PREFIX}/scan-sessions/:id/photos/:photoId`
+      )
+    ).toBe(true);
   });
 
   it("puts every write inside the tenant prefix (042 §3.4 half one)", () => {

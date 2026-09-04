@@ -59,9 +59,32 @@ describe("the route table (042 §3.1, I6)", () => {
     expect(defects).toHaveLength(1);
   });
 
-  it("declares the two static mounts as mounts rather than routes (042 §3.1, §3.5)", () => {
-    expect(STATIC_MOUNTS.map((m) => m.prefix)).toEqual(["/", "uploads"]);
+  it("declares ONE static mount, and the uploads tree is not it (E03-D05, 046 §6 Q5)", () => {
+    // This assertion used to read `["/", "uploads"]`. The second mount published
+    // every shop's photographs to anyone with a URL (046 §3.3 B5) and 046 §6 Q5
+    // ruled DELETE rather than replace, so the list is shorter by exactly the
+    // boundary that closed — and a re-added mount fails here rather than in a
+    // review.
+    expect(STATIC_MOUNTS.map((m) => m.prefix)).toEqual(["/"]);
     for (const mount of STATIC_MOUNTS) expect(mount.reason).toContain("042 §3.5");
+  });
+
+  it("serves photo bytes through an ORDINARY tenant route, not an exemption (E03-D05)", () => {
+    const photo = ROUTES.find((r) => r.path.endsWith("/photos/:photoId"));
+    expect(photo, "the photo-fetch route is not declared").toBeDefined();
+    expect(photo!.path.startsWith(TENANT_PREFIX)).toBe(true);
+    expect(ROUTE_ALLOWLIST.some((r) => r.path === photo!.path)).toBe(false);
+    expect(photo!.mutating).toBe(false);
+    expect(photo!.errors).toContain("PHOTO_NOT_FOUND");
+    // 019 T24 as a status code: a photo outside this shop or session is the same
+    // answer as one that never existed. A 403 anywhere on this route would be an
+    // oracle for "that id exists somewhere else".
+    expect(ERROR_CODES.PHOTO_NOT_FOUND.status).toBe(404);
+    expect(photo!.errors).not.toContain("SHOP_NOT_FOUND");
+    // Bytes, not JSON — declared, so the artifact says `string/binary` instead
+    // of describing a photograph as an object.
+    expect(photo!.response).toBeNull();
+    expect(photo!.responseMediaType).toBe("application/octet-stream");
   });
 
   it("versions everything except the liveness probe, which is unversioned BY DECLARATION", () => {

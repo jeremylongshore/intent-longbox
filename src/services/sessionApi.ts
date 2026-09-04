@@ -25,10 +25,10 @@
 //   5. the appends;
 //   6. the response, stored on the idempotency row in the same commit.
 import type pg from "pg";
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { AppConfig } from "../config.js";
@@ -68,6 +68,7 @@ import {
   addScanPhoto,
   assignSessionSeq,
   createScanSession,
+  findSessionPhoto,
   getScanSession,
   getSessionEvents,
   insertHumanConfirmation,
@@ -287,6 +288,87 @@ export async function uploadPhoto(
     await rm(path, { force: true }).catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * The extensions this server itself writes, and the only ones it will serve
+ * (E03-D05). The extension is not the client's: `uploadPhoto` derives it from
+ * the detected type and writes it into the storage key, so this map turns a
+ * value THIS PROCESS chose back into a content type. Anything else on disk — a
+ * hand-placed file, a future format nobody wired — is unservable rather than
+ * guessed, because guessing is how a stored `.html` becomes a same-origin script.
+ */
+const SERVABLE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
+};
+
+export interface PhotoBytes {
+  stream: NodeJS.ReadableStream;
+  contentType: string;
+  contentLength: number;
+}
+
+/**
+ * Serve ONE photo's bytes to the shop that owns it (E03-D05, 046 §6 Q5).
+ *
+ * This is the whole replacement for the deleted public `uploads/` mount, and
+ * three properties are the point:
+ *
+ *  1. **The path is built from the STORED key and from nothing else.** No
+ *     request field reaches the filesystem — not the photo id (a UUID by the
+ *     time it arrives), not a name, not a segment. Traversal is impossible by
+ *     construction rather than by sanitising: there is no request-derived string
+ *     to sanitise. The `realpath`-and-compare below is defence in depth against
+ *     a future writer of `storage_url`, not the control — and it is `realpath`
+ *     rather than `resolve` because a lexical compare passes a symlink that
+ *     points out of the tree.
+ *  2. **Every miss is the same 404.** Another shop's photo, another session's
+ *     photo, a row whose bytes are gone, an extension we do not serve — one
+ *     answer, `PHOTO_NOT_FOUND`. A 403 anywhere here would be an oracle for
+ *     "this id exists somewhere else", which is the 019 T24 line stated as a
+ *     status code.
+ *  3. **It is a stream, not a buffer.** A 25 MiB photograph never becomes 25 MiB
+ *     of heap per concurrent reader.
+ */
+export async function readPhoto(
+  deps: ApiDeps,
+  shopId: string,
+  sessionId: string,
+  photoId: string
+): Promise<PhotoBytes> {
+  await requireSession(deps.pool, shopId, sessionId);
+  const photo = await findSessionPhoto(deps.pool, shopId, sessionId, photoId);
+  if (!photo) throw new LongboxError("PHOTO_NOT_FOUND");
+
+  const contentType = SERVABLE_TYPES[extname(photo.storage_url).toLowerCase()];
+  if (!contentType) throw new LongboxError("PHOTO_NOT_FOUND");
+
+  // CONTAINMENT IS RESOLVED ON DISK, NOT LEXICALLY (invariant review of
+  // 3acb685). `resolve()` only normalises the STRING: a symlink at
+  // `uploads/<session>/cover.png` pointing at `/etc/shadow` normalises to a path
+  // that starts with the root and passes a textual compare, and the read then
+  // follows the link out of the tree. `realpath` walks the links the read itself
+  // would walk, so the thing compared is the thing opened. Both sides are
+  // realpath'd — the uploads root can be a symlink too (a deployment pointing
+  // `uploads/` at a mounted volume is ordinary), and comparing a resolved file
+  // against an unresolved root would then reject every legitimate photo.
+  //
+  // ENOENT is `PHOTO_NOT_FOUND` like every other miss: a row whose bytes are
+  // gone and a row whose bytes were never there are the same answer from
+  // outside.
+  const root = await realpath(resolve(deps.config.uploadsDir)).catch(() => undefined);
+  const path = await realpath(resolve(photo.storage_url)).catch(() => undefined);
+  if (!root || !path) throw new LongboxError("PHOTO_NOT_FOUND");
+  if (path !== root && !path.startsWith(`${root}${sep}`)) throw new LongboxError("PHOTO_NOT_FOUND");
+
+  // `stat` and not `lstat`: the link question is already settled above, and what
+  // is needed here is the size of the file that will be streamed.
+  const info = await stat(path).catch(() => undefined);
+  if (!info?.isFile()) throw new LongboxError("PHOTO_NOT_FOUND");
+
+  return { stream: createReadStream(path), contentType, contentLength: info.size };
 }
 
 function fileTooLarge(): Error & { code: string; statusCode: number } {

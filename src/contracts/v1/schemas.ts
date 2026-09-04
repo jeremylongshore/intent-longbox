@@ -40,6 +40,15 @@ export const shopParams = z.object({ shopId: z.string().uuid() });
 export const sessionParams = shopParams.extend({ id: z.string().uuid() });
 
 /**
+ * The photo-fetch params (E03-D05). `photoId` is a UUID and nothing else, which
+ * is the first half of why traversal is impossible on this route: `..`, an
+ * encoded separator or an absolute path fails validation before any service
+ * runs. The second half is that the path served is built from the STORED key
+ * and never from a request field at all (`sessionApi.readPhoto`).
+ */
+export const photoParams = sessionParams.extend({ photoId: z.string().uuid() });
+
+/**
  * The tables a client may name as the record it was shown (040 §3.2's ladder).
  * A closed set, because an open one would let a client assert a world-view over
  * a table with no rung and get an unfalsifiable comparison.

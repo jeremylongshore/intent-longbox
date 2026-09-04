@@ -59,12 +59,18 @@ export async function buildApp(
   registerErrorHandling(app);
 
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+  // ONE static mount, and the second one is GONE (046 §6 Q5, E03-D05).
+  //
+  // `uploads/` used to be mounted here with no auth, no signature and no expiry:
+  // every shop's photographs on one unscoped tree, readable by anyone who had or
+  // guessed a URL — 046 §3.3 B5, the largest information-disclosure cell in §4.
+  // The ruling was DELETE, not replace: the mount's only real consumer was the
+  // phone client's preview (Shopify is handed root-relative paths it cannot
+  // fetch — 046 E28), so removing it removes a reader and adds no design debt.
+  // The preview now goes through `GET …/scan-sessions/:id/photos/:photoId`
+  // INSIDE the tenant plugin, which means E03-B07 decides signed URLs later
+  // against a surface that is already private rather than against a public one.
   await app.register(fastifyStatic, { root: join(process.cwd(), "public"), prefix: "/" });
-  await app.register(fastifyStatic, {
-    root: join(process.cwd(), config.uploadsDir),
-    prefix: `/${config.uploadsDir}/`,
-    decorateReply: false,
-  });
 
   app.get("/healthz", async () => ({ ok: true }));
 

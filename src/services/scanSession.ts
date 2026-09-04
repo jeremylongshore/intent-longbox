@@ -166,6 +166,31 @@ export async function addScanPhoto(
   return res.rows[0] as { id: string };
 }
 
+/**
+ * ONE photo, keyed on ALL THREE ids at once (E03-D05).
+ *
+ * `id AND scan_session_id AND shop_id` in one WHERE is the tenancy control, and
+ * it is written as one predicate rather than as a fetch-then-compare on purpose:
+ * a comparison in TypeScript is a step an author can forget, while a row that
+ * does not match every id simply is not returned. A photo belonging to another
+ * shop and a photo belonging to another session are therefore indistinguishable
+ * from a photo that does not exist — which is exactly what 019 T24 wants the
+ * outside to see.
+ */
+export async function findSessionPhoto(
+  db: Queryable,
+  shopId: string,
+  sessionId: string,
+  photoId: string
+): Promise<{ id: string; kind: string; storage_url: string } | undefined> {
+  const res = await db.query(
+    `SELECT id, kind, storage_url FROM scan_photo
+      WHERE id = $1 AND scan_session_id = $2 AND shop_id = $3`,
+    [photoId, sessionId, shopId]
+  );
+  return res.rows[0] as { id: string; kind: string; storage_url: string } | undefined;
+}
+
 export async function listSessionPhotos(
   db: Queryable,
   shopId: string,
@@ -382,6 +407,20 @@ export async function readDraftFacts(
     pricing: pricing.rows[0] as { suggested_cents: number; override_cents: number | null } | undefined,
     assessment: assessment.rows[0] as
       { grade_range_low: string; grade_range_high: string; defects: string[] } | undefined,
+    // ⚠ THESE ARE ROOT-RELATIVE PATHS, AND SHOPIFY HAS NEVER BEEN ABLE TO FETCH
+    // THEM (046 E28). `productSet` receives `/uploads/<session>/<file>` as an
+    // `originalSource`, which is not a URL Shopify's fetcher can resolve — it
+    // has no origin — so the draft's media has been silently empty the whole
+    // time. E03-D05 did NOT make that worse and did not fix it: deleting the
+    // public mount removed a reader that was never this one, because a path with
+    // no scheme and no host was unfetchable while the mount was up.
+    //
+    // Left as it stands ON PURPOSE. Making it fetchable is a media decision — an
+    // absolute public URL, a Shopify staged upload, or a signed URL from
+    // E03-B07 — and it belongs to **E10-B04** with the rest of the draft's media,
+    // not to a security bead deleting a mount. Serving it through the new
+    // tenant-scoped route would not help either: Shopify is not an authenticated
+    // caller of this API.
     coverUrls: (photos.rows as Array<{ storage_url: string }>).map((p) => `/${p.storage_url}`),
   };
 }

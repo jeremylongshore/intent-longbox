@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.10] - 2026-09-04
+
+- chore(beads): export the E00 closes (B08 + epic) into the tracked JSONL mirror (#24) (5bc7741)
+
+
 ## [v0.3.9] - 2026-09-04
 
 - docs(e00): sign G0 Truth Lock and snapshot the approved baseline (026) (#23) (df1ee28)

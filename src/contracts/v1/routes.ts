@@ -46,14 +46,17 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
   {
     method: "GET",
     path: "/api/v1/shops",
-    kind: "defect",
-    closingBead: "E03-B02 / E03-B03 (authn, RBAC)",
+    kind: "exemption",
     reason:
-      "THE SHOP PICKER RETURNS EVERY SHOP TO ANY CALLER (042 E4, 034 E9). A live 019 T24 " +
-      "exposure — cross-tenant access = 0, NON-WAIVABLE, any → K1. It is not exempt from " +
-      "anything; it is broken, and the phone client depends on it until an authenticated " +
-      "session exists. E02-D08 did not close it and must not: closing it means deciding who " +
-      "the caller is, which is E03's. 042 A8: no defect-kind row may exist at G2.",
+      "*MY SHOPS* (048 §6.4 as amended at v1.3.0, E03-D08) — THE ROUTE THAT ESTABLISHES WHICH " +
+      "TENANT, which is why it cannot sit inside a prefix whose tenant it is being asked to " +
+      "supply. It answers the one shop the SESSION PINS, and the two branches are NOT the same " +
+      "query: a device-only session names no person and holds no membership, so its answer is " +
+      "read by the session's own ENROLLMENT ID (a fact the session carries, never one the caller " +
+      "supplied); only the OPERATOR branch is membership-rooted, which is where R13 binds because " +
+      "that is where an identity exists to be tested. It was this list's last `defect` row — it " +
+      "returned every shop in the database to any caller (042 E4, 034 E9) — and 042 A8's 'no " +
+      "defect-kind row may exist at G2' is now assertable as zero rather than deferred.",
   },
   // E03-D09's four authentication routes. Every one is CORRECT outside the
   // tenant prefix, and each says why in its own terms rather than sharing a
@@ -223,15 +226,14 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     path: "/api/v1/shops",
     principal: "device",
     kind: "route",
-    closingBead: "E03-D08 (048 §6.4)",
     reason:
-      "⚠ STILL THE TENANCY ALLOWLIST'S LAST `defect` ROW. This bead puts a DEVICE session in " +
-      "front of it — it is no longer reachable by anybody who can reach the port — and does NOT " +
-      "close it: the route still returns every shop in the database to any caller who holds one. " +
-      "Turning it into *my shops* (a membership-scoped query) and flipping the tenancy row from " +
-      "`defect` to `exemption` is E03-D08's by name (048 §10.2), landing the moment this hook " +
-      "exists. Narrowing the reachable set without narrowing the ANSWER would let the defect row " +
-      "look closed while the query is unchanged.",
+      "*MY SHOPS* (048 §6.4). A DEVICE session is required and an operator is NOT, because this " +
+      "is the route that tells a freshly-enrolled phone which shop it is — requiring an operator " +
+      "would mean the picker could not render before somebody had already picked. It is one half " +
+      "of R8's enumerated device-only set, the other being the operator roster. E03-D09 narrowed " +
+      "who could REACH it; E03-D08 narrowed what it ANSWERS, and both were needed: a reachable " +
+      "set narrowed without narrowing the answer would have let the defect row look closed while " +
+      "the query was unchanged.",
   },
   {
     method: "ALL",
@@ -377,12 +379,20 @@ export const ROUTES: readonly RouteSpec[] = [
     path: `${s.API_PREFIX}/shops`,
     pluginPath: null,
     mutating: false,
-    rateClass: "none",
+    // 048 R14's device class, for the same reason `GET /api/v1/operators` carries
+    // it: an authenticated read outside the tenant plugin has no ordinary bucket
+    // (that hook lives inside the plugin) and must not be keyed on an IP. Keyed
+    // on the DEVICE, never on the person. It read `none` while it was a defect,
+    // which made the one route that leaked the `shop` table also the one
+    // unmetered read in the system.
+    rateClass: "device",
     request: null,
     response: s.shopsResponse,
     successStatus: 200,
-    errors: ["INTERNAL_ERROR"],
-    summary: "List shops. DECLARED DEFECT: returns every shop to any caller (042 E4).",
+    errors: ["SESSION_REQUIRED", "RATE_LIMITED", "INTERNAL_ERROR"],
+    summary:
+      "My shops: the shops this session may act on — the enrolled shop for a device-only " +
+      "session, and that shop on a live membership for an operator session (048 §6.4).",
   },
   {
     method: "POST",

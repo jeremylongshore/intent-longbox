@@ -16,6 +16,7 @@ import { LongboxError } from "../contracts/v1/errors.js";
 import * as contract from "../contracts/v1/schemas.js";
 import {
   endOperatorSession,
+  myShops,
   openDeviceSession,
   openOperatorSession,
   operatorRoster,
@@ -48,6 +49,18 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   // per-shop datum a passer-by on the same Wi-Fi has no claim on (048 R8).
   app.get(`${P}/operators`, async (req, reply) => {
     return send(req, reply, await operatorRoster(deps, requireDevice(req)));
+  });
+
+  // ***MY SHOPS*** (048 §6.4, E03-D08). Registered HERE, with the other three
+  // routes that establish rather than assume a tenant — it used to live in
+  // `routes/scanSessions.ts`, which is how it ended up outside the hook and
+  // returning the whole `shop` table to anybody (048 E3, 042 E4).
+  //
+  // A device-only session is enough, because this is the route that tells a
+  // freshly-enrolled phone which shop it is: requiring an operator would mean
+  // the picker could not render before somebody had already picked.
+  app.get(`${P}/shops`, async (req, reply) => {
+    return send(req, reply, await myShops(deps, requireDevice(req), req.auth.operator));
   });
 
   app.post(`${P}/operator-sessions`, async (req, reply) => {

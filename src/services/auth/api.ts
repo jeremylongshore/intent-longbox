@@ -24,7 +24,13 @@ import { LongboxError } from "../../contracts/v1/errors.js";
 import { withTransaction, type Queryable } from "../../db.js";
 import type { AppConfig } from "../../config.js";
 import { resolveDeviceCredential } from "./devices.js";
-import { membershipAt, shopRoster, type RosterEntry } from "./memberships.js";
+import {
+  membershipAt,
+  shopRoster,
+  shopsForSession,
+  type RosterEntry,
+  type ShopSummary,
+} from "./memberships.js";
 import { recordFailure, verifyOperatorPin } from "./pin.js";
 import { tokenHash } from "./secrets.js";
 import type { ShopRateLimiter } from "../rateLimit.js";
@@ -115,6 +121,36 @@ export async function openDeviceSession(deps: AuthDeps, secret: string): Promise
 export async function operatorRoster(deps: AuthDeps, device: SessionRow): Promise<AuthResult> {
   const operators: RosterEntry[] = await shopRoster(deps.pool, device.shop_id);
   return { status: 200, body: { operators }, cookies: [] };
+}
+
+/**
+ * ***MY SHOPS*** (048 §6.4) — the route that answers "which tenant", which is
+ * why it sits HERE, beside the picker and the PIN, rather than beside the
+ * scan-session routes it used to be registered with.
+ *
+ * That move is the point rather than tidying. `GET /api/v1/shops` was registered
+ * in `routes/scanSessions.ts` next to the tenant plugin and outside it — 048 E3's
+ * "a route registered outside the tenant plugin never sees the hook", which is
+ * exactly how it came to return every shop in the database to any caller. It is
+ * an IDENTITY route: it is how a caller learns which tenants its session can act
+ * on, so it cannot sit inside a prefix whose tenant it is being asked to supply,
+ * and it belongs with the other three routes that have the same property.
+ *
+ * The operator is OPTIONAL and the answer differs, which is R8's enumerated set
+ * doing its job: a device-only session reaches the picker and this route, and
+ * this route tells it the one shop the phone is enrolled to.
+ */
+export async function myShops(
+  deps: AuthDeps,
+  device: SessionRow,
+  operator?: SessionRow
+): Promise<AuthResult> {
+  const principal = operator ?? device;
+  const shops: ShopSummary[] = await shopsForSession(deps.pool, {
+    ...(operator?.app_user_id ? { appUserId: operator.app_user_id } : {}),
+    shopId: principal.shop_id,
+  });
+  return { status: 200, body: { shops }, cookies: [] };
 }
 
 /**

@@ -189,7 +189,26 @@ async function loadShops() {
     o.textContent = s.name;
     sel.appendChild(o);
   }
-  if (!data.shops || data.shops.length === 0) status("No shops registered. Run: pnpm register-shop");
+  // E03-D08: this list is now *MY SHOPS* (048 §6.4 v1.3.0) — what this session
+  // may act on, not what exists. The old copy said "No shops registered. Run:
+  // pnpm register-shop", which named a command an operator does not have and
+  // cannot run — 022 P5's "never blame the person holding the phone".
+  //
+  // **AND THERE ARE TWO CAUSES, NOT ONE.** The device-only branch reads the
+  // shop by the session's own enrollment id and therefore always returns exactly
+  // one row, so an empty list on a phone with NO operator signed in means the
+  // enrollment has not finished. Once somebody IS signed in, the query is the
+  // membership-rooted branch, and empty means THIS PERSON's access to this shop
+  // was removed — a different sentence and a different next action. Saying
+  // "not set up yet" to somebody whose access was revoked sends them to fix a
+  // phone that is fine.
+  if (!data.shops || data.shops.length === 0) {
+    status(
+      operatorName
+        ? "This phone is set up, but your access to this shop is not active right now. The owner can turn it back on."
+        : "This phone is not set up for a shop yet. Ask the owner to finish setting it up."
+    );
+  }
   return true;
 }
 

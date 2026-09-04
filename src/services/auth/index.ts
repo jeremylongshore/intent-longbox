@@ -72,5 +72,5 @@ export type { AuthMethod, OperatorPinRow, PinVerdict } from "./pin.js";
 export { resolvePrincipal } from "./principal.js";
 export type { Principal, PrincipalOutcome } from "./principal.js";
 
-export { liveMembershipShopIds, membershipAt, shopRoster } from "./memberships.js";
-export type { MembershipScope, Role, RosterEntry } from "./memberships.js";
+export { liveMembershipShopIds, membershipAt, shopRoster, shopsForSession } from "./memberships.js";
+export type { MembershipScope, Role, RosterEntry, ShopSummary } from "./memberships.js";

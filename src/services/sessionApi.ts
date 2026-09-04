@@ -160,10 +160,12 @@ function idempotentRequest(ctx: CallContext, body: unknown) {
 // Reads
 // ---------------------------------------------------------------------------
 
-export async function listShops(db: Queryable): Promise<{ shops: unknown[] }> {
-  const res = await db.query(`SELECT id, name, slug FROM shop ORDER BY created_at`);
-  return { shops: res.rows };
-}
+// `listShops` IS GONE (E03-D08). It read `SELECT id, name, slug FROM shop` with
+// no caller and no predicate and handed the result to anybody who could reach
+// the port. Its replacement is not a filtered version of it: it is a query
+// rooted at `membership` in `src/services/auth/memberships.ts`, reached through
+// the identity module, because "which shops" is a question about a session and
+// this module has none.
 
 /** Keep only the keys the DTO declares (042 §3.3). */
 function project<T extends Record<string, unknown>>(

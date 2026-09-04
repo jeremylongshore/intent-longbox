@@ -47,16 +47,42 @@ describe("the route table (042 §3.1, I6)", () => {
     }
   });
 
-  it("carries EXACTLY ONE defect row, and it is the shop picker (042 A8, 044 §6 row 4)", () => {
+  it("carries ZERO defect rows — the G2 exit condition (042 A8, 044 §6 row 4)", () => {
+    // ⚠ THIS ASSERTION USED TO READ `toHaveLength(1)`, AND THE ONE ROW WAS
+    // `GET /api/v1/shops`: a route that returned every shop in the database to
+    // any caller (042 E4, 034 E9), a live 019 T24 exposure the record refused to
+    // hide and refused to pretend it had fixed.
+    //
+    // E03-D08 fixed it rather than reclassified it. The route is now *my shops*
+    // (048 §6.4) — behind a device session, answering from a query rooted at
+    // `membership` — so its row is an `exemption` that says what it IS, and 042
+    // A8's "no defect-kind row may exist at G2" is a passing test instead of a
+    // deferred sentence.
+    //
+    // **The assertion is `toEqual([])` and not `not.toContain(...)`**: the point
+    // of a G2 exit condition is that the NEXT defect row fails the build too,
+    // and a test that named this one path would have quietly allowed a second.
     const defects = ROUTE_ALLOWLIST.filter((r) => r.kind === "defect");
-    expect(defects.map((d) => `${d.method} ${d.path}`)).toEqual(["GET /api/v1/shops"]);
-    expect(defects[0]!.closingBead).toMatch(/E03-B02/);
-    // ⚠ THE G2 EXIT CONDITION IS `toHaveLength(0)`, AND IT IS NOT ASSERTED HERE.
-    // 042 A8: "no defect-kind row may exist at G2", and this one closes when
-    // E03-B02/B03 give the API a caller identity — until then it returns every
-    // shop in the database to anybody, which is a live 019 T24 exposure that
-    // this bead refuses to hide and must not pretend to have fixed.
-    expect(defects).toHaveLength(1);
+    expect(defects.map((d) => `${d.method} ${d.path} — ${d.closingBead ?? "no bead"}`)).toEqual([]);
+    // Kept as a live assertion rather than deleted with the row: a `defect` kind
+    // still EXISTS in the type, and the day somebody declares one it must carry
+    // a closing bead (the check above in this file) AND fail this one.
+    expect(ROUTE_ALLOWLIST.some((r) => r.kind === "defect")).toBe(false);
+  });
+
+  it("classifies my-shops as the route that ESTABLISHES a tenant (048 §6.4, E03-D08)", () => {
+    const row = ROUTE_ALLOWLIST.find((r) => r.path === "/api/v1/shops");
+    expect(row?.kind).toBe("exemption");
+    // An exemption row with a closing bead would be a defect wearing the other
+    // kind's label — the exact collapse 042 A8's Q8 ruling exists to prevent.
+    expect(row?.closingBead).toBeUndefined();
+    const spec = ROUTES.find((r) => r.path === "/api/v1/shops");
+    expect(spec?.errors).toContain("SESSION_REQUIRED");
+    expect(spec?.mutating).toBe(false);
+    // 048 R14: an authenticated read outside the tenant plugin has no ordinary
+    // bucket, so it is keyed on the DEVICE. `none` here would make the route
+    // that used to leak the shop table also the one unmetered read.
+    expect(spec?.rateClass).toBe("device");
   });
 
   it("declares ONE static mount, and the uploads tree is not it (E03-D05, 046 §6 Q5)", () => {

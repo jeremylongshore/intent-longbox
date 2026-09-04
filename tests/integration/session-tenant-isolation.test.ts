@@ -22,6 +22,7 @@ import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpe
 import {
   TEST_PIN,
   cookieHeader,
+  grant,
   openDevice,
   openOperator,
   seedIdentity,
@@ -123,6 +124,155 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     });
     expect(read.statusCode).toBe(401);
     expect(read.json().error.code).toBe("OPERATOR_REQUIRED");
+  });
+
+  // -------------------------------------------------------------------------
+  // 048 §6.4 / 019 T24 — *MY SHOPS*. E03-D08.
+  //
+  // The route this suite's own I2 comment calls "the table `GET /api/v1/shops`
+  // enumerates" no longer enumerates it. These are the assertions that make that
+  // sentence true rather than asserted: shop B exists, is seeded, has a name and
+  // a slug, and never appears in shop A's answer.
+  // -------------------------------------------------------------------------
+
+  it("shows a DEVICE-ONLY session exactly its own shop, and never the other one", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `${API_PREFIX}/shops`,
+      headers: { cookie: authed(deviceA.token) },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { shops: Array<Record<string, unknown>> };
+    expect(body.shops.map((s) => s["id"])).toEqual([shopA]);
+    // 019 T24 is non-waivable and cross-tenant access is signed at ZERO, so the
+    // assertion is on the whole answer and not on a count: a second shop leaking
+    // in under any key fails here.
+    expect(JSON.stringify(body)).not.toContain(shopB);
+    // The DTO declares three fields and the route projects three. Nothing about
+    // the operator, the device, a confidence, a provider or a cost (042 §3.3,
+    // 019 T35) — my-shops is a picker, and a picker that grew a "last used"
+    // would be the roster's leaderboard failure on a different surface.
+    for (const shop of body.shops) expect(Object.keys(shop).sort()).toEqual(["id", "name", "slug"]);
+  });
+
+  it("shows an OPERATOR session the shop its session pins, and no other membership", async () => {
+    // The operator is granted a live membership at shop B as well. The session
+    // is still pinned to shop A by the device it was opened on, so shop B is a
+    // shop this session cannot reach — and a picker that listed it would be
+    // offering an entry whose every click answers SHOP_NOT_FOUND, while
+    // disclosing the name of another shop this person works at to whoever is
+    // holding shop A's counter phone (022 P3).
+    await grant(pool, idA.operatorId, shopB, "operator");
+    const res = await app.inject({
+      method: "GET",
+      url: `${API_PREFIX}/shops`,
+      headers: { cookie: authed(deviceA.token, operatorA.token) },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { shops: Array<{ id: string }> };
+    expect(body.shops.map((s) => s.id)).toEqual([shopA]);
+  });
+
+  it("shows an operator NOTHING once the membership behind the session is revoked", async () => {
+    // The session is evidence of WHO is asking, never of what they may reach
+    // (048 §2.3, §3.4). A revoked membership empties my-shops on the next
+    // request with no sweep and no logout — the same derivation the hook uses.
+    const solo = await seedIdentity(pool, shopB, { suffix: "myshops" });
+    const device = await openDevice(pool, solo);
+    const operator = await openOperator(pool, device, solo.operatorId);
+    const cookie = authed(device.token, operator.token);
+
+    const before = await app.inject({ method: "GET", url: `${API_PREFIX}/shops`, headers: { cookie } });
+    expect((before.json() as { shops: Array<{ id: string }> }).shops.map((s) => s.id)).toEqual([shopB]);
+
+    await pool.query(
+      `INSERT INTO membership_revocation (shop_id, membership_id, reason)
+       SELECT shop_id, id, 'test' FROM membership WHERE app_user_id = $1 AND shop_id = $2`,
+      [solo.operatorId, shopB]
+    );
+
+    const after = await app.inject({ method: "GET", url: `${API_PREFIX}/shops`, headers: { cookie } });
+    expect(after.statusCode).toBe(200);
+    expect((after.json() as { shops: unknown[] }).shops).toEqual([]);
+  });
+
+  it("throttles an AUTHENTICATED burst on my-shops, keyed on the device (048 R14)", async () => {
+    // ⚠ THE OTHER BURST TEST DOES NOT COVER THIS BRANCH. PR #71's burst hits
+    // `POST /api/v1/device-sessions`, which is anonymous and therefore takes the
+    // hook's `takeRoute` bucket — the one for a request with no principal yet.
+    // `takeDevice` is a DIFFERENT branch, further down the hook, reached only
+    // after a session resolves, and until now nothing exercised it through HTTP:
+    // the two sessionless routes that declare `rateClass: "device"` and DO have
+    // a session (`GET /api/v1/operators`, and now my-shops) were never burst.
+    //
+    // E03-D08 moved my-shops from `none` to `device`, so this is the assertion
+    // that the class it declares is the class it actually spends. A declaration
+    // asserted by the route walk with no enforcement behind it is exactly the
+    // shape the E03-D09 invariant review found on `/device-sessions`.
+    const limiter = new ShopRateLimiter({ ordinaryPerMinute: 2 });
+    const bounded = await buildApp(pool, testConfig({ databaseUrl: "", uploadsDir: UPLOADS_DIR }), {
+      limiter,
+    });
+    try {
+      const cookie = authed(deviceA.token, operatorA.token);
+      const codes: number[] = [];
+      let retryAfter: string | undefined;
+      for (let i = 0; i < 4; i += 1) {
+        const res = await bounded.inject({ method: "GET", url: `${API_PREFIX}/shops`, headers: { cookie } });
+        codes.push(res.statusCode);
+        if (res.statusCode === 429) {
+          retryAfter = res.headers["retry-after"] as string;
+          expect(res.json().error.code).toBe("RATE_LIMITED");
+        }
+      }
+      // Two through, then the bucket bites — and it bites with a `Retry-After`,
+      // because a throttle a client cannot schedule around is a throttle that
+      // becomes a retry storm.
+      expect(codes.slice(0, 2)).toEqual([200, 200]);
+      expect(codes).toContain(429);
+      expect(Number(retryAfter)).toBeGreaterThan(0);
+      expect(limiter.events.ordinaryThrottled).toBeGreaterThan(0);
+
+      // AND IT IS KEYED ON THE DEVICE, NOT ON THE PERSON AND NOT ON THE SHOP.
+      // A second phone at the SAME shop, held by the SAME two people, is still
+      // served while the first one is spent — which is what makes it a device
+      // bucket rather than a shop bucket wearing a device's name. 048 §9.1's
+      // rule that a stranger must never exhaust a named person's budget is the
+      // same rule one level up.
+      const second = await seedIdentity(pool, shopA, { suffix: "burst" });
+      const secondDevice = await openDevice(pool, second);
+      const secondOperator = await openOperator(pool, secondDevice, second.operatorId);
+      const other = await bounded.inject({
+        method: "GET",
+        url: `${API_PREFIX}/shops`,
+        headers: { cookie: authed(secondDevice.token, secondOperator.token) },
+      });
+      expect(other.statusCode).toBe(200);
+    } finally {
+      await bounded.close();
+    }
+  });
+
+  it("refuses /api/shops and /api/v1/shops identically for a FORGED cookie (048 I6(f))", async () => {
+    // The half of I6(f) the contract suite cannot assert: its pool cannot
+    // connect, and a forged cookie has to be LOOKED UP before it is refused. So
+    // the alias-and-target comparison for a request that reaches the database
+    // lives here, where one exists.
+    const headers = { cookie: `${DEVICE_COOKIE}=not-a-real-token` };
+    const direct = await app.inject({ method: "GET", url: `${API_PREFIX}/shops`, headers });
+    expect(direct.statusCode).toBe(401);
+    expect(direct.json().error.code).toBe("SESSION_REQUIRED");
+
+    const viaAlias = await app.inject({ method: "GET", url: "/api/shops", headers });
+    expect(viaAlias.statusCode).toBe(308);
+    const followed = await app.inject({
+      method: "GET",
+      url: viaAlias.headers.location as string,
+      headers,
+    });
+    expect(followed.statusCode).toBe(direct.statusCode);
+    expect(followed.json().error.code).toBe(direct.json().error.code);
+    expect(followed.json().error.details).toEqual(direct.json().error.details);
   });
 
   it("renders a roster of display names and NOTHING per-person (I7, 022 P3)", async () => {

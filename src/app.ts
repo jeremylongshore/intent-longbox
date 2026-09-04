@@ -9,7 +9,7 @@ import { API_PREFIX, TENANT_PREFIX } from "./contracts/v1/schemas.js";
 import { DEPRECATION_HEADERS } from "./contracts/v1/routes.js";
 import { registerErrorHandling } from "./http/errors.js";
 import { registerAuthRoutes } from "./routes/auth.js";
-import { registerScanSessionRoutes, registerShopRoutes } from "./routes/scanSessions.js";
+import { registerScanSessionRoutes } from "./routes/scanSessions.js";
 import { ShopRateLimiter } from "./services/rateLimit.js";
 import type { ApiDeps } from "./services/sessionApi.js";
 import { registerAuthentication } from "./services/auth/hook.js";
@@ -106,8 +106,10 @@ export async function buildApp(
 
   app.get("/healthz", async () => ({ ok: true }));
 
+  // Four identity routes plus *my shops* (048 §6.4) — the five that establish a
+  // tenant rather than assume one, and therefore the five that cannot live
+  // inside the prefix plugin below.
   registerAuthRoutes(app, deps);
-  registerShopRoutes(app, deps);
 
   // 042 §3.4 half one — ONE prefix, ONE plugin. Every shop-scoped route is
   // registered inside this boundary and cannot spell a different one.

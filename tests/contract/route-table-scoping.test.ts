@@ -136,15 +136,26 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
 
   it("keeps the two lists SEPARATE, and infers no row from the other (R12)", () => {
     // The same path can be an `exemption` on one list and require a session on
-    // the other; `GET /api/v1/shops` is both a tenancy DEFECT and a `device`
-    // principal, and `POST /api/v1/operator-sessions` is a tenancy exemption and
-    // NOT anonymous. Collapsing the lists means one of the two answers is
-    // inferred, and an inferred security answer is the shape E3 already took.
+    // the other, and the pair below is the cleanest demonstration:
+    // `POST /api/v1/operator-sessions` is a tenancy exemption and is NOT
+    // anonymous, while `GET /healthz` is a tenancy exemption and IS. Collapsing
+    // the lists means one of the two answers is inferred, and an inferred
+    // security answer is the shape E3 already took.
     const pin = AUTH_ALLOWLIST_ACTIVE.find((r) => r.path === "/api/v1/operator-sessions");
     expect(pin?.principal).toBe("device");
+    expect(ROUTE_ALLOWLIST.find((r) => r.path === "/api/v1/operator-sessions")?.kind).toBe("exemption");
+    const health = AUTH_ALLOWLIST_ACTIVE.find((r) => r.path === "/healthz");
+    expect(health?.principal).toBe("none");
+    expect(ROUTE_ALLOWLIST.find((r) => r.path === "/healthz")?.kind).toBe("exemption");
+    // ⚠ THIS TEST USED TO PIN `GET /api/v1/shops` AS `kind: "defect"` — the
+    // demonstration that a path can be a tenancy defect and still carry a
+    // principal. E03-D08 fixed the route, so the example moved rather than the
+    // rule: it is now an `exemption` that still requires a `device` session, and
+    // an exemption-plus-a-session is the same "two lists, two answers" point
+    // made without a live exposure standing in for it.
     const shops = AUTH_ALLOWLIST_ACTIVE.find((r) => r.path === "/api/v1/shops");
     expect(shops?.principal).toBe("device");
-    expect(ROUTE_ALLOWLIST.find((r) => r.path === "/api/v1/shops")?.kind).toBe("defect");
+    expect(ROUTE_ALLOWLIST.find((r) => r.path === "/api/v1/shops")?.kind).toBe("exemption");
     // The 308 aliases take their own kind and NOT the `none` principal's meaning.
     for (const alias of ["/api/shops", "/api/shops/*"]) {
       expect(AUTH_ALLOWLIST_ACTIVE.find((r) => r.path === alias)?.kind).toBe("redirect");
@@ -171,9 +182,16 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
     for (const route of ROUTES) {
       expect(["metered", "ordinary", "device", "none"]).toContain(route.rateClass);
     }
-    // The four routes that have no session-resolved shop to key on are keyed on
+    // The FIVE routes that have no session-resolved shop to key on are keyed on
     // the DEVICE, never on an IP (042 §8.1 unchanged) and never on the person —
     // which would let a stranger exhaust a named person's budget.
+    //
+    // The fifth is `GET /api/v1/shops` (E03-D08). It carried `none` while it was
+    // a declared defect, which made the one route that leaked the `shop` table
+    // also the one unmetered read in the system; as *my shops* it is an
+    // authenticated read outside the tenant plugin, so the ordinary bucket —
+    // which lives INSIDE that plugin — never sees it and the device class is the
+    // only correct one.
     const deviceClass = ROUTES.filter((r) => r.rateClass === "device").map((r) => r.path);
     expect(deviceClass.sort()).toEqual(
       [
@@ -181,8 +199,14 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
         "/api/v1/operator-sessions",
         "/api/v1/operator-sessions/end",
         "/api/v1/operators",
+        "/api/v1/shops",
       ].sort()
     );
+    // And NOTHING outside the tenant prefix is unmetered except the probe (042
+    // §3.1 R0), asserted positively so a new sessionless route cannot join by
+    // omission.
+    const unmetered = ROUTES.filter((r) => r.rateClass === "none").map((r) => r.path);
+    expect(unmetered).toEqual(["/healthz"]);
   });
 
   // -------------------------------------------------------------------------

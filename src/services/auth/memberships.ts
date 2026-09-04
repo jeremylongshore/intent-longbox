@@ -74,6 +74,82 @@ export async function membershipAt(
   return { shopId: best.shop_id, role: best.role, locationId: best.location_id };
 }
 
+export interface ShopSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * ***MY SHOPS*** — 048 §6.4, and the query that retires the tenancy allowlist's
+ * last `defect` row.
+ *
+ * What this replaced was `SELECT id, name, slug FROM shop ORDER BY created_at`
+ * with no caller and no predicate: every shop in the database to anybody who
+ * could reach the port (042 E4, 034 E9, a live 019 T24 exposure). The fix is not
+ * a filter bolted onto that query — it is a query rooted somewhere else.
+ *
+ * **Two principals, two answers, one rule.**
+ *   - A **device-only** session (no operator yet) gets *exactly the one shop the
+ *     device is enrolled to* (§6.4's own words). That is not a lookup of a shop
+ *     id a caller supplied — it is the enrollment fact the device session
+ *     already carries, so there is nothing to enumerate and no oracle to build.
+ *   - A **device+operator** session gets the shop **the session pins**, and only
+ *     when the operator holds a live membership there. The query is ROOTED AT
+ *     `membership` and joins `shop` (R13's membership-first EXECUTION), never a
+ *     lookup of the shop followed by a membership check on the result.
+ *
+ * **Only the second branch is membership-rooted, and that is not sloppiness.** A
+ * device-only session names no person, so it HOLDS no membership: there is
+ * nothing for R13 to root at. Its shop comes from the enrollment id the session
+ * already carries, which is why reading `shop` directly there is not the oracle
+ * R13 forbids — the forbidden shape is a lookup of a shop id a CALLER supplied
+ * followed by a membership check on the result, and no caller supplied this one.
+ *
+ * ⚠ **048 §6.4 IS AMENDED TO v1.3.0 FOR THIS** (E03-D08 invariant review,
+ * ratified by the acting head 2026-09-04). §6.4 read "the shops the caller holds
+ * a live membership at", which for an operator with memberships at two shops
+ * would list both. It now returns the pinned shop, on two grounds: 048 §3.5 pins
+ * `shop_id`/`location_id` on the DEVICE session and denormalizes them onto the
+ * operator session, so every other shop already answers `SHOP_NOT_FOUND` (§6.5,
+ * hook step 5) and listing one would be a picker whose every other entry 404s —
+ * and it would disclose the NAME of another shop the person works at to whoever
+ * is holding this shop's counter phone, a per-person datum 022 P3 and 019 T35
+ * keep off this surface. The DTO stays an array so a genuinely multi-shop
+ * session needs no wire change.
+ *
+ * **The consequence, stated because it is a PRODUCT decision and not a display
+ * narrowing: an operator with memberships at two shops CANNOT SWITCH SHOPS FROM
+ * THE PICKER.** Switching shops is a device re-enrollment (048 §7.3) — the phone
+ * is the thing bound to a shop — so there is no in-app shop switch for anybody.
+ * Right for a counter phone that lives in one store, wrong for a roaming owner
+ * with two storefronts; the roaming case is not served by v0 and is E03-D07's to
+ * reconsider when enrollment gets its screens.
+ */
+export async function shopsForSession(
+  db: Queryable,
+  session: { appUserId?: string; shopId: string }
+): Promise<ShopSummary[]> {
+  if (session.appUserId === undefined) {
+    const res = await db.query(`SELECT id, name, slug FROM shop WHERE id = $1`, [session.shopId]);
+    return res.rows as ShopSummary[];
+  }
+  const res = await db.query(
+    `SELECT DISTINCT s.id, s.name, s.slug
+       FROM membership m
+       JOIN shop s ON s.id = m.shop_id
+      WHERE m.app_user_id = $1
+        AND m.shop_id = $2
+        AND m.effective_from <= now()
+        AND (m.effective_until IS NULL OR m.effective_until > now())
+        AND NOT EXISTS (
+              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
+      ORDER BY s.name, s.id`,
+    [session.appUserId, session.shopId]
+  );
+  return res.rows as ShopSummary[];
+}
+
 /** Every shop this person holds a live membership at. The basis for E03-D08's *my shops*. */
 export async function liveMembershipShopIds(db: Queryable, appUserId: string): Promise<string[]> {
   const res = await db.query(

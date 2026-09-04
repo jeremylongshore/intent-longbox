@@ -177,17 +177,14 @@ export function registerScanSessionRoutes(app: FastifyInstance, deps: ApiDeps): 
   });
 }
 
-/**
- * `GET /api/v1/shops` — registered OUTSIDE the tenant plugin, and that is the
- * defect, not an oversight in where the line was typed.
- *
- * 042 §3.4's allowlist carries it as `kind: "defect"` with E03-B02/E03-B03 as
- * its closing bead: it returns every shop in the database to any caller (E4,
- * 034 E9), which is a live 019 T24 exposure — cross-tenant access = 0,
- * NON-WAIVABLE. It is not closed here because closing it means deciding who the
- * caller IS, and there is no caller identity before E03. The phone client
- * depends on it until there is.
- */
-export function registerShopRoutes(app: FastifyInstance, deps: ApiDeps): void {
-  app.get(`${contract.API_PREFIX}/shops`, async () => api.listShops(deps.pool));
-}
+// `GET /api/v1/shops` USED TO BE REGISTERED HERE, and where it was typed is the
+// whole of why it was broken. It sat outside the tenant plugin, so it never saw
+// a hook, and it answered `SELECT id, name, slug FROM shop` — every shop in the
+// database to any caller (042 E4, 034 E9, a live 019 T24 exposure and the
+// tenancy allowlist's last `defect` row).
+//
+// E03-D08 moved it to `src/routes/auth.ts` and turned it into *my shops*
+// (048 §6.4). It is an IDENTITY route: it answers which tenants a session may
+// act on, so it belongs with the three routes that establish a tenant rather
+// than with the fourteen that assume one. Nothing shop-scoped is registered
+// outside the prefix plugin below any more.

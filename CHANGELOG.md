@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.5.0] - 2026-09-04
+
+- feat(delivery): add CODEOWNERS, the PR template and the bead-to-PR linkage rule with a CI guard (E15-B01) (#36) (f6f5b54)
+- docs(status): record the two bug-bead closes, and the heartbeat gating (#35) (3170a27)
+- fix(mobile): force a pick when a high band arrives with a contradiction, and assert the registered bodies (#34) (52f3506)
+- fix(mobile): replace confidence percentages on the phone UI with the registered band words (#33) (584f3d3)
+- fix(security): reject truncated oversize photo uploads with 413 instead of saving 25 MiB and returning 201 (#32) (09d10be)
+- docs(e02): define the collectible, edition and vertical-pack contracts (030) (#31) (bc7ee3b)
+- chore(beads): export the E02-D01, E02-B01 and E02-B02 closes into the tracked JSONL mirror (#30) (cafb832)
+- docs(e02): approve the modular-monolith boundaries and extraction criteria (029) (#29) (0c630a0)
+- docs(audit): repository truth audit — every REPORTED claim in 005/006/013/014 §2.2 re-verified at 46d9910 (027) (#28) (fb3f706)
+
+
 ## [v0.4.0] - 2026-09-04
 
 - feat(domain): reserve every schema slot the workplace principles depend on (003) (#27) (2b6f14a)

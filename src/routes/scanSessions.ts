@@ -8,12 +8,17 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { withTransaction } from "../db.js";
 import {
   addScanPhoto,
   createScanSession,
   getScanSession,
   getSessionEvents,
+  insertHumanConfirmation,
+  insertShopifyDraft,
   listSessionPhotos,
+  lockScanSession,
+  readConfirmationBaseline,
   setSessionStatus,
 } from "../services/scanSession.js";
 import { runIdentify } from "../services/identify.js";
@@ -80,6 +85,41 @@ async function latestPolicy(
   };
 }
 
+/**
+ * 041 §4.4 wraps the routes in an order set by how many blocked invariants each
+ * unblocks. **This bead (E02-D04) lands orders 0, 1 and 2 only** — the helper
+ * plus the anchor read, `POST …/draft`, and `POST …/confirm`.
+ *
+ * Deliberately NOT wrapped here, and named so the omission is a decision rather
+ * than an oversight — each is E02-B08's execution:
+ *   - `POST …/identify` (order 3) — binds `candidate_set` to the `llm_rerank`
+ *     the same request produced (029 §12 point 4), and owes 040 §4.6 an error
+ *     record on its 502, which is E06's.
+ *   - `POST …/condition` and `POST …/price` (order 4) — the supersession path
+ *     for the other two corrected tables; `priceWithProviders` writes one row
+ *     per source through its own provider fan-out and those must land together.
+ *   - `POST …/photos` (order 5) — last by design: G-a's consent record does not
+ *     exist until E01-B06 / E03-B09, so wrapping it earlier protects a guard
+ *     with nothing to read, and its temp-file/rename compensation is a
+ *     filesystem write the transaction does not replace.
+ *
+ * Also NOT here: `request_idempotency`, the `against_*` staleness check and the
+ * `409` contract (042 §5, §6) — those are E02-B08's execution beads and E02-B10's
+ * migrations. What this bead leaves them is the seam: one held connection per
+ * request, the client as the first parameter of every writing function, and the
+ * anchor lock as the first statement inside `fn` so the idempotency INSERT has
+ * exactly one correct place to go — before it (042 §5.3(b)).
+ *
+ * And NOT here, deliberately: **the lock-order lint (042 A6 / I22)** that asserts
+ * over handler bodies that the `request_idempotency` INSERT precedes the anchor
+ * `FOR UPDATE`. It is **E02-B10's gate** and it is not merely unbuilt — it has
+ * nothing to assert until the idempotency row exists, because today the anchor
+ * lock is the only lock in the order. 042 §5.3(b) is explicit that the rule must
+ * be enforced by a lint rather than by review, "because a handler written six
+ * months from now by someone who has not read this section is exactly the case
+ * the rule exists for" — so the ordering below is correct by construction today
+ * and unguarded against a future handler until that gate lands.
+ */
 export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, config: AppConfig): void {
   const base = "/api/shops/:shopId/scan-sessions";
 
@@ -207,57 +247,62 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: body.error.flatten() });
 
-    // outcome (019 §3.0, T3, T20): did the operator accept the identity that was
-    // already there, or change it? Computed here because this is the only place
-    // the baseline and the pick are both in hand, and written on the INSERT
-    // because the row is immutable afterwards — an outcome not recorded now can
-    // never be recovered (030 A1: no append-only row is backfilled).
+    // 041 §4.4 order 2 — the whole confirmation lands in ONE transaction on ONE
+    // held connection: the anchor lock, the two baseline reads, the INSERT and
+    // the status write commit together or not at all. Before this, the INSERT
+    // and setSessionStatus were two unprotected steps, so a failure between them
+    // left a confirmed book on an unconfirmed session (029 §12's half-written
+    // chain). The `FOR UPDATE` also makes the baselines a decision about a
+    // session nothing else can advance underneath — which is what the
+    // supersession writer (041 §3.3) and the two-device check (040 §5.1) will
+    // both need, and neither is wired here: that is E02-B08's execution.
     //
-    // Two baselines, prior confirmation first (see decideOutcome): T20 measures
-    // owner edits to the identity the owner INHERITED, so an owner_review that
-    // agrees with an employee's correction is 'confirm' even though it disagrees
-    // with the model, and one that reverts to the model's top candidate is
-    // 'correct' even though it agrees with it.
-    const priorConfirmation = await db.query(
-      `SELECT confirmed_issue FROM human_confirmation
-       WHERE scan_session_id = $1 AND shop_id = $2
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [session.id, session.shop_id]
-    );
-    // `method <> 'barcode'` is load-bearing: identify.ts inserts the barcode set
-    // BEFORE the vision call and returns early when that call fails, so on a
-    // failed identify the barcode parse is the latest set. A BarcodeParse carries
-    // no title or issue at top level, so without this filter every non-one_tap
-    // confirmation on such a session would score 'correct' — an identification
-    // failure would be logged as an operator correction and inflate T3.
-    const latestSet = await db.query(
-      `SELECT candidates FROM candidate_set
-       WHERE scan_session_id = $1 AND shop_id = $2 AND method <> 'barcode'
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-      [session.id, session.shop_id]
-    );
-    const outcome = decideOutcome({
-      source: body.data.source,
-      confirmed: body.data.issue,
-      topProposal: topCandidateOf((latestSet.rows[0] as { candidates: unknown } | undefined)?.candidates),
-      priorConfirmation: (priorConfirmation.rows[0] as { confirmed_issue: unknown } | undefined)
-        ?.confirmed_issue,
-    });
+    // NOTE the lock order this handler sets, for every handler that follows it
+    // (042 §5.3(b)): the `request_idempotency` INSERT goes BEFORE this anchor
+    // lock. There is no idempotency row to insert yet — the table, the 409
+    // contract and the `against` check are E02-B08's execution beads, NOT this
+    // one — but the anchor lock is deliberately the FIRST statement inside `fn`
+    // so that inserting identity ahead of it is the only place left to put it.
+    const confirmation = await withTransaction(
+      db,
+      async (tx) => {
+        const locked = await lockScanSession(tx, session.shop_id, session.id);
+        if (!locked) return undefined;
 
-    const res = await db.query(
-      `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at, outcome`,
-      [
-        session.id,
-        session.shop_id,
-        JSON.stringify(body.data.issue),
-        body.data.source,
-        body.data.confirmed_by,
-        outcome,
-      ]
+        // outcome (019 §3.0, T3, T20): did the operator accept the identity that
+        // was already there, or change it? Computed here because this is the only
+        // place the baseline and the pick are both in hand, and written on the
+        // INSERT because the row is immutable afterwards — an outcome not recorded
+        // now can never be recovered (030 A1: no append-only row is backfilled).
+        //
+        // Two baselines, prior confirmation first (see decideOutcome): T20 measures
+        // owner edits to the identity the owner INHERITED, so an owner_review that
+        // agrees with an employee's correction is 'confirm' even though it disagrees
+        // with the model, and one that reverts to the model's top candidate is
+        // 'correct' even though it agrees with it.
+        const baseline = await readConfirmationBaseline(tx, session.shop_id, session.id);
+        const outcome = decideOutcome({
+          source: body.data.source,
+          confirmed: body.data.issue,
+          topProposal: topCandidateOf(baseline.topProposalSource),
+          priorConfirmation: baseline.priorConfirmation,
+        });
+
+        const row = await insertHumanConfirmation(tx, {
+          sessionId: session.id,
+          shopId: session.shop_id,
+          confirmedIssue: body.data.issue,
+          source: body.data.source,
+          confirmedBy: body.data.confirmed_by,
+          outcome,
+        });
+        await setSessionStatus(tx, session.shop_id, session.id, "confirmed");
+        return row;
+      },
+      { label: "confirm" }
     );
-    await setSessionStatus(db, session.shop_id, session.id, "confirmed");
-    return reply.code(201).send({ confirmation: res.rows[0] });
+    if (!confirmation) return reply.code(404).send({ error: "scan session not found" });
+    return reply.code(201).send({ confirmation });
   });
 
   app.post(`${base}/:id/condition`, async (req, reply) => {
@@ -404,21 +449,56 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       priceCents,
       imageUrls,
     };
+    // The external call happens FIRST and OUTSIDE the transaction, and that
+    // ordering is correct and must be preserved (041 §4.1, I13): a provider call
+    // inside `fn` would be re-executed by the retry and could not be rolled back.
+    //
+    // ⚠ THE FAILURE MODE THIS LEAVES OPEN, named rather than implied: if this
+    // call SUCCEEDS and the transaction below then fails — the session was
+    // deleted between the read above and the anchor lock (the 404 return), a
+    // constraint trips, the connection drops — a real DRAFT product exists in
+    // Shopify with NO `shopify_draft` row recording it. A Shopify mutation
+    // cannot join a Postgres transaction, so no arrangement of this code closes
+    // it; 041 §8.2 states the shape ("the non-transactional side goes first and
+    // the transactional side is the record of it") and the reconciliation is
+    // **E02-B09's transactional outbox** (041:788), which owns it. The window is
+    // not introduced here — before this change the same gap sat between the
+    // INSERT and the status write, and was wider.
     const result = await client.createDraft(draftInput);
-    const res = await db.query(
-      `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, error)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, product_gid, status, created_at`,
-      [
-        session.id,
-        session.shop_id,
-        result.productGid ?? null,
-        result.ok ? "draft" : "failed",
-        result.ok ? null : JSON.stringify(result.error ?? `status ${result.status}`),
-      ]
+
+    // 041 §4.4 order 1 — the largest half-written chain in the tree becomes one
+    // commit: the shopify_draft INSERT and the status write land together under
+    // the anchor lock, so a failure between them can no longer leave a session
+    // reading `drafted` with no draft row (or the reverse). This is the path
+    // that unblocks 040's four ⛔ items and I14.
+    //
+    // The hold check (G-c) and the copy binding (G-d / D1) are NOT read here —
+    // `retention_hold` has no placement route and `listing_link` is unwritten.
+    // What this bead supplies is the lock they will both be read under: 041
+    // §4.2 decides that the hold-placement path takes this same
+    // `scan_session FOR UPDATE`, and the integration test proves the blocking
+    // and its negative. Wiring the hold route, the idempotency row and the 409
+    // is E02-B08 / E03's execution, not this bead's.
+    const draft = await withTransaction(
+      db,
+      async (tx) => {
+        const locked = await lockScanSession(tx, session.shop_id, session.id);
+        if (!locked) return undefined;
+        const row = await insertShopifyDraft(tx, {
+          sessionId: session.id,
+          shopId: session.shop_id,
+          productGid: result.productGid ?? null,
+          status: result.ok ? "draft" : "failed",
+          error: result.ok ? null : JSON.stringify(result.error ?? `status ${result.status}`),
+        });
+        if (result.ok) await setSessionStatus(tx, session.shop_id, session.id, "drafted");
+        return row;
+      },
+      { label: "draft" }
     );
-    if (result.ok) await setSessionStatus(db, session.shop_id, session.id, "drafted");
+    if (!draft) return reply.code(404).send({ error: "scan session not found" });
     return reply.code(result.ok ? 201 : 502).send({
-      draft: res.rows[0],
+      draft,
       stub: !(adminToken && storeDomain),
       product_set_input: buildProductSetInput(draftInput),
     });

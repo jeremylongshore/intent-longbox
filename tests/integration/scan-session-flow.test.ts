@@ -11,6 +11,7 @@ import {
   setSessionStatus,
 } from "../../src/services/scanSession.js";
 import { appendCostLog } from "../../src/services/costLog.js";
+import { withTransaction } from "../../src/db.js";
 import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
@@ -70,8 +71,12 @@ describe.skipIf(!dbUp)("scan-session event flow (service layer)", () => {
     const confirmation = events.human_confirmation![0] as { confirmed_issue: { title: string } };
     expect(confirmation.confirmed_issue.title).toBe("Amazing Spider-Man");
 
-    // Status transitions on the identity row; events untouched.
-    await setSessionStatus(pool, shopId, session.id, "confirmed");
+    // Status transitions on the identity row; events untouched. The write takes
+    // a held connection (E02-D04): a status change that is not part of the same
+    // commit as the record it describes is 029 §12's half-written chain.
+    await withTransaction(pool, (tx) => setSessionStatus(tx, shopId, session.id, "confirmed"), {
+      label: "flow-status",
+    });
     const reread = await getScanSession(pool, shopId, session.id);
     expect(reread?.status).toBe("confirmed");
   });

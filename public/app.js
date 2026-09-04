@@ -95,24 +95,37 @@ $("identify-btn").onclick = async () => {
   renderCandidates(data);
 };
 
+// Band copy — registered verbatim in 000-docs/021 §3.1 (C1 high, C2 medium,
+// C3 low + contradiction). Band words only, never a number: 022 P6, 019 §2.
+const BAND_COPY = {
+  high: { heading: "Best match", body: "Check the cover in your hand." },
+  medium: { heading: "Close matches", body: "More than one book fits. Pick the one in your hand." },
+  low: { heading: "Not sure enough to guess", body: "Search for it — type what's on the cover." },
+};
+const CONTRADICTION_TEXT =
+  "The barcode and the cover don't agree. Check the issue number before you confirm.";
+
 function renderCandidates(data) {
   candidates = data.candidates || [];
   selectedCandidate = null;
   show("candidates-section");
+  const copy = BAND_COPY[data.band] || BAND_COPY.low;
   $("band-line").innerHTML =
-    `Confidence band: <span class="band ${data.band}">${data.band.toUpperCase()}</span> (${(data.confidence * 100).toFixed(0)}%) — cost $${data.costUsd.toFixed(4)}`;
-  $("contradiction-line").textContent = data.contradiction
-    ? `Evidence check flagged this — please verify: ${data.contradictionReasons.join("; ")}`
-    : "";
+    `<span class="band ${data.band}">${copy.heading}</span><div class="band-body">${copy.body}</div>`;
+  // Cost is an owner-facing figure (cost_log), never shown on the operator
+  // screen — 022 P8. It stays in the immutable llm_rerank / cost_log record.
+  $("contradiction-line").textContent = data.contradiction ? CONTRADICTION_TEXT : "";
   const list = $("candidate-list");
   list.innerHTML = "";
   hide("manual-search");
   hide("confirm-btn");
+  hide("override-link");
 
+  // No confidence figure in the label — band words only (022 P6; 021 C1-C3).
   const label = (c) =>
-    `${c.title} #${c.issue}${c.variant ? " (" + c.variant + ")" : ""} — ${c.publisher || "?"} ${c.year || ""} [${(c.confidence * 100).toFixed(0)}%]`;
+    `${c.title} #${c.issue}${c.variant ? " (" + c.variant + ")" : ""} — ${c.publisher || "?"} ${c.year || ""}`;
 
-  if (data.band === "high" && candidates.length > 0) {
+  if (data.band === "high" && !data.contradiction && candidates.length > 0) {
     // one-tap confirm
     const c = candidates[0];
     const div = document.createElement("div");
@@ -121,29 +134,23 @@ function renderCandidates(data) {
     list.appendChild(div);
     selectedCandidate = c;
     const btn = $("confirm-btn");
-    btn.textContent = "Yes, that's it (one tap)";
+    btn.textContent = "Yes, that's the book";
     btn.onclick = () => confirmIssue(c, "one_tap");
     show("confirm-btn");
-  } else if (data.band === "medium" && candidates.length > 0) {
-    // forced grid pick
-    for (const c of candidates) {
-      const div = document.createElement("div");
-      div.className = "candidate";
-      div.textContent = label(c);
-      div.onclick = () => {
-        document.querySelectorAll(".candidate").forEach((el) => el.classList.remove("selected"));
-        div.classList.add("selected");
-        selectedCandidate = c;
-        show("confirm-btn");
+    const overrideLink = $("override-link");
+    if (overrideLink) {
+      overrideLink.textContent = "Not this one — show other matches";
+      overrideLink.onclick = (e) => {
+        e.preventDefault();
+        renderCandidateGrid(data, "grid_pick");
       };
-      list.appendChild(div);
+      show("override-link");
     }
-    const btn = $("confirm-btn");
-    btn.textContent = "Confirm selected";
-    btn.onclick = () => selectedCandidate && confirmIssue(selectedCandidate, "grid_pick");
+  } else if (data.band === "medium" && candidates.length > 0) {
+    renderCandidateGrid(data, "grid_pick");
   } else {
     // low band: manual search box
-    list.innerHTML = "<p>Low confidence — enter the book manually.</p>";
+    list.innerHTML = "<p>" + copy.body + "</p>";
     for (const c of candidates) {
       const div = document.createElement("div");
       div.className = "candidate";
@@ -166,6 +173,33 @@ function renderCandidates(data) {
         "manual_search"
       );
   }
+}
+
+// Forced grid pick, shared by the medium band and the high-band override
+// link (021 C1: "Not this one — show other matches" reveals the full list).
+function renderCandidateGrid(data, confirmSource) {
+  hide("override-link");
+  const list = $("candidate-list");
+  list.innerHTML = "";
+  selectedCandidate = null;
+  hide("confirm-btn");
+  const label = (c) =>
+    `${c.title} #${c.issue}${c.variant ? " (" + c.variant + ")" : ""} — ${c.publisher || "?"} ${c.year || ""}`;
+  candidates.forEach((c, i) => {
+    const div = document.createElement("div");
+    div.className = "candidate" + (i === 0 ? " closest" : "");
+    div.textContent = (i === 0 ? "Closest match: " : "") + label(c);
+    div.onclick = () => {
+      document.querySelectorAll(".candidate").forEach((el) => el.classList.remove("selected"));
+      div.classList.add("selected");
+      selectedCandidate = c;
+      show("confirm-btn");
+    };
+    list.appendChild(div);
+  });
+  const btn = $("confirm-btn");
+  btn.textContent = "Confirm selected";
+  btn.onclick = () => selectedCandidate && confirmIssue(selectedCandidate, confirmSource);
 }
 
 async function confirmIssue(issue, source) {

@@ -49,6 +49,16 @@
       }
       .band {
         font-weight: bold;
+        font-size: 1.05rem;
+      }
+      .band-body {
+        color: #444;
+        margin: 4px 0 8px;
+      }
+      #override-link {
+        display: block;
+        margin: 4px 0 8px;
+        color: #1a56db;
       }
       .band.high {
         color: #067a3a;
@@ -141,6 +151,7 @@
       <div id="band-line"></div>
       <div id="contradiction-line" class="warn"></div>
       <div id="candidate-list"></div>
+      <a href="#" id="override-link" class="hidden"></a>
       <div id="manual-search" class="hidden">
         <label>Manual entry — title <input type="text" id="manual-title" /></label>
         <label>Issue # <input type="text" id="manual-issue" /></label>

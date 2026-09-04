@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.4.1] - 2026-09-04
+
+- docs(audit): repository truth audit — every REPORTED claim in 005/006/013/014 §2.2 re-verified at 46d9910 (027) (#28) (fb3f706)
+
+
 ## [v0.4.0] - 2026-09-04
 
 - feat(domain): reserve every schema slot the workplace principles depend on (003) (#27) (2b6f14a)

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
 
 const dbUp = await probeDb();
 
@@ -15,7 +16,7 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
   let sessionId: string;
 
   beforeAll(async () => {
-    const url = await createFreshDb("longbox_append_only_test");
+    const url = await createFreshDb("longbox_append_only_e02d05");
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
     shopId = await seedShop(pool);
@@ -123,24 +124,49 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // E02-D05: 041 §1 E11 found this recipe set short of the declared trigger
+      // list by exactly these three. A behavioural test that skips a table is a
+      // table whose immutability nothing exercises, so they are covered now and
+      // `eventTables` is derived from the declared list rather than hand-kept.
+      case "corpus_version": {
+        const r = await pool.query(
+          `INSERT INTO corpus_version (source_set, notes) VALUES ('{}','test') RETURNING id`
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "llm_rerank": {
+        const cs = await pool.query(
+          `INSERT INTO candidate_set (scan_session_id, shop_id, method, candidates) VALUES ($1,$2,'barcode','[]') RETURNING id`,
+          [sessionId, shopId]
+        );
+        const r = await pool.query(
+          `INSERT INTO llm_rerank (candidate_set_id, scan_session_id, shop_id, provider, model, prompt_hash, response, confidence, band)
+           VALUES ($1,$2,$3,'anthropic','claude-sonnet-5','sha256:abc','{}',0.9,'high') RETURNING id`,
+          [(cs.rows[0] as { id: string }).id, sessionId, shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "listing_status_observation": {
+        const draft = await pool.query(
+          `INSERT INTO shopify_draft (scan_session_id, shop_id, status) VALUES ($1,$2,'draft') RETURNING id`,
+          [sessionId, shopId]
+        );
+        const r = await pool.query(
+          `INSERT INTO listing_status_observation (shop_id, shopify_draft_id, observed_status, source)
+           VALUES ($1,$2,'draft','watcher') RETURNING id`,
+          [shopId, (draft.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }
   }
 
-  const eventTables = [
-    "scan_photo",
-    "candidate_set",
-    "human_confirmation",
-    "condition_assessment",
-    "pricing_snapshot",
-    "shopify_draft",
-    "cost_log",
-    "media_deletion",
-    "retention_policy",
-    "retention_hold",
-    "retention_hold_release",
-  ];
+  // One declared list, three readers (041 §2.2 / §9.2 item 4): this suite is one of
+  // them. Deriving the loop from APPEND_ONLY_TABLES means a new append-only table
+  // cannot be added without either an insert recipe here or a red build.
+  const eventTables = APPEND_ONLY_TABLES.map((t) => t.table);
 
   for (const table of eventTables) {
     it(`rejects UPDATE and DELETE on ${table}`, async () => {
@@ -150,6 +176,35 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
       );
       await expect(pool.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(/append-only/);
       // The row is still there, untouched.
+      const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE id = $1`, [id]);
+      expect((check.rows[0] as { n: number }).n).toBe(1);
+    });
+  }
+
+  // E02-D05 / 041 §9.2 item 1. Before migration 006 every trigger sat at the
+  // Postgres default tgenabled='O' — "fire in ORIGIN role" — so the role that owns
+  // the tables (today the same role the server uses: one DATABASE_URL) could turn
+  // the whole Hickey guarantee off for a session with `SET
+  // session_replication_role='replica'` and then UPDATE freely. At 'A' the trigger
+  // fires in every replication role. The mirror-image negative — the same sequence
+  // SUCCEEDING against an 'O' trigger, so this is not a claim that replica role is
+  // simply inert here — is in migrations.test.ts.
+  for (const table of eventTables) {
+    it(`refuses UPDATE and DELETE on ${table} even in session_replication_role='replica'`, async () => {
+      const id = await insertRow(table);
+      const client = await pool.connect();
+      try {
+        await client.query(`SET session_replication_role = 'replica'`);
+        await expect(client.query(`UPDATE ${table} SET id = id WHERE id = $1`, [id])).rejects.toThrow(
+          /append-only \(Hickey model\): UPDATE not allowed/
+        );
+        await expect(client.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(
+          /append-only \(Hickey model\): DELETE not allowed/
+        );
+      } finally {
+        await client.query(`SET session_replication_role = 'origin'`).catch(() => undefined);
+        client.release();
+      }
       const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE id = $1`, [id]);
       expect((check.rows[0] as { n: number }).n).toBe(1);
     });

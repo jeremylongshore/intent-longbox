@@ -4,8 +4,17 @@ import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { createFreshDb, probeDb, runMigrations } from "./helpers.js";
+import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
+import {
+  assertAppendOnlyTriggersOrThrow,
+  checkAppendOnlyTriggers,
+  describeAppendOnlyFailure,
+} from "../../src/services/appendOnlyDetector.js";
 
 const dbUp = await probeDb();
+
+/** The boot assertion logs before it throws; keep the expected failure out of the report. */
+const silentLogger = { error: () => undefined, info: () => undefined };
 
 describe.skipIf(!dbUp)("migration runner", () => {
   let pool: pg.Pool | undefined;
@@ -15,7 +24,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
   });
 
   it("applies migrations/*.sql clean to a fresh database, then skips on re-run", async () => {
-    const url = await createFreshDb("longbox_migrations_test");
+    const url = await createFreshDb("longbox_migrations_e02d05");
 
     const firstRun = await runMigrations(url);
     expect(firstRun).toContain("apply 001_init.sql");
@@ -29,6 +38,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "003_reserve_principle_slots.sql",
       "004_human_confirmation_outcome.sql",
       "005_listing_status_observation.sql",
+      "006_append_only_enable_always.sql",
     ]);
 
     const tables = await pool.query(
@@ -68,8 +78,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  003_reserve_principle_slots.sql");
     expect(secondRun).toContain("skip  004_human_confirmation_outcome.sql");
     expect(secondRun).toContain("skip  005_listing_status_observation.sql");
+    expect(secondRun).toContain("skip  006_append_only_enable_always.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(5);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(6);
   });
 
   // 003 is written to survive a hand re-run (IF NOT EXISTS / DROP-then-ADD),
@@ -84,29 +95,159 @@ describe.skipIf(!dbUp)("migration runner", () => {
     await pool!.query(sql);
     const after = await pool!.query(`SELECT count(*)::int AS n FROM retention_policy`);
     expect((after.rows[0] as { n: number }).n).toBe((before.rows[0] as { n: number }).n);
-  });
 
-  it("attaches append-only triggers to every event table", async () => {
-    expect(pool).toBeDefined();
-    const res = await pool!.query(
-      `SELECT event_object_table FROM information_schema.triggers
-       WHERE trigger_name LIKE '%_append_only' GROUP BY event_object_table ORDER BY event_object_table`
-    );
-    expect(res.rows.map((r: { event_object_table: string }) => r.event_object_table)).toEqual([
-      "candidate_set",
-      "condition_assessment",
-      "corpus_version",
-      "cost_log",
-      "human_confirmation",
-      "listing_status_observation",
-      "llm_rerank",
+    // E02-D05, found by running this: 003's trigger loop is DROP-then-CREATE, and
+    // CREATE TRIGGER always lands at the bypassable 'O' default. So a HAND re-run of
+    // any pre-006 migration silently un-does 006 for the tables it touches. That is
+    // not a defect in 003 — it is the reason the guarantee needs a RUNTIME detector
+    // and not only a merge-time gate, and it is exactly the failure the detector
+    // sees. Asserted rather than merely noted, then repaired by re-running 006,
+    // which is re-runnable for this reason.
+    const downgraded = await checkAppendOnlyTriggers(pool!);
+    expect(downgraded.ok).toBe(false);
+    expect(downgraded.disabled.map((d) => d.table).sort()).toEqual([
       "media_deletion",
-      "pricing_snapshot",
       "retention_hold",
       "retention_hold_release",
       "retention_policy",
-      "scan_photo",
-      "shopify_draft",
     ]);
+    expect(downgraded.disabled.every((d) => d.tgenabled === "O")).toBe(true);
+
+    const six = await readFile(
+      new URL("../../migrations/006_append_only_enable_always.sql", import.meta.url),
+      "utf8"
+    );
+    await pool!.query(six);
+    expect((await checkAppendOnlyTriggers(pool!)).ok).toBe(true);
+  });
+
+  // E02-D05 / 041 §9.2. The previous version of this test read
+  // information_schema.triggers, which has no column for tgenabled and so lists a
+  // DISABLED trigger identically to an enabled one — it passed with every
+  // append-only trigger switched off. It reads pg_trigger now, and asserts the
+  // enabled STATE, not merely existence.
+  it("attaches an ENABLE ALWAYS append-only trigger to every declared table, and to nothing else", async () => {
+    expect(pool).toBeDefined();
+    const res = await pool!.query(
+      `SELECT c.relname AS table_name, tg.tgname AS trigger_name, tg.tgenabled
+         FROM pg_trigger tg
+         JOIN pg_class c ON c.oid = tg.tgrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE NOT tg.tgisinternal AND n.nspname = 'public'
+          AND tg.tgname LIKE '%\\_append\\_only'
+        ORDER BY c.relname`
+    );
+    const rows = res.rows as Array<{ table_name: string; trigger_name: string; tgenabled: string }>;
+
+    // Direction 1: every declared trigger exists AND is 'A' (ENABLE ALWAYS).
+    expect(
+      rows.map((r) => ({ table: r.table_name, trigger: r.trigger_name, tgenabled: r.tgenabled }))
+    ).toEqual(
+      [...APPEND_ONLY_TABLES]
+        .map((t) => ({ table: t.table, trigger: t.trigger, tgenabled: "A" }))
+        .sort((a, b) => a.table.localeCompare(b.table))
+    );
+
+    // Direction 2 (041 §9.2 item 4): no table carries a `%_append_only` trigger
+    // without being declared — an undeclared one is a migration that added an
+    // append-only table and forgot src/db/appendOnlyTables.ts, which means nothing
+    // would have caught it being created at the bypassable default.
+    const declared = new Set(APPEND_ONLY_TABLES.map((t) => t.trigger));
+    expect(rows.filter((r) => !declared.has(r.trigger_name))).toEqual([]);
+
+    // The declared exemptions are real tables, not typos guarding nothing — and a
+    // PENDING exemption (a table 041 has decided about but the tree does not contain
+    // yet: request_idempotency per §8.5/A11, physical_item_active_listing per §9.2)
+    // is asserted ABSENT, so `pending` cannot quietly go stale. When the migration
+    // that creates one lands, this test fails until someone drops the flag on purpose.
+    const present = await pool!.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    );
+    const names = new Set((present.rows as Array<{ table_name: string }>).map((r) => r.table_name));
+    for (const ex of APPEND_ONLY_EXEMPTIONS) {
+      expect(
+        { table: ex.table, inSchema: names.has(ex.table) },
+        `exemption ${ex.table} (${ex.pending ? "pending" : "present"})`
+      ).toEqual({ table: ex.table, inSchema: !ex.pending });
+    }
+  });
+
+  // The whole point of migration 006, proved as a NEGATIVE. The positive half —
+  // every declared table still refuses UPDATE/DELETE in replica role, with a real
+  // row present so the row-level trigger actually fires — lives in
+  // append-only.test.ts, which owns the insert recipes. Without this negative that
+  // assertion would be a tautology: it would also pass on a server where
+  // session_replication_role happened to be inert.
+  describe("session_replication_role='replica' bypasses an 'O' trigger and not an 'A' one", () => {
+    it("succeeds on a scratch table whose identical trigger is left at the 'O' default", async () => {
+      expect(pool).toBeDefined();
+      const client = await pool!.connect();
+      try {
+        // The probe's trigger is named `_guard`, NOT `_append_only`, deliberately: the
+        // detector and the gate-test scan by that name pattern, so a probe matching it
+        // would make this test's ordering relative to the `undeclared === []` assertion
+        // load-bearing. Same function, same behaviour, no coupling.
+        await client.query(`DROP TABLE IF EXISTS bypass_probe`);
+        await client.query(`CREATE TABLE bypass_probe (id int primary key, note text)`);
+        await client.query(
+          `CREATE TRIGGER bypass_probe_guard BEFORE UPDATE OR DELETE ON bypass_probe
+             FOR EACH ROW EXECUTE FUNCTION forbid_mutation()`
+        );
+        await client.query(`INSERT INTO bypass_probe VALUES (1, 'a')`);
+
+        // In ORIGIN role the trigger fires: same function, same message.
+        await expect(client.query(`UPDATE bypass_probe SET note = 'b'`)).rejects.toThrow(
+          /append-only \(Hickey model\): UPDATE not allowed/
+        );
+
+        // In replica role, an 'O' trigger does NOT fire — this is the hole.
+        await client.query(`SET session_replication_role = 'replica'`);
+        const updated = await client.query(`UPDATE bypass_probe SET note = 'b'`);
+        expect(updated.rowCount).toBe(1);
+
+        // And ENABLE ALWAYS — what 006 does — closes it on this very table.
+        await client.query(`SET session_replication_role = 'origin'`);
+        await client.query(`ALTER TABLE bypass_probe ENABLE ALWAYS TRIGGER bypass_probe_guard`);
+        await client.query(`SET session_replication_role = 'replica'`);
+        await expect(client.query(`UPDATE bypass_probe SET note = 'c'`)).rejects.toThrow(
+          /append-only \(Hickey model\): UPDATE not allowed/
+        );
+      } finally {
+        await client.query(`SET session_replication_role = 'origin'`).catch(() => undefined);
+        await client.query(`DROP TABLE IF EXISTS bypass_probe`).catch(() => undefined);
+        client.release();
+      }
+    });
+  });
+
+  // The runtime detector reads the same state the gate-test just asserted.
+  describe("runtime append-only detector against the real database", () => {
+    it("reports ok on the migrated schema", async () => {
+      expect(pool).toBeDefined();
+      const result = await checkAppendOnlyTriggers(pool!);
+      expect(result).toEqual({ ok: true, missing: [], disabled: [], undeclared: [] });
+    });
+
+    it("reports the disabled trigger when one is switched off, and ok again once restored", async () => {
+      expect(pool).toBeDefined();
+      await pool!.query(`ALTER TABLE cost_log DISABLE TRIGGER cost_log_append_only`);
+      try {
+        const bad = await checkAppendOnlyTriggers(pool!);
+        expect(bad.ok).toBe(false);
+        expect(bad.missing).toEqual([]);
+        expect(bad.undeclared).toEqual([]);
+        expect(bad.disabled).toEqual([
+          { table: "cost_log", trigger: "cost_log_append_only", tgenabled: "D" },
+        ]);
+        expect(describeAppendOnlyFailure(bad)).toContain("cost_log_append_only=D");
+        await expect(assertAppendOnlyTriggersOrThrow(pool!, silentLogger)).rejects.toThrow(
+          /refusing to serve/
+        );
+      } finally {
+        await pool!.query(`ALTER TABLE cost_log ENABLE ALWAYS TRIGGER cost_log_append_only`);
+      }
+      const restored = await checkAppendOnlyTriggers(pool!);
+      expect(restored.ok).toBe(true);
+    });
   });
 });

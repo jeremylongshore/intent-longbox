@@ -1,0 +1,41 @@
+# Longbox: bring a partner in without disclosing mechanism (014 §3.3, §10; 010; 021; E18).
+formula = "longbox-partner-onboarding"
+description = "Partner onboarding: mode decision, staged disclosure, terms before any mechanism, certified adapter, metering, partnership gate."
+version = 1
+type = "workflow"
+
+[vars.partner]
+description = "Partner name"
+required = true
+
+[[steps]]
+id = "mode"
+title = "Decide the {{partner}} mode: data source / crosswalk / recognition / embedded / co-sell (E18-B03, council if contested)"
+
+[[steps]]
+id = "disclosure"
+title = "Classify every {{partner}} artifact by 014 §10 class; pre-send step (021 §0, T26) on all outbound material"
+needs = ["mode"]
+description = "021 blocklist B1–B12 binding; capability-level sentences only (A2, A3)."
+
+[[steps]]
+id = "terms"
+title = "Execute {{partner}} data rights, attribution, SLA, liability, pricing and termination terms (E18-B06)"
+needs = ["disclosure"]
+description = "No adapter before terms."
+
+[[steps]]
+id = "adapter"
+title = "Certify the {{partner}} adapter via longbox-provider (E18-B05)"
+needs = ["terms"]
+
+[[steps]]
+id = "metering"
+title = "Partner observability, metering and support boundaries for {{partner}} (E18-B09)"
+needs = ["adapter"]
+
+[[steps]]
+id = "gate"
+title = "Partnership gate for {{partner}}: integrate / pilot / defer / license / co-sell / decline (E18-B10)"
+needs = ["metering"]
+description = "longbox-gate-auditor audits; acting head decides; Jeremy may revise."

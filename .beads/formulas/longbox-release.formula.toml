@@ -1,0 +1,35 @@
+# Longbox: a controlled release with the gates that exist today and the ones E15 adds.
+formula = "longbox-release"
+description = "Release: required checks green, harness verify, staging synthetic journey, progressive rollout, rollback rehearsed, bead + docs closed."
+version = 1
+type = "workflow"
+
+[vars.version]
+description = "Release version, e.g. 0.4.0"
+required = true
+pattern = "^\\d+\\.\\d+\\.\\d+$"
+
+[[steps]]
+id = "checks"
+title = "All required checks green for {{version}} (lint, typecheck, unit+coverage, integration, security, harness verify)"
+
+[[steps]]
+id = "staging"
+title = "Staging synthetic journey for {{version}}: mobile → draft → reconcile and failure paths (E15-B07)"
+needs = ["checks"]
+
+[[steps]]
+id = "rollout"
+title = "Progressive rollout of {{version}} with kill switches (E15-B08)"
+needs = ["staging"]
+description = "Internal → pilot cohort → percentage; SLO/quality/cost breach stops it."
+
+[[steps]]
+id = "rollback-drill"
+title = "Rollback rehearsal for {{version}} within target (E15-B10)"
+needs = ["rollout"]
+
+[[steps]]
+id = "record"
+title = "Record {{version}}: CHANGELOG, 006 status, 016 tag row, beads closed via bd-sync"
+needs = ["rollback-drill"]

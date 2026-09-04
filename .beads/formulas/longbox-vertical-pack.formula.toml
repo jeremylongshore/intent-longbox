@@ -1,0 +1,41 @@
+# Longbox: add a collectible vertical without forking the core (014 §3.4, E04-B04, E07-B02, E19-B06).
+formula = "longbox-vertical-pack"
+description = "Register a vertical pack (comics, cards, ...) through the pack contract: identity schema, capture recipe, condition schema, provider map, valuation normalization, listing template, eval slices — gated by E19-B06."
+version = 1
+type = "workflow"
+
+[vars.vertical]
+description = "Vertical name, e.g. comic, sports-card, tcg"
+required = true
+
+[[steps]]
+id = "gate"
+title = "E19-B06 gate: reuse, rights, accuracy, economics and demand evidence for {{vertical}}"
+type = "task"
+description = "Architectural possibility is not market permission. Council decision if the evidence is contested (014 E19-B06)."
+
+[[steps]]
+id = "identity-schema"
+title = "Versioned identity schema and normalized signature for {{vertical}}"
+needs = ["gate"]
+
+[[steps]]
+id = "capture-recipe"
+title = "Photo recipe and conditional inspection rules for {{vertical}}"
+needs = ["gate"]
+
+[[steps]]
+id = "condition-schema"
+title = "Condition schema and provider-grade mappings for {{vertical}} (never numeric)"
+needs = ["gate"]
+
+[[steps]]
+id = "eval-pack"
+title = "Evaluation slices and certification minimums for {{vertical}} (E07-B02)"
+needs = ["identity-schema"]
+
+[[steps]]
+id = "register"
+title = "Register the {{vertical}} pack manifest; core fork count stays zero"
+needs = ["identity-schema", "capture-recipe", "condition-schema", "eval-pack"]
+description = "A sample pack registers without core-code branching (E04-B04 acceptance)."

@@ -1,0 +1,51 @@
+# Longbox: one blueprint bead built end to end (014 §6.2; 019 §3; 018 §6).
+# Pour with: bd mol pour longbox-feature --var bead_alias=E05-B04 --var builder=longbox-mobile-builder
+formula = "longbox-feature"
+description = "Build one Longbox blueprint bead: orient on the 014 row, claim, design, implement with tests, cross-reference docs, invariant review, bd-sync close."
+version = 1
+type = "workflow"
+
+[vars.bead_alias]
+description = "Blueprint alias, e.g. E05-B04 (the bead's lbox.alias metadata)"
+required = true
+pattern = "^E[0-9]{2}-B[0-9]{2}(-D[0-9]+)?$"
+
+[vars.builder]
+description = "Build agent from 014 §22 (lbox.agent.build)"
+required = true
+enum = ["longbox-domain-builder", "longbox-security-tenancy-builder", "longbox-mobile-builder", "longbox-resolution-ai-builder", "longbox-valuation-commerce-builder", "longbox-platform-delivery-builder"]
+
+[[steps]]
+id = "orient"
+title = "Orient on {{bead_alias}}: bd show, 014 §8 row, Docs: line, dep list"
+description = "Read the bead, its 014 §8 row and every doc on its Docs: line; confirm no open blocker; note any 019 §3.0 prerequisite it satisfies or depends on."
+
+[[steps]]
+id = "design"
+title = "Record the design for {{bead_alias}} in the bead --design field"
+needs = ["orient"]
+description = "Design before schema/code (DEC rows get an ADR under 000-docs). State the invariant the change protects (018/019)."
+
+[[steps]]
+id = "implement"
+title = "Implement {{bead_alias}} with tests, as {{builder}}"
+needs = ["design"]
+description = "Feature branch; append-only schema; tests that exercise the claimed behavior (no stub-only evidence per 018 A3); coverage floor untouched."
+
+[[steps]]
+id = "cross-reference"
+title = "Cross-reference docs for {{bead_alias}}: Version bump, 000-INDEX, bead note with SHA"
+needs = ["implement"]
+description = "Every touched doc bumps Version and its index hook; bead note names commit SHA, test run, doc numbers (016/018 rules)."
+
+[[steps]]
+id = "review"
+title = "Invariant review of {{bead_alias}} by longbox-invariant-reviewer"
+needs = ["cross-reference"]
+description = "Read-only audit against CLAUDE.md locked decisions and 019; PASS required before close. Gate beads also go to longbox-gate-auditor."
+
+[[steps]]
+id = "close"
+title = "PR green, merged; bd-sync close {{bead_alias}} with evidence"
+needs = ["review"]
+description = "Close reason quotes the artifacts (SHA, run URL, doc numbers, audit verdict). Never raw bd close for mirrored beads."

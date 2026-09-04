@@ -1,0 +1,44 @@
+# Longbox: certify a provider adapter through the capability SDK (014 §4.2, E04-B07/B10, 019 T25/T32, 021 B8).
+formula = "longbox-provider"
+description = "Onboard or certify one provider (identity, valuation, recognition, commerce) behind the capability manifest with rights, processor terms and fixture certification."
+version = 1
+type = "workflow"
+
+[vars.provider]
+description = "Provider name, e.g. pricecharting, ebay, ximilar, shopify"
+required = true
+
+[vars.capability]
+description = "Capability class from the manifest"
+required = true
+enum = ["identity.recognition", "identity.crosswalk", "valuation.fmv", "valuation.asks", "valuation.sold", "commerce.draft", "catalog.metadata"]
+
+[[steps]]
+id = "terms"
+title = "Register {{provider}} terms: rights, processor term, retention, cost model (E04-B05, E01-B06)"
+type = "task"
+description = "No code before written terms. Record permitted-use flags (T25 inbound + outbound), processor term and retention expiry in the registry."
+
+[[steps]]
+id = "manifest"
+title = "Write the {{provider}} capability manifest for {{capability}}"
+needs = ["terms"]
+description = "014 §4.2 fields: capabilities, verticals, auth_modes (BYOK never transits keys by email/chat), cost_model, data_classes, regions, rate_limit, degraded_mode."
+
+[[steps]]
+id = "fixtures"
+title = "Recorded-fixture contract tests for {{provider}} (request shape, response parse, errors, rate limits)"
+needs = ["manifest"]
+description = "tests/contract/*.contract.test.ts; no live network; stub sets stub:true and can never signal production success (016 C12/C13)."
+
+[[steps]]
+id = "certify"
+title = "Run provider certification for {{provider}} incl. removal/fallback test"
+needs = ["fixtures"]
+description = "E04-B07 certification suite; provider can be disabled without halting core intake (019 K4/E12-B10)."
+
+[[steps]]
+id = "review"
+title = "Invariant review of the {{provider}} adapter"
+needs = ["certify"]
+description = "longbox-invariant-reviewer: BYOK, rights, no vendor name leaks into external artifacts (021 B8)."

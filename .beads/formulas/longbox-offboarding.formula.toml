@@ -1,0 +1,30 @@
+# Longbox: a shop or partner leaves with its data and without ours (E17-B01, 019 T25/T32, 022 P7).
+formula = "longbox-offboarding"
+description = "Offboard a tenant or partner: export, revoke, delete on request with tombstones, retain immutable rows, evidence the exit package."
+version = 1
+type = "workflow"
+
+[vars.tenant]
+description = "Shop slug or partner name"
+required = true
+
+[[steps]]
+id = "export"
+title = "Export {{tenant}}'s data: listings, drafts, condition records, photos it owns (derivatives), reports"
+description = "Provider-independent history preserved (E17-B01); vendor data respects permitted-use flags (T25 outbound)."
+
+[[steps]]
+id = "revoke"
+title = "Revoke {{tenant}} credentials, connectors and provider entitlements (E03-B06, E12-B05)"
+needs = ["export"]
+
+[[steps]]
+id = "delete"
+title = "Delete {{tenant}} originals on request: tombstone objects, append media_deletion events; rows survive"
+needs = ["export"]
+description = "018 C5 / 022 P7: event rows never hold image bytes; the photo goes, the row stays. Provider copies per processor-term expiry."
+
+[[steps]]
+id = "evidence"
+title = "Evidence the {{tenant}} exit package and restore-ability (E14-B11)"
+needs = ["revoke", "delete"]

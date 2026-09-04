@@ -22,22 +22,25 @@ Photo-to-listing pipeline for comic shops: a shop employee photographs a back-is
 
 All docs in `000-docs/` per /doc-filing; index at `000-docs/000-INDEX.md`.
 
-| Doc          | What                                                                                           |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| 002-PP-PRD   | Requirements R1 to R20, MoSCoW-tagged                                                          |
-| 003-AT-ARCH  | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate     |
-| 004-PP-UJRN  | Employee, owner, and correction journeys in retailer language                                  |
-| 005-AT-SPEC  | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks            |
-| 006-OD-STAT  | Live status: phase state, blockers, decision log (update this as things move)                  |
+| Doc          | What                                                                                                       |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
+| 002-PP-PRD   | Requirements R1 to R20, MoSCoW-tagged                                                                      |
+| 003-AT-ARCH  | Architecture: pipeline, Hickey model, deterministic/probabilistic boundary, retrieval gate                 |
+| 004-PP-UJRN  | Employee, owner, and correction journeys in retailer language                                              |
+| 005-AT-SPEC  | v0 spec: schema sketch, API surface, adapter shape, Shopify wiring, eval/cost hooks                        |
+| 006-OD-STAT  | Live status: phase state, blockers, decision log (update this as things move)                              |
+| 022 / 025    | Workplace principles P1–P9 (RATIFIED) — bind E05/E08/E11 design |
+| 023-OD-STND  | Beads config, routing and evidence-closure standard; the 8 formulas in `.beads/formulas/`                  |
+| 024-AT-ARCH  | Stack/artifact map (where photos live, backup, PWA plan, Immich) — MAPPED, NOT BUILT                       |
 
-**Bead graph (materialized 2026-09-02 from doc 014):** master `longbox-e5b`; E00 `longbox-6om`; E01–E15 `longbox-e5b.1`–`.15`; E16 = `longbox-adk` (reused); E17–E19 `longbox-e5b.16`–`.18`. Every bead's description carries `Alias: E##-B##` and a `Docs:` line; `bd show <id>` → read the cited doc rows before working it. Work the graph via `bd ready` (first ready leaf is E00-B01). Leaf beads are NOT mirrored to GitHub/Plane (014 §11.3) — only epics/gates get `bd-sync link`.
+**Bead graph (materialized 2026-09-02 from doc 014):** master `longbox-e5b`; E00 `longbox-6om`; E01–E15 `longbox-e5b.1`–`.15`; E16 = `longbox-adk` (reused); E17–E19 `longbox-e5b.16`–`.18`. Every bead's description carries `Alias: E##-B##` and a `Docs:` line; `bd show <id>` → read the cited doc rows before working it. Work the graph via `bd ready`; pour the matching formula (`bd formula list` → `bd mol pour longbox-feature --var bead_alias=E05-B04 --var builder=<agent>`; migrations/providers/releases/pilot batches/partners/offboarding have their own). Leaf beads are NOT mirrored to GitHub/Plane (014 §11.3) — only epics/gates get `bd-sync link`. Discovered work gets a `-D` alias (`E02-D01`) and a 015 row. Close rule, restore drill and per-clone checklist: doc 023.
 
 **Project subagents (`.claude/agents/`, assignment table in 014 §22):** every bead carries `lbox.agent.build` + `lbox.agent.audit` metadata. Builders — `longbox-domain-builder` (E02/E04), `longbox-security-tenancy-builder` (E03), `longbox-mobile-builder` (E05), `longbox-resolution-ai-builder` (E06/E07), `longbox-valuation-commerce-builder` (E08–E11), `longbox-platform-delivery-builder` (E12–E15). Auditors (read-only) — `longbox-invariant-reviewer` before closing any code/test bead, `longbox-gate-auditor` before closing any decision/contract bead or gate. Builders and auditors never close beads; the session closes via `bd-sync close` after the audit verdict. Advisory PR review is the MiniMax workflow (`.github/workflows/minimax-review.yml`, dormant until `ENABLE_MINIMAX_REVIEW=true` + `MINIMAX_API_KEY`).
 
 ## Governance
 
 - **Doc filing:** every doc follows `NNN-CC-ABCD-description.ext` in flat `000-docs/`; keep `000-INDEX.md` current; each doc carries a `**Version:**` line and gets bumped on substantive edits.
-- **Task tracking:** beads with plain-English titles under a parent epic, mirrored three-layer via `bd-sync` (bead ↔ GitHub issue per cluster ↔ Plane issue in the Longbox project, NOT CCE). All notes via `bd-sync note`, all closes via `bd-sync close` with evidence; never raw `bd close` for mirrored beads. Epic + Plane project creation is a Phase 1 open item (see 006).
+- **Task tracking:** beads with plain-English titles under a parent epic, mirrored three-layer via `bd-sync` (beads = all work; GitHub = one issue per logical cluster, never per task bead; Plane = portfolio epics only, in the Longbox project, NOT CCE — 014 §11.3, doc 023 §3). All notes via `bd-sync note`, all closes via `bd-sync close` with evidence; never raw `bd close` for mirrored beads. Epic + Plane project creation is a Phase 1 open item (see 006).
 - **Testing SOP:** INSTALLED. `@intentsolutions/audit-harness` is an in-repo devDep with hash manifest (`.harness-hash`); husky pre-commit runs lint-staged → typecheck → unit tests → escape-scan → verify. Policy, thresholds (line-coverage 80 on `src/services` + `src/providers`), and waived layers live in `tests/TESTING.md` — read it before changing test posture. RTM/personas/journeys traceability: `tests/{RTM,PERSONAS,JOURNEYS}.md`. CI static eval regression set is still a pending Phase 2 exit item.
 - **Secrets:** SOPS + age, estate standard. No plaintext `.env` committed; decrypt in-process only.
 - **Commits/PRs:** estate commit-branch-PR standard; feature branches, never main; commit signature is automatic.

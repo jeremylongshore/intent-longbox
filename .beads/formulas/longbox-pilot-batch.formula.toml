@@ -1,0 +1,46 @@
+# Longbox: one pilot batch (Pilot A/B/C) under the Product Success Contract (019 §5, E16).
+formula = "longbox-pilot-batch"
+description = "Run one supervised pilot batch: freeze manifest, confirm prerequisites and consent, capture truth, report the batch's 019 metrics with N and Wilson bounds, triage findings into beads."
+version = 1
+type = "workflow"
+
+[vars.batch]
+description = "Pilot batch id"
+required = true
+enum = ["A", "B", "C"]
+
+[vars.items]
+description = "Planned item count (A=25, B=100, C≥300)"
+required = true
+
+[[steps]]
+id = "manifest"
+title = "Freeze the batch {{batch}} manifest: release, providers, policy version, eval version, devices, data-rights (E16-B02)"
+
+[[steps]]
+id = "prerequisites"
+title = "Confirm 019 §3.0 prerequisites and T33 consent are live for batch {{batch}}; labor window method recorded"
+needs = ["manifest"]
+description = "Batch A may use an owner-signed reconstructed labor window; B and C may not. Walk-in notice live. No open K1."
+
+[[steps]]
+id = "run"
+title = "Run batch {{batch}} ({{items}} items) with truth captured for every item"
+needs = ["prerequisites"]
+
+[[steps]]
+id = "report"
+title = "Batch {{batch}} report: 019 §5 metrics with N, denominators, Wilson bounds; slices; OPEN rows stamped"
+needs = ["run"]
+description = "Count + bound, never a rate, below N floors. Shop-facing subset only in the owner email."
+
+[[steps]]
+id = "triage"
+title = "Triage batch {{batch}} findings into beads with discovered-from links; check K-rules"
+needs = ["report"]
+description = "K2/K3/K9 evaluated on measured values only; waivers by 006 row expiring with the batch."
+
+[[steps]]
+id = "gate-audit"
+title = "longbox-gate-auditor audits the batch {{batch}} report before it is cited anywhere"
+needs = ["report"]

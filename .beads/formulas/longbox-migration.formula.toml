@@ -1,0 +1,37 @@
+# Longbox: an expand/contract schema change under the Hickey model (E02-B10, E15-B06, 018 C5).
+formula = "longbox-migration"
+description = "Ship a database change as expand → backfill → verify → contract, append-only, with rollback rehearsed."
+version = 1
+type = "workflow"
+
+[vars.change]
+description = "What the migration adds, e.g. labor_shift table, cost_log.category"
+required = true
+
+[[steps]]
+id = "expand"
+title = "Expand migration for {{change}} (new table/column, append-only trigger, shop_id FK)"
+description = "New migrations/NNN_*.sql; never edit a shipped migration; no UPDATE/DELETE path (018 C5)."
+
+[[steps]]
+id = "backfill"
+title = "Backfill {{change}} from immutable history where possible; else mark OPEN"
+needs = ["expand"]
+description = "019 §3.0: late instrumentation cannot be reconstructed for records already written — say so on the artifact."
+
+[[steps]]
+id = "verify"
+title = "Integration tests for {{change}}: clean apply, idempotent re-run, trigger immutability, prior-snapshot upgrade"
+needs = ["expand"]
+description = "tests/integration/migrations.test.ts + append-only.test.ts; CI integration lane fails closed."
+
+[[steps]]
+id = "rollback"
+title = "Rehearse compatible rollback for {{change}} before any destructive contraction"
+needs = ["verify", "backfill"]
+description = "E15-B06: app rollback never requires an impossible schema downgrade."
+
+[[steps]]
+id = "contract"
+title = "Contract step for {{change}} (only after rollback rehearsal and a full release cycle)"
+needs = ["rollback"]

@@ -133,6 +133,7 @@ describe("insertHumanConfirmation", () => {
       source: "one_tap",
       confirmedBy: "employee",
       outcome: "confirm",
+      sessionSeq: 1,
     });
     expect(row.outcome).toBe("confirm");
     expect(calls[0]?.text).toMatch(/INSERT INTO human_confirmation/);
@@ -143,6 +144,9 @@ describe("insertHumanConfirmation", () => {
       "one_tap",
       "employee",
       "confirm",
+      // 041 §5.3: the per-session commit counter travels on the INSERT, assigned by
+      // `assignSessionSeq` under the anchor lock the caller already holds.
+      1,
     ]);
   });
 });
@@ -158,9 +162,10 @@ describe("insertShopifyDraft", () => {
       productGid: "gid://1",
       status: "draft",
       error: null,
+      sessionSeq: 2,
     });
     expect(row.status).toBe("draft");
-    expect(calls[0]?.values).toEqual(["s-1", "shop-1", "gid://1", "draft", null]);
+    expect(calls[0]?.values).toEqual(["s-1", "shop-1", "gid://1", "draft", null, 2]);
   });
 
   it("records a failed draft as a row rather than losing it (040 A4)", async () => {
@@ -173,9 +178,10 @@ describe("insertShopifyDraft", () => {
       productGid: null,
       status: "failed",
       error: '"status 500"',
+      sessionSeq: 3,
     });
     expect(row.status).toBe("failed");
-    expect(calls[0]?.values).toEqual(["s-1", "shop-1", null, "failed", '"status 500"']);
+    expect(calls[0]?.values).toEqual(["s-1", "shop-1", null, "failed", '"status 500"', 3]);
   });
 });
 

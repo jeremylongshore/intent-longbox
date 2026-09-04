@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { createFreshDb, probeDb, runMigrations, superuserUrl } from "./helpers.js";
-import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
+import {
+  APPEND_ONLY_EXEMPTIONS,
+  APPEND_ONLY_TABLES,
+  SESSION_SEQ_TABLE_NAMES,
+} from "../../src/db/appendOnlyTables.js";
+import { checksum, readMigrations } from "../../scripts/migrationDiscipline.js";
 import {
   assertAppendOnlyTriggersOrThrow,
   checkAppendOnlyTriggers,
@@ -12,6 +17,13 @@ import {
 } from "../../src/services/appendOnlyDetector.js";
 
 const dbUp = await probeDb();
+
+/** One migration's bytes, by filename — for the ledger-checksum assertion. */
+function readMigrationSql(filename: string): string {
+  const file = readMigrations().find((f) => f.filename === filename);
+  if (!file) throw new Error(`ledger names a migration that is not on disk: ${filename}`);
+  return file.sql;
+}
 
 /** The boot assertion logs before it throws; keep the expected failure out of the report. */
 const silentLogger = { error: () => undefined, info: () => undefined };
@@ -43,6 +55,10 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "004_human_confirmation_outcome.sql",
       "005_listing_status_observation.sql",
       "006_append_only_enable_always.sql",
+      "007_observation_envelope.sql",
+      "008_supersession_integrity.sql",
+      "009_request_idempotency.sql",
+      "010_scan_session_transition.sql",
     ]);
 
     const tables = await pool.query(
@@ -71,6 +87,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "retention_hold_release",
       // 005 (E02-D02): the observed listing lifecycle T19's detector reads.
       "listing_status_observation",
+      // 009 / 010 (E02-B10): 042 §5.2's replay cache and 040 §3.3's transitions.
+      "request_idempotency",
+      "scan_session_transition",
     ]) {
       expect(names).toContain(expected);
     }
@@ -83,8 +102,48 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  004_human_confirmation_outcome.sql");
     expect(secondRun).toContain("skip  005_listing_status_observation.sql");
     expect(secondRun).toContain("skip  006_append_only_enable_always.sql");
+    expect(secondRun).toContain("skip  007_observation_envelope.sql");
+    expect(secondRun).toContain("skip  008_supersession_integrity.sql");
+    expect(secondRun).toContain("skip  009_request_idempotency.sql");
+    expect(secondRun).toContain("skip  010_scan_session_transition.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(6);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(10);
+
+    // E02-B10: the ledger records a checksum for every file it applied, and a
+    // second run skips WITHOUT adopting anything — an adoption on a database this
+    // runner created would mean the INSERT path forgot to record the digest.
+    const sums = await pool.query(`SELECT filename, checksum FROM schema_migrations ORDER BY filename`);
+    for (const row of sums.rows as Array<{ filename: string; checksum: string | null }>) {
+      expect(row.checksum, `${row.filename} has no checksum`).toMatch(/^[0-9a-f]{64}$/);
+      expect(row.checksum).toBe(checksum(readMigrationSql(row.filename)));
+    }
+    expect(secondRun).not.toContain("adopted checksum");
+  });
+
+  // E02-B10 / 041 §5.3. `migrations/007` restates the session_seq table list inline
+  // because SQL cannot import TypeScript — the same bounded duplication `006`
+  // documents for the trigger set. This is the assertion that makes a drift between
+  // the two a red build rather than a silent hole, in BOTH directions.
+  it("gives session_seq to exactly the declared session-scoped tables, and to nothing else", async () => {
+    expect(pool).toBeDefined();
+    const res = await pool!.query(
+      `SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'session_seq'
+        ORDER BY table_name`
+    );
+    const live = (res.rows as Array<{ table_name: string }>).map((r) => r.table_name);
+    expect(live).toEqual([...SESSION_SEQ_TABLE_NAMES].sort());
+
+    // And every one of them carries the UNIQUE (scan_session_id, session_seq) guard
+    // that turns a race into a loud failure rather than a duplicate.
+    const idx = await pool!.query(
+      `SELECT tablename FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname LIKE '%\\_session\\_seq\\_idx'
+        ORDER BY tablename`
+    );
+    expect((idx.rows as Array<{ tablename: string }>).map((r) => r.tablename)).toEqual(
+      [...SESSION_SEQ_TABLE_NAMES].sort()
+    );
   });
 
   // 003 is written to survive a hand re-run (IF NOT EXISTS / DROP-then-ADD),

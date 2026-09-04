@@ -23,7 +23,10 @@
     "prepare": "husky",
     "migrate": "tsx scripts/migrate.ts",
     "grant-app-role": "tsx scripts/grant-app-role.ts",
-    "register-shop": "tsx scripts/register-shop.ts"
+    "register-shop": "tsx scripts/register-shop.ts",
+    "fixture:schema": "tsx scripts/makeSchemaFixture.ts",
+    "arch": "tsx scripts/architectureGate.ts",
+    "depcruise": "depcruise src --config .dependency-cruiser.cjs"
   },
   "lint-staged": {
     "*.ts": [
@@ -48,6 +51,7 @@
     "@types/node": "^22.13.0",
     "@types/pg": "^8.11.10",
     "@vitest/coverage-v8": "^3.2.7",
+    "dependency-cruiser": "^18.2.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",

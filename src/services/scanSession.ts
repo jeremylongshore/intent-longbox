@@ -7,6 +7,8 @@
 // `Queryable` so they work on the pool outside a request transaction and on the
 // held connection inside one.
 import type { Queryable, Tx } from "../db.js";
+import { SESSION_SEQ_TABLE_NAMES } from "../db/appendOnlyTables.js";
+import { assertSafeIdentifier } from "../db/appRoleGrants.js";
 
 export interface ScanSessionRow {
   id: string;
@@ -56,10 +58,11 @@ export async function getScanSession(
  * Not-found is `undefined` — the same typed shape `getScanSession` returns, so a
  * caller cannot mistake "locked nothing" for "locked something".
  *
- * SEAM: 041 §5.3's `session_seq` is assigned HERE, inside the transaction and
- * under this lock — a `SELECT coalesce(max(session_seq),0)+1` per session,
- * ridden on the lock at no extra cost. The column does not exist yet; it lands
- * with the envelope expand (041 §10 row 2, bead E02-B10).
+ * SEAM, NOW WIRED (E02-B10): 041 §5.3's `session_seq` is assigned under THIS lock
+ * by `assignSessionSeq` below — a `coalesce(max(session_seq),0)+1` per session,
+ * ridden on the lock at no extra cost. It is a separate exported function rather
+ * than an extra return value here because not every caller of the lock writes a
+ * row, and a counter that advanced on a read would stop being commit order.
  */
 export async function lockScanSession(
   tx: Tx,
@@ -71,6 +74,52 @@ export async function lockScanSession(
     shopId,
   ]);
   return res.rows[0] as ScanSessionRow | undefined;
+}
+
+/**
+ * The SQL that reads the session's current high-water mark across every
+ * session-scoped witness table. Built once from the declared list rather than
+ * spelled per call: a table that gains `session_seq` and is missed here would
+ * silently reuse a number, and the declared list is the thing the migration and
+ * the gate-test already agree on.
+ *
+ * The identifiers are interpolated, so they are validated first — the same
+ * `assertSafeIdentifier` the grant plan uses. They come from a checked-in const,
+ * not from user input, and the assertion is what keeps that true if the list ever
+ * starts being built from something else.
+ */
+const SESSION_SEQ_MAX_SQL = `SELECT coalesce(max(m), 0)::bigint AS m FROM (\n${SESSION_SEQ_TABLE_NAMES.map(
+  (t) =>
+    `  SELECT max(session_seq) AS m FROM ${assertSafeIdentifier(t, "session_seq table")} ` +
+    `WHERE scan_session_id = $1 AND shop_id = $2`
+).join("\n  UNION ALL\n")}\n) AS s`;
+
+/**
+ * Assign the next `session_seq` for a session (041 §5.3, decision (c)).
+ *
+ * **Must be called inside the request transaction, after `lockScanSession`.** The
+ * read-modify-write is only atomic because the anchor row is already held `FOR
+ * UPDATE`: two concurrent writers to one session are serialised by that lock, so
+ * `max + 1` cannot be computed twice from the same snapshot. Called without the
+ * lock it is a race, and the per-table `UNIQUE (scan_session_id, session_seq)`
+ * index is what turns that race into a loud failure rather than a duplicate.
+ *
+ * The maximum is taken ACROSS the declared session-scoped tables, not within one:
+ * the counter orders two rows about one session whichever tables they sit in
+ * (041 §5.3 — "the canonical order of two rows about one session is `session_seq`").
+ *
+ * ⚠ **The number is COMMIT order, not act order** (041 §5.3, A4). For E05-B08's
+ * offline queue, a park recorded at the counter at 10:02 and replayed at 10:47
+ * receives the sequence of 10:47, because that is when the database learned it.
+ * Nothing may present it to anyone as when the operator acted, and a dispute
+ * between two replayed writes is resolved by `against_table`/`against_id`, never by
+ * this number alone.
+ */
+export async function assignSessionSeq(tx: Tx, shopId: string, sessionId: string): Promise<number> {
+  const res = await tx.query(SESSION_SEQ_MAX_SQL, [sessionId, shopId]);
+  // `max()` of a bigint comes back as a string from node-postgres; the values are
+  // small counters, so Number() is exact well past any plausible session length.
+  return Number((res.rows[0] as { m: string | number }).m) + 1;
 }
 
 /**
@@ -162,11 +211,14 @@ export async function insertHumanConfirmation(
     source: string;
     confirmedBy: string;
     outcome: string;
+    /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
+    sessionSeq: number;
   }
 ): Promise<HumanConfirmationRow> {
   const res = await tx.query(
-    `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at, outcome`,
+    `INSERT INTO human_confirmation
+       (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome, session_seq)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at, outcome, session_seq`,
     [
       args.sessionId,
       args.shopId,
@@ -174,6 +226,7 @@ export async function insertHumanConfirmation(
       args.source,
       args.confirmedBy,
       args.outcome,
+      args.sessionSeq,
     ]
   );
   return res.rows[0] as HumanConfirmationRow;
@@ -194,12 +247,14 @@ export async function insertShopifyDraft(
     productGid: string | null;
     status: "draft" | "failed";
     error: string | null;
+    /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
+    sessionSeq: number;
   }
 ): Promise<ShopifyDraftRow> {
   const res = await tx.query(
-    `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, error)
-     VALUES ($1,$2,$3,$4,$5) RETURNING id, product_gid, status, created_at`,
-    [args.sessionId, args.shopId, args.productGid, args.status, args.error]
+    `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, error, session_seq)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, product_gid, status, created_at, session_seq`,
+    [args.sessionId, args.shopId, args.productGid, args.status, args.error, args.sessionSeq]
   );
   return res.rows[0] as ShopifyDraftRow;
 }

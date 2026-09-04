@@ -63,12 +63,15 @@ describe("the declared list", () => {
     }
   });
 
-  // 041 §9.2 item 4's two not-yet-built exemptions are pending; nothing else is.
+  // 041 §9.2 item 4 listed two not-yet-built exemptions. `request_idempotency` was
+  // BUILT by E02-B10 (migrations/009), so its flag is gone and the gate-test now
+  // asserts the table is PRESENT — which is exactly what `pending` is for: a flag
+  // somebody has to drop deliberately when the table lands.
   it("marks exactly the unbuilt tables pending", () => {
     const pending = APPEND_ONLY_EXEMPTIONS.filter((e) => e.pending)
       .map((e) => e.table)
       .sort();
-    expect(pending).toEqual(["physical_item_active_listing", "request_idempotency"]);
+    expect(pending).toEqual(["physical_item_active_listing"]);
   });
 });
 

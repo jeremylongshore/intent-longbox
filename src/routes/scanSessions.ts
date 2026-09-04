@@ -14,6 +14,7 @@ import {
   createScanSession,
   getScanSession,
   getSessionEvents,
+  assignSessionSeq,
   insertHumanConfirmation,
   insertShopifyDraft,
   listSessionPhotos,
@@ -268,6 +269,10 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       async (tx) => {
         const locked = await lockScanSession(tx, session.shop_id, session.id);
         if (!locked) return undefined;
+        // 041 §5.3: the per-session commit counter, assigned under the anchor lock
+        // taken one line above and at no additional cost. It is COMMIT order, never
+        // act order — see `assignSessionSeq`.
+        const sessionSeq = await assignSessionSeq(tx, session.shop_id, session.id);
 
         // outcome (019 §3.0, T3, T20): did the operator accept the identity that
         // was already there, or change it? Computed here because this is the only
@@ -295,6 +300,7 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
           source: body.data.source,
           confirmedBy: body.data.confirmed_by,
           outcome,
+          sessionSeq,
         });
         await setSessionStatus(tx, session.shop_id, session.id, "confirmed");
         return row;
@@ -484,12 +490,15 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       async (tx) => {
         const locked = await lockScanSession(tx, session.shop_id, session.id);
         if (!locked) return undefined;
+        // 041 §5.3, same seam as the confirm path: assigned under the anchor lock.
+        const sessionSeq = await assignSessionSeq(tx, session.shop_id, session.id);
         const row = await insertShopifyDraft(tx, {
           sessionId: session.id,
           shopId: session.shop_id,
           productGid: result.productGid ?? null,
           status: result.ok ? "draft" : "failed",
           error: result.ok ? null : JSON.stringify(result.error ?? `status ${result.status}`),
+          sessionSeq,
         });
         if (result.ok) await setSessionStatus(tx, session.shop_id, session.id, "drafted");
         return row;

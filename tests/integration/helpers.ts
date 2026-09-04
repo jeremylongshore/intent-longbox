@@ -128,6 +128,21 @@ export async function runMigrations(databaseUrl: string): Promise<string> {
   return stdout;
 }
 
+/**
+ * Restore a checked-in prior-schema fixture into `databaseUrl` (000-docs/044 §3).
+ *
+ * `psql` rather than `client.query(dump)` because a `pg_dump` script contains
+ * backslash meta-commands (`\restrict`, `\connect`) that the wire protocol does not
+ * understand. `psql` is already a CI dependency — the same job pipes
+ * `docker/postgres-init/00-roles.sql` through it.
+ */
+export async function restoreFixture(databaseUrl: string, fixturePath: string): Promise<void> {
+  await execFileAsync("psql", [databaseUrl, "-q", "-v", "ON_ERROR_STOP=1", "-f", fixturePath], {
+    cwd: process.cwd(),
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
 /** Insert a shop + default pricing policy; returns the shop id. */
 export async function seedShop(
   db: pg.Pool,

@@ -62,6 +62,28 @@ jobs:
       - name: Vitest with coverage (line 80 floor on src/services + src/providers)
         run: pnpm test:coverage
 
+  architecture:
+    name: Architecture gate
+    runs-on: ubuntu-latest
+    # 029 §5 move 8 (E02-B10): the module boundary stops being prose enforced by
+    # review and becomes a required check. TWO halves, because one cannot do the job
+    # — `depcruise` reads the import graph, and 029 records that the real damage in
+    # `src/routes/scanSessions.ts` is `db.query` on a Pool passed as a PARAMETER,
+    # which has no import edge to see. `pnpm arch` is the non-graph half (042 I5's
+    # no-SELECT-*, 042 I22's lock-order lint, 040 §8.2's writer inventory, and the
+    # cost_log single-writer rule).
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: dependency-cruiser (029 §3.3 module boundaries; every rule an error)
+        run: pnpm depcruise
+      - name: Non-graph rules (029 N2, 042 I5, 042 I22, 040 §8.2 step 1)
+        run: pnpm arch
+
   integration:
     name: Postgres integration + HTTP smoke
     runs-on: ubuntu-latest
@@ -91,6 +113,10 @@ jobs:
         # is not checked out when it starts — so the SAME file docker-compose.test.yml
         # mounts is piped through psql here. Every statement in it is guarded, so
         # running it against an already-initialised cluster is a no-op.
+        #
+        # Only `00-roles.sql` is piped, NOT `01-dev-database.sql`: the integration
+        # lane creates a throwaway database per test file (helpers.ts) and never
+        # touches the `longbox` dev database that file exists to create.
         run: psql "$TEST_DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -f docker/postgres-init/00-roles.sql
         env:
           TEST_DATABASE_ADMIN_URL: postgres://longbox:longbox@localhost:54329/postgres

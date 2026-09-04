@@ -24,6 +24,7 @@ import {
   createScanSession,
   insertHumanConfirmation,
   insertShopifyDraft,
+  assignSessionSeq,
   lockScanSession,
   setSessionStatus,
 } from "../../src/services/scanSession.js";
@@ -92,6 +93,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "one_tap",
           confirmedBy: "employee",
           outcome: "confirm",
+          sessionSeq: 1,
         });
         await setSessionStatus(tx, shopId, sessionId, "confirmed");
         throw boom; // anything downstream: a provider 500, a bug, a crash
@@ -114,6 +116,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         source: "one_tap",
         confirmedBy: "employee",
         outcome: "confirm",
+        sessionSeq: 2,
       });
       await setSessionStatus(tx, shopId, sessionId, "confirmed");
     });
@@ -147,6 +150,12 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "grid_pick",
           confirmedBy: tag,
           outcome: prior.rowCount === 0 ? "correct" : "confirm",
+          // 041 §5.3, assigned under the anchor lock taken above. A literal here
+          // COLLIDES on `human_confirmation_session_seq_idx` once both writers land
+          // in one session — which is the counter's guard doing exactly its job, and
+          // the reason the assignment belongs inside the transaction rather than at
+          // the call site.
+          sessionSeq: await assignSessionSeq(tx, shopId, sessionId),
         });
         order.push(`${tag}:committed`);
         return prior.rowCount ?? 0;
@@ -209,6 +218,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         productGid: "gid://shopify/Product/1",
         status: "draft",
         error: null,
+        sessionSeq: 4,
       });
       await setSessionStatus(tx, shopId, sessionId, "drafted");
       events.push("draft:committed");
@@ -247,6 +257,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         productGid: "gid://shopify/Product/2",
         status: "draft",
         error: null,
+        sessionSeq: 5,
       });
       events.push("draft:committed");
     });
@@ -283,6 +294,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         source: "one_tap",
         confirmedBy: "employee",
         outcome: "confirm",
+        sessionSeq: 6,
       });
       if (attemptsSeen === 1) {
         const err = new Error("simulated serialization failure") as Error & { code: string };
@@ -315,6 +327,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "one_tap",
           confirmedBy: "employee",
           outcome: "not_a_valid_outcome", // trips the CHECK: 23514, not retryable
+          sessionSeq: 7,
         });
       })
     ).rejects.toMatchObject({ code: "23514" });

@@ -62,6 +62,26 @@ export interface AppendOnlyTrigger {
    * other tables. Declared here now so that migration has one place to read.
    */
   readonly ordersByObservedAt: boolean;
+  /**
+   * 041 §5.3 / §10 row 2 — the per-session commit counter. TRUE for a table that is
+   * SESSION-scoped (carries `scan_session_id`), which is 041 I1's own criterion:
+   * "for shop-scoped, session-scoped tables — `session_seq`". Such a table gains a
+   * nullable `session_seq bigint`, a `UNIQUE (scan_session_id, session_seq)` index,
+   * and an assignment inside the request transaction under the anchor lock
+   * (`assignSessionSeq`, `src/services/scanSession.ts`).
+   *
+   * FALSE for a table with no session: `corpus_version`, `retention_policy`,
+   * `retention_hold`, `retention_hold_release`, `media_deletion` (keyed on a photo)
+   * and `listing_status_observation` (keyed on a draft). Ordering those by a
+   * session's counter would be a claim 041 §2.0's consistency model does not make —
+   * "above a session … nothing orders anything".
+   *
+   * READ BY THREE: `migrations/007_observation_envelope.sql`'s loop restates this
+   * list (SQL cannot import TypeScript), `tests/integration/migrations.test.ts`
+   * asserts the two agree in BOTH directions, and `assignSessionSeq` takes its
+   * `max()` across exactly these tables.
+   */
+  readonly sessionSeq: boolean;
 }
 
 /**
@@ -76,84 +96,105 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     trigger: "candidate_set_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "condition_assessment",
     trigger: "condition_assessment_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "corpus_version",
     trigger: "corpus_version_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "cost_log",
     trigger: "cost_log_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "human_confirmation",
     trigger: "human_confirmation_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "listing_status_observation",
     trigger: "listing_status_observation_append_only",
     since: "005_listing_status_observation.sql",
     ordersByObservedAt: true,
+    sessionSeq: false,
   },
   {
     table: "llm_rerank",
     trigger: "llm_rerank_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "media_deletion",
     trigger: "media_deletion_append_only",
     since: "003_reserve_principle_slots.sql",
     ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "pricing_snapshot",
     trigger: "pricing_snapshot_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "retention_hold",
     trigger: "retention_hold_append_only",
     since: "003_reserve_principle_slots.sql",
     ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "retention_hold_release",
     trigger: "retention_hold_release_append_only",
     since: "003_reserve_principle_slots.sql",
     ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "retention_policy",
     trigger: "retention_policy_append_only",
     since: "003_reserve_principle_slots.sql",
     ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "scan_photo",
     trigger: "scan_photo_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
+  },
+  {
+    table: "scan_session_transition",
+    trigger: "scan_session_transition_append_only",
+    since: "010_scan_session_transition.sql",
+    ordersByObservedAt: false,
+    sessionSeq: true,
   },
   {
     table: "shopify_draft",
     trigger: "shopify_draft_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
+    sessionSeq: true,
   },
 ];
 
@@ -213,13 +254,16 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
   {
     table: "request_idempotency",
     kind: "permanent",
-    pending: true,
     reason:
       "041 §8.5 / A11: not a witness table — an operational cache recording only what this " +
       "server replied to a key it has already seen, holding response bodies that must be " +
       "SWEEPABLE so a deletion right can be honoured. Deleting an expired key destroys no " +
-      "history. This reverses 040 §8.1 step 6, which put a trigger on it. Does not exist yet " +
-      "(041 §1 E22): 040 §5.2 specifies it, nothing is built; the retention window stays E13-B01's.",
+      "history. This reverses 040 §8.1 step 6, which put a trigger on it. AND (042 A5, the " +
+      "third reason the draft had not seen) the row is UPDATEd by construction: 042 §5.3 " +
+      "INSERTs it, does the work, then completes it with the response — legal precisely " +
+      "because of this exemption. Landed by migrations/009_request_idempotency.sql at " +
+      "E02-B10, so the `pending` flag is gone; the ROUTE wiring is still E02-B08's and the " +
+      "retention window stays E13-B01's.",
   },
   {
     table: "physical_item_active_listing",
@@ -266,3 +310,18 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
 
 /** Convenience for the SQL `IN (...)`-shaped callers and for assertions. */
 export const APPEND_ONLY_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.map((t) => t.table);
+
+/**
+ * The session-scoped witness tables — those that carry `session_seq` (041 §5.3).
+ *
+ * `assignSessionSeq` takes its `max()` across exactly this set, because the counter
+ * is per SESSION and not per table: the order it establishes is the order of two
+ * rows about one session, whichever tables they sit in, and Postgres has no
+ * cross-table unique constraint to enforce that. What makes it correct across the
+ * set is the anchor lock (041 §4.2), under which every assignment happens; the
+ * per-table `UNIQUE (scan_session_id, session_seq)` index is the loud failure if
+ * that ever stops being true.
+ */
+export const SESSION_SEQ_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.filter((t) => t.sessionSeq).map(
+  (t) => t.table
+);

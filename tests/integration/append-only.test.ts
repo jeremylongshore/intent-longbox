@@ -161,6 +161,27 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // E02-B10: 040 §3.3's transition table. The declared list is what forced this
+      // recipe to be written in the same PR as the migration — which is the guard
+      // 041 §1 E11 asked for, working for the first time on a NEW table rather than
+      // catching three that had slipped through.
+      case "scan_session_transition": {
+        const r = await pool.query(
+          // `session_seq` is NOT NULL on this table (041 §5.3: strict on tables
+          // created after the record), so the recipe supplies it the way the real
+          // writer will — max+1 for the session. Safe inline here because these
+          // inserts are sequential; the concurrent case is proved in
+          // observation-envelope.test.ts under the anchor lock.
+          `INSERT INTO scan_session_transition
+             (shop_id, scan_session_id, kind, observed_state, reason, actor_role, session_seq)
+           VALUES ($1,$2,'parked','confirmed','second look','operator',
+                   (SELECT coalesce(max(session_seq),0)+1 FROM scan_session_transition
+                     WHERE scan_session_id = $2))
+           RETURNING id`,
+          [shopId, sessionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }

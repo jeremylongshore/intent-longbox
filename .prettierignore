@@ -12,3 +12,8 @@ LICENSE
 .claude/
 .codex/
 TEST_AUDIT.md
+# Generated, gated diagram output from the workflow-diagram-design skill (doc 045).
+# It is a rendered artifact, not authored source: reformatting it would change bytes
+# the skill's own gates signed off. Added by E02-B10 because it broke `pnpm lint`
+# on main, which is a required check this branch has to pass.
+.arch/

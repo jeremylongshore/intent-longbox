@@ -30,6 +30,13 @@ export default ts.config(
     },
   },
   {
+    // `.dependency-cruiser.cjs` is CommonJS by construction: dependency-cruiser
+    // loads it with `require`, so it ends in `module.exports` and lives outside the
+    // ESM surface every other file in this repo is in.
+    files: ["**/*.cjs"],
+    languageOptions: { sourceType: "commonjs", globals: { module: "writable", require: "readonly" } },
+  },
+  {
     files: ["tests/**/*.ts"],
     rules: {
       // Tests cast fake pools/providers across seams.

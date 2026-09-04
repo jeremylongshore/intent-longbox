@@ -182,6 +182,38 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      case "outbox": {
+        // The one command-shaped event self-references (043 §3.4), so the id is
+        // minted here rather than by the column default — an append-only table
+        // has no UPDATE with which to point a row at itself after the fact.
+        const id = randomUUID();
+        const r = await pool.query(
+          `INSERT INTO outbox
+             (id, shop_id, scan_session_id, session_seq, event, ref_table, ref_id, authored_by)
+           VALUES ($1,$2,$3,
+                   (SELECT coalesce(max(session_seq),0)+1 FROM outbox WHERE scan_session_id = $3),
+                   'longbox.commerce.draft_requested','outbox',$1,'human') RETURNING id`,
+          [id, shopId, sessionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "outbox_attempt": {
+        const id = randomUUID();
+        await pool.query(
+          `INSERT INTO outbox
+             (id, shop_id, scan_session_id, session_seq, event, ref_table, ref_id, authored_by)
+           VALUES ($1,$2,$3,
+                   (SELECT coalesce(max(session_seq),0)+1 FROM outbox WHERE scan_session_id = $3),
+                   'longbox.commerce.draft_requested','outbox',$1,'human')`,
+          [id, shopId, sessionId]
+        );
+        const r = await pool.query(
+          `INSERT INTO outbox_attempt (shop_id, outbox_id, attempt_no, kind, authored_by)
+           VALUES ($1,$2,1,'started','system') RETURNING id`,
+          [shopId, id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }

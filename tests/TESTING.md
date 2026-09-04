@@ -26,7 +26,7 @@ flaky.tolerance: 0/3runs
 L0: @intentsolutions/audit-harness@1.3.1 (devDep, hash manifest initialized)
 L1: husky@9 + lint-staged (pre-commit: lint-staged → typecheck → unit tests → escape-scan → verify; beads hooks chained)
 L2: eslint@10 flat config (typescript-eslint) + prettier@3 (pnpm lint / pnpm format:check, CI-enforced)
-L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers (pnpm test:coverage, CI-enforced)
+L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers + src/consumers (pnpm test:coverage, CI-enforced)
 L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, role separation, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
 L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price (dual sources: stub PriceCharting + stub eBay, one snapshot per source) → draft → drafted, stub Shopify client
 L6-bdd: features/scan-session.feature (engineer-owned template; no runner wired yet)
@@ -67,6 +67,28 @@ journeys.fully_covered: 0
 journeys.partial: 3 (scanning 6/7, reviewing-drafts 2/3, correcting 3/4; only build-closable P0 is R19)
 
 ## Operational notes (observational)
+
+### The coverage include gained `src/consumers/**` (E02-D07, 2026-09-04)
+
+The floor is unchanged at 80. What changed is its SCOPE: `src/consumers/` now
+counts alongside `src/services/` and `src/providers/`.
+
+It is not glue, which is the test the original scope comment applies. A job
+handler in that directory holds the fail-closed listing guard (043 §4.3, A3 —
+the most costly amendment in that record) and the draft-composition rules that
+019 T7 and locked decision 5 bind, and both are pure decisions a unit test
+reaches without a database. Leaving the directory outside the include would have
+meant the one function whose POLARITY the cannon inverted contributed nothing to
+the number anyone looks at.
+
+Measured after the change: **91.46% lines**, against the 80 floor.
+
+⚠ ONE STALE PHRASE IS DELIBERATELY NOT EDITED HERE. The policy line above still
+reads `coverage.line: 80 # scoped to src/services + src/providers`, and that
+comment is now one directory short. The value is the policy and it did not
+change; the scope phrase is a statement of fact that belongs to whoever owns the
+hash-pinned policy block, so it is flagged rather than quietly corrected by a
+build agent. Next `audit-tests` rebuild should pick it up.
 
 ### Running the integration lane locally with two database roles (E02-D06)
 

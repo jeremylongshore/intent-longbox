@@ -134,6 +134,21 @@ module.exports = {
           "^src/providers/",
           "^src/workers/ingest/",
           "^src/services/",
+          // DESIGN, NOT A DEFECT, and scoped by a rule of its own rather than
+          // waved through here (E02-D07, 043 §4.1). `src/consumers/` holds
+          // COMMERCE's outbox job handlers — and commerce is one of the three
+          // modules 029 §4 permits to import the provider seam, so this is the
+          // rule working, not an exception to it. The directory is commerce's
+          // code in the flat layout exactly as `src/services/` is resolution's
+          // and valuation's, and it moves under `src/modules/commerce/` with
+          // E02-B03 move 3, at which point this line and the `^src/services/`
+          // line above are deleted together.
+          //
+          // ⚠ The exemption is not a blank cheque: `consumers-provider-scope`
+          // below narrows it to the per-shop credential REGISTRY only. A vision
+          // or pricing adapter imported directly by a job handler is still an
+          // error, which is a tighter boundary than the flat exemption alone.
+          "^src/consumers/",
           // DECLARED DEFECT, kind=defect, closing bead E02-D08 `longbox-e5b.2.18` (029 §5 move 6, V1).
           // `src/routes/scanSessions.ts:14` imports `providers/registry.js` today. The
           // route is supposed to reach it behind workflow's public API; move 6 does
@@ -145,6 +160,23 @@ module.exports = {
         ],
       },
       to: { path: "^src/providers/" },
+    },
+
+    {
+      name: "consumers-provider-scope",
+      severity: "error",
+      comment:
+        "E02-D07 (043 §4.1): an outbox job handler may reach the per-shop credential " +
+        "REGISTRY and nothing else under src/providers/. The registry resolves " +
+        "`shop_credentials.key_ref` → env var (locked decision 2) and is the seam a " +
+        "handler legitimately needs to build a channel client. A vision or pricing " +
+        "adapter imported directly by a job handler means a commerce job grew a " +
+        "resolution or valuation concern — the same shape `ingest-worker-provider-scope` " +
+        "forbids one directory over. Written as its own rule rather than as a wider " +
+        "hole in `providers-are-contained`, so the boundary is stated and testable " +
+        "instead of merely absent.",
+      from: { path: "^src/consumers/" },
+      to: { path: "^src/providers/", pathNot: ["^src/providers/registry\\.ts$"] },
     },
 
     {

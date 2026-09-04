@@ -16,12 +16,12 @@ import {
   getSessionEvents,
   assignSessionSeq,
   insertHumanConfirmation,
-  insertShopifyDraft,
-  listSessionPhotos,
   lockScanSession,
   readConfirmationBaseline,
   setSessionStatus,
 } from "../services/scanSession.js";
+import { DRAFT_REQUESTED } from "../events/catalogue.js";
+import { enqueue } from "../services/outbox.js";
 import { runIdentify } from "../services/identify.js";
 import { GRADE_LABELS, validGradeRange } from "../services/condition.js";
 import { decideOutcome, topCandidateOf } from "../services/confirmationOutcome.js";
@@ -34,12 +34,6 @@ import {
 } from "../services/pricing.js";
 import { createEbayProvider, createStubEbayProvider } from "../services/ebay.js";
 import { priceWithProviders } from "../services/pricingService.js";
-import {
-  buildProductSetInput,
-  createShopifyClient,
-  createStubShopifyClient,
-  type ShopifyClient,
-} from "../services/shopify.js";
 
 /**
  * The error @fastify/multipart raises for an oversize file (its own
@@ -404,112 +398,102 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
     });
   });
 
+  /**
+   * `POST …/draft` NO LONGER CALLS SHOPIFY (043 §4.1, §9.1 rows 4 and 5).
+   *
+   * It runs its gates, appends `longbox.commerce.draft_requested` INSIDE the
+   * request transaction, and returns `202 Accepted` carrying the outbox row's
+   * id. A worker claims the row, calls `productSet` and records `shopify_draft`
+   * in its own transaction (`src/consumers/draftRequested.ts`).
+   *
+   * WHAT THIS CLOSES. Until this change, `createDraft` ran from the handler,
+   * outside and before the transaction that recorded it — so a success followed
+   * by any failure (the session deleted between the read and the anchor lock, a
+   * constraint, a dropped connection) left a real DRAFT product in a shop's
+   * store with NO `shopify_draft` row naming it. The old comment here said so
+   * and assigned the fix to this bead; that window is closed by the outbox, not
+   * by rearranging this handler, because a Shopify mutation cannot join a
+   * Postgres transaction and no arrangement of this code could have closed it.
+   *
+   * THE GATES DO NOT MOVE (043 §4.2). A missing confirmation or pricing snapshot
+   * still gets a 409 IMMEDIATELY: both are reads of the session, and 040 F6's
+   * condition gate and 040 G-c's retention hold will join them here rather than
+   * in the worker. What the caller stops getting is the 201-with-a-product-id.
+   *
+   * WHY THAT IS THE RIGHT TRADE FOR THE PERSON HOLDING THE BOOK (022 P4). An
+   * operator at a long box wants the next book, not a Shopify product id, and
+   * 019 T10's ≤90 s median is capture-to-draft. A draft that is OWED and RECORDED
+   * at the moment of the tap is a better answer than a request that blocks on a
+   * third party's latency. The one thing that must not degrade is honesty of the
+   * screen: the operator is told the listing is BEING CREATED, never that it
+   * exists — carried to E05 for the registered copy (043 §9.3).
+   *
+   * ⚠ WHAT IS DELIBERATELY NOT HERE. The full 202 DTO and its error codes are
+   * 042's contract and E02-B08's execution (043 §9.1 row 5); this route fixes
+   * only that the effect is asynchronous. `request_idempotency` is likewise
+   * E02-B08's — so a double tap enqueues a SECOND `draft_requested` (the command
+   * event self-references and so has a fresh unique key each time, 043 §3.4),
+   * and the second job is caught one layer later by the consumer's fail-closed
+   * guard, which refuses it and dead-letters `no_observation_evidence`. Slow, and
+   * correct (043 §12.2).
+   */
   app.post(`${base}/:id/draft`, async (req, reply) => {
     const params = sessionParams.safeParse(req.params);
     if (!params.success) return reply.code(400).send({ error: params.error.flatten() });
     const session = await getScanSession(db, params.data.shopId, params.data.id);
     if (!session) return reply.code(404).send({ error: "scan session not found" });
 
-    // Read the session's latest facts to compose the draft.
+    // The gates, as reads, before anything is owed. 042 registers both codes.
     const events = await getSessionEvents(db, session.shop_id, session.id);
     const confirmations = events.human_confirmation as
       Array<{ confirmed_issue: Record<string, unknown> }> | undefined;
-    const confirmation = confirmations?.[confirmations.length - 1];
-    if (!confirmation) return reply.code(409).send({ error: "session has no human confirmation yet" });
+    if (!confirmations?.length) {
+      return reply.code(409).send({ error: "session has no human confirmation yet" });
+    }
     const snapshots = events.pricing_snapshot as
       Array<{ suggested_cents: number; override_cents: number | null }> | undefined;
-    const snapshot = snapshots?.[snapshots.length - 1];
-    if (!snapshot) return reply.code(409).send({ error: "session has no pricing snapshot yet" });
-    const assessments = events.condition_assessment as
-      Array<{ grade_range_low: string; grade_range_high: string; defects: string[] }> | undefined;
-    const assessment = assessments?.[assessments.length - 1];
+    if (!snapshots?.length) {
+      return reply.code(409).send({ error: "session has no pricing snapshot yet" });
+    }
 
-    const issue = confirmation.confirmed_issue;
-    const title = [issue.title, issue.issue ? `#${issue.issue}` : null, issue.variant ?? null]
-      .filter(Boolean)
-      .join(" ");
-    const gradeCopy = assessment
-      ? `Condition: ${assessment.grade_range_low === assessment.grade_range_high ? assessment.grade_range_low : `${assessment.grade_range_low}-${assessment.grade_range_high}`}${assessment.defects.length ? `. Noted: ${assessment.defects.join(", ").replace(/_/g, " ")}` : ""}`
-      : "";
-    const priceCents = snapshot.override_cents ?? snapshot.suggested_cents;
-
-    const photos = await listSessionPhotos(db, session.shop_id, session.id);
-    const imageUrls = photos.filter((p) => p.kind === "cover").map((p) => `/${p.storage_url}`);
-
-    // Per-shop Shopify config object; stub until store creds exist.
-    const shopRow = await requireShop(db, session.shop_id);
-    const adminToken = await resolveShopToken(db, session.shop_id, "shopify", "SHOPIFY_ADMIN_TOKEN");
-    const storeDomain = shopRow?.shopify_domain ?? process.env.SHOPIFY_STORE_DOMAIN;
-    const client: ShopifyClient =
-      adminToken && storeDomain
-        ? createShopifyClient({
-            storeDomain,
-            adminToken,
-            apiVersion: process.env.SHOPIFY_API_VERSION ?? "2025-07",
-          })
-        : createStubShopifyClient();
-
-    const draftInput = {
-      title: title || "Unidentified comic",
-      descriptionHtml: `<p>${[issue.publisher, issue.year].filter(Boolean).join(", ")}</p><p>${gradeCopy}</p>`,
-      priceCents,
-      imageUrls,
-    };
-    // The external call happens FIRST and OUTSIDE the transaction, and that
-    // ordering is correct and must be preserved (041 §4.1, I13): a provider call
-    // inside `fn` would be re-executed by the retry and could not be rolled back.
-    //
-    // ⚠ THE FAILURE MODE THIS LEAVES OPEN, named rather than implied: if this
-    // call SUCCEEDS and the transaction below then fails — the session was
-    // deleted between the read above and the anchor lock (the 404 return), a
-    // constraint trips, the connection drops — a real DRAFT product exists in
-    // Shopify with NO `shopify_draft` row recording it. A Shopify mutation
-    // cannot join a Postgres transaction, so no arrangement of this code closes
-    // it; 041 §8.2 states the shape ("the non-transactional side goes first and
-    // the transactional side is the record of it") and the reconciliation is
-    // **E02-B09's transactional outbox** (041:788), which owns it. The window is
-    // not introduced here — before this change the same gap sat between the
-    // INSERT and the status write, and was wider.
-    const result = await client.createDraft(draftInput);
-
-    // 041 §4.4 order 1 — the largest half-written chain in the tree becomes one
-    // commit: the shopify_draft INSERT and the status write land together under
-    // the anchor lock, so a failure between them can no longer leave a session
-    // reading `drafted` with no draft row (or the reverse). This is the path
-    // that unblocks 040's four ⛔ items and I14.
-    //
-    // The hold check (G-c) and the copy binding (G-d / D1) are NOT read here —
-    // `retention_hold` has no placement route and `listing_link` is unwritten.
-    // What this bead supplies is the lock they will both be read under: 041
-    // §4.2 decides that the hold-placement path takes this same
-    // `scan_session FOR UPDATE`, and the integration test proves the blocking
-    // and its negative. Wiring the hold route, the idempotency row and the 409
-    // is E02-B08 / E03's execution, not this bead's.
-    const draft = await withTransaction(
+    // 041 §4.4 order 1, now in its final shape: the anchor lock and the outbox
+    // append are one commit, and there is NO side effect inside `fn` at all —
+    // not merely none that could be retried. 041 §4.1's rule ("`fn` performs no
+    // side effect outside the transaction. No provider call, no Shopify
+    // mutation, no file write") stops being a constraint this handler works
+    // around and becomes a description of what it does.
+    const enqueued = await withTransaction(
       db,
       async (tx) => {
         const locked = await lockScanSession(tx, session.shop_id, session.id);
         if (!locked) return undefined;
-        // 041 §5.3, same seam as the confirm path: assigned under the anchor lock.
+        // 041 §5.3, the same seam E02-B10 wired into the confirm path, and the
+        // outbox is the one place it does more than bookkeeping: 043 §3.2
+        // promises that WITHIN ONE SESSION events are delivered in `session_seq`
+        // order, and 043 §7.2's claim query sorts by it. Assigned here, under the
+        // anchor lock this transaction already holds, because that lock is what
+        // makes `max + 1` atomic — called without it, it is a race.
         const sessionSeq = await assignSessionSeq(tx, session.shop_id, session.id);
-        const row = await insertShopifyDraft(tx, {
-          sessionId: session.id,
+        return enqueue(tx, {
           shopId: session.shop_id,
-          productGid: result.productGid ?? null,
-          status: result.ok ? "draft" : "failed",
-          error: result.ok ? null : JSON.stringify(result.error ?? `status ${result.status}`),
+          event: DRAFT_REQUESTED,
+          scanSessionId: session.id,
           sessionSeq,
+          // A person tapped the button, and nothing verified who: 041 §2.3's
+          // `authored_by` says a human decided it and `actor_verified` (false by
+          // default) says nobody checked. Recording it as a system act would be
+          // the cheaper lie.
+          authoredBy: "human",
         });
-        if (result.ok) await setSessionStatus(tx, session.shop_id, session.id, "drafted");
-        return row;
       },
-      { label: "draft" }
+      { label: "draft-enqueue" }
     );
-    if (!draft) return reply.code(404).send({ error: "scan session not found" });
-    return reply.code(result.ok ? 201 : 502).send({
-      draft,
-      stub: !(adminToken && storeDomain),
-      product_set_input: buildProductSetInput(draftInput),
+    if (!enqueued) return reply.code(404).send({ error: "scan session not found" });
+
+    return reply.code(202).send({
+      status: "accepted",
+      outbox_id: enqueued.id,
+      already_requested: enqueued.alreadyEnqueued,
     });
   });
 }

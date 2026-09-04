@@ -34,6 +34,13 @@ const dbUp = await probeDb();
 const SNAPSHOTS = [
   { name: "003", file: "tests/fixtures/schema/after-003.sql", applied: 3 },
   { name: "006", file: "tests/fixtures/schema/after-006.sql", applied: 6 },
+  // E02-D07: added because 011/012 pushed HEAD four past `006` and the assertion
+  // at the foot of this file is the reminder E02-B10 left for exactly this
+  // moment — "when a future bead ships 011, add the 010 fixture rather than keep
+  // testing an ever-older upgrade". An upgrade test whose starting point drifts
+  // ever further from the shape anyone actually deploys stops testing an upgrade
+  // and starts testing archaeology.
+  { name: "010", file: "tests/fixtures/schema/after-010.sql", applied: 10 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -160,12 +167,19 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
   });
 
   it("covers the newest released schema, so the fixture set cannot silently go stale", () => {
-    // The `006` fixture must remain the LAST snapshot before this bead's own
-    // migrations. When a future bead ships `011`, this assertion is the reminder to
-    // add the `010` fixture rather than to keep testing an ever-older upgrade.
+    // The newest fixture must stay within four migrations of head. E02-B10 wrote
+    // this assertion with `006` as the newest and said in so many words that
+    // shipping `011` was the moment to add `010`; E02-D07 shipped `011`/`012` and
+    // added it. The next bead to push head past `014` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");
     expect(trigger?.since).toBe("010_scan_session_transition.sql");
+    // And the outbox's own tables are declared against the migration that
+    // created them, which is what makes the `011` half of this upgrade real
+    // rather than assumed.
+    for (const table of ["outbox", "outbox_attempt"]) {
+      expect(APPEND_ONLY_TABLES.find((t) => t.table === table)?.since).toBe("011_outbox.sql");
+    }
   });
 });

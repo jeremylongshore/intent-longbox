@@ -14,11 +14,25 @@ const cfg = {
   apiVersion: "2026-01",
 };
 
+// A DELIBERATELY LOW-ENTROPY fixture id, matching the style of every other
+// fixture UUID in the suite. The first version of this line was a
+// realistic-looking random UUID and gitleaks' `generic-api-key` rule flagged
+// it (entropy 3.99) — correctly, in the sense that a scanner cannot tell a
+// copy key from a credential by looking. The fix is the fixture, not the
+// scanner: `.gitleaks.toml`'s allowlist is deliberately narrow ("fixture
+// values are always prefixed test- so a real key can never hide behind
+// this"), and widening it to admit arbitrary high-entropy strings in tests
+// would buy one green check at the cost of the property that makes the
+// allowlist safe. A fixture that cannot be mistaken for a secret is also a
+// fixture no reader has to ask about.
+const COPY_KEY = "9b1c2d3e-0000-4000-8000-000000000266";
+
 const draft: DraftProductInput = {
   title: "Uncanny X-Men #266 Newsstand",
   descriptionHtml: "<p>Marvel, 1990</p><p>Condition: FN-VF. Noted: spine ticks</p>",
   priceCents: 4750,
   imageUrls: ["/uploads/9b1c/1725292800000-cover.jpg", "/uploads/9b1c/1725292805000-cover.png"],
+  copyKey: COPY_KEY,
 };
 
 // Recorded-shape fixtures (Shopify Admin GraphQL 2026-01 response envelope).
@@ -73,7 +87,10 @@ function sentRequest(spy: ReturnType<typeof captureFetch>) {
     url,
     init,
     headers: init.headers as Record<string, string>,
-    body: JSON.parse(init.body as string) as { query: string; variables: { input: Record<string, unknown> } },
+    body: JSON.parse(init.body as string) as {
+      query: string;
+      variables: { identifier: Record<string, unknown>; input: Record<string, unknown> };
+    },
   };
 }
 
@@ -99,11 +116,29 @@ describe("Shopify productSet — outgoing request contract", () => {
     const spy = captureFetch(RECORDED_SUCCESS);
     await createShopifyClient(cfg).createDraft(draft);
     const { body } = sentRequest(spy);
-    expect(body.query.startsWith("mutation productSet($input: ProductSetInput!)")).toBe(true);
-    expect(body.query).toContain("productSet(input: $input)");
+    expect(
+      body.query.startsWith(
+        "mutation productSet($identifier: ProductSetIdentifiers, $input: ProductSetInput!)"
+      )
+    ).toBe(true);
+    expect(body.query).toContain("productSet(identifier: $identifier, input: $input)");
     expect(body.query).toContain("product { id status }");
     expect(body.query).toContain("userErrors { field message }");
     expect(Object.keys(body)).toEqual(["query", "variables"]);
+  });
+
+  // 043 §4.3 / §11 I7. Shopify's Admin GraphQL API provides NO idempotency-key
+  // mechanism for productSet — the mutation takes `identifier`, `input` and
+  // `synchronous`, and nothing else. What it offers instead is an UPSERT on a
+  // caller-chosen key, which is a stronger guarantee than a retry token because
+  // it survives a RESTORE as well as a retry (043 §8.2: 24 h RPO, no PITR).
+  it("carries the Longbox-owned customId identifier, so a retry upserts instead of duplicating", async () => {
+    const spy = captureFetch(RECORDED_SUCCESS);
+    await createShopifyClient(cfg).createDraft(draft);
+    const { body } = sentRequest(spy);
+    expect(body.variables.identifier).toEqual({
+      customId: { namespace: "longbox", key: "copy", value: COPY_KEY },
+    });
   });
 
   it("sends exactly the ProductSetInput fields the code sets, with status DRAFT", async () => {
@@ -111,6 +146,7 @@ describe("Shopify productSet — outgoing request contract", () => {
     await createShopifyClient(cfg).createDraft(draft);
     const { body } = sentRequest(spy);
     expect(body.variables).toEqual({
+      identifier: { customId: { namespace: "longbox", key: "copy", value: COPY_KEY } },
       input: {
         title: "Uncanny X-Men #266 Newsstand",
         descriptionHtml: "<p>Marvel, 1990</p><p>Condition: FN-VF. Noted: spine ticks</p>",
@@ -133,6 +169,7 @@ describe("Shopify productSet — outgoing request contract", () => {
       descriptionHtml: "<p></p>",
       priceCents: 5,
       imageUrls: [],
+      copyKey: COPY_KEY,
     });
     const { body } = sentRequest(spy);
     expect(body.variables.input.status).toBe("DRAFT");
@@ -167,6 +204,10 @@ describe("Shopify productSet — recorded response parsing", () => {
       ok: false,
       status: 200,
       error: [{ field: ["input", "title"], message: "Title can't be blank" }],
+      // 043 §5.2: a userErrors entry will fail identically forever, so it is
+      // dead-lettered on the first attempt with no backoff. The classification
+      // already lived in this client; E02-D07 gives it a consequence.
+      permanent: true,
     });
     expect(result).not.toHaveProperty("productGid");
   });

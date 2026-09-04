@@ -239,6 +239,33 @@ export interface ShopifyDraftRow {
   created_at: string;
 }
 
+/**
+ * `outboxId` is the job that wrote this row, or null when a request did
+ * (043 §8.1's one-meaning rule applied to a second column; migration 011 §4).
+ *
+ * `sessionSeq` comes from `assignSessionSeq` under the anchor lock. Since
+ * E02-D07 the only caller is the `draft_requested` JOB, which therefore takes
+ * that lock in its own recording transaction — see the note there on why one
+ * lock in one transaction does not contend with 043 §7.2's outbox-first rule.
+ *
+ * IDEMPOTENT BY CONSTRAINT, NOT BY A READ-THEN-WRITE CHECK (043 §3.2, §11
+ * I5(b)). The partial `UNIQUE (outbox_id) WHERE outbox_id IS NOT NULL` index is
+ * what makes the `draft_requested` consumer correct under CONCURRENT duplicate
+ * delivery, and `ON CONFLICT … DO NOTHING` is how this statement uses it: two
+ * workers delivering one event at the same instant produce ONE row, and the
+ * loser gets `undefined` rather than an exception to interpret.
+ *
+ * **`undefined` therefore means "another delivery of this same job already
+ * recorded it", and it means nothing else** — the conflict target is the job id,
+ * so nothing but a duplicate delivery can reach it. A caller that treats it as a
+ * failure is wrong: the effect it owed has happened, and 043 §4.3's `customId`
+ * upsert already guaranteed both calls resolved to ONE Shopify product.
+ *
+ * A `SELECT … then INSERT` here would be correct one-after-the-other and broken
+ * at the same instant — the interleaving at-least-once delivery plus
+ * `SKIP LOCKED` plus the visibility window makes reachable, and the one a test
+ * that delivers twice in sequence would never catch.
+ */
 export async function insertShopifyDraft(
   tx: Tx,
   args: {
@@ -249,14 +276,78 @@ export async function insertShopifyDraft(
     error: string | null;
     /** 041 §5.3 — from `assignSessionSeq`, under the anchor lock this `tx` holds. */
     sessionSeq: number;
+    /**
+     * The outbox job that wrote this row, or null/omitted when a request did
+     * (043 §8.1's one-meaning rule applied to a second column; migration 011).
+     */
+    outboxId?: string | null;
   }
-): Promise<ShopifyDraftRow> {
+): Promise<ShopifyDraftRow | undefined> {
   const res = await tx.query(
-    `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, error, session_seq)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, product_gid, status, created_at, session_seq`,
-    [args.sessionId, args.shopId, args.productGid, args.status, args.error, args.sessionSeq]
+    `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, error, session_seq, outbox_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (outbox_id) WHERE outbox_id IS NOT NULL DO NOTHING
+     RETURNING id, product_gid, status, created_at, session_seq`,
+    [
+      args.sessionId,
+      args.shopId,
+      args.productGid,
+      args.status,
+      args.error,
+      args.sessionSeq,
+      args.outboxId ?? null,
+    ]
   );
-  return res.rows[0] as ShopifyDraftRow;
+  return res.rows[0] as ShopifyDraftRow | undefined;
+}
+
+/**
+ * The facts the `draft_requested` job needs, read on the pool at job time.
+ *
+ * Deliberately NOT read from `getSessionEvents`: that helper returns every row
+ * of seven tables so a GET can render a trail, and a job that pulled all of it
+ * to use three rows would make the read cost grow with the session's history.
+ */
+export async function readDraftFacts(
+  db: Queryable,
+  shopId: string,
+  sessionId: string
+): Promise<{
+  confirmedIssue: Record<string, unknown> | undefined;
+  pricing: { suggested_cents: number; override_cents: number | null } | undefined;
+  assessment: { grade_range_low: string; grade_range_high: string; defects: string[] } | undefined;
+  coverUrls: string[];
+}> {
+  const [confirmation, pricing, assessment, photos] = await Promise.all([
+    db.query(
+      `SELECT confirmed_issue FROM human_confirmation
+        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [sessionId, shopId]
+    ),
+    db.query(
+      `SELECT suggested_cents, override_cents FROM pricing_snapshot
+        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [sessionId, shopId]
+    ),
+    db.query(
+      `SELECT grade_range_low, grade_range_high, defects FROM condition_assessment
+        WHERE scan_session_id = $1 AND shop_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [sessionId, shopId]
+    ),
+    db.query(
+      `SELECT storage_url FROM scan_photo
+        WHERE scan_session_id = $1 AND shop_id = $2 AND kind = 'cover' ORDER BY taken_at`,
+      [sessionId, shopId]
+    ),
+  ]);
+  return {
+    confirmedIssue: (confirmation.rows[0] as { confirmed_issue: Record<string, unknown> } | undefined)
+      ?.confirmed_issue,
+    pricing: pricing.rows[0] as { suggested_cents: number; override_cents: number | null } | undefined,
+    assessment: assessment.rows[0] as
+      { grade_range_low: string; grade_range_high: string; defects: string[] } | undefined,
+    coverUrls: (photos.rows as Array<{ storage_url: string }>).map((p) => `/${p.storage_url}`),
+  };
 }
 
 /** Fetch the full event trail for a session (read model for GET). */

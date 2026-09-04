@@ -4,6 +4,8 @@ import { getPool } from "./db.js";
 import { buildApp } from "./app.js";
 import { assertAppendOnlyTriggersOrThrow, scheduleAppendOnlyCheck } from "./services/appendOnlyDetector.js";
 import { assertRoleSeparationOrThrow } from "./services/roleSeparation.js";
+import { loadOutboxParams, startOutboxPoller } from "./services/outbox.js";
+import { buildConsumerRegistry } from "./consumers/index.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -24,6 +26,17 @@ async function main(): Promise<void> {
   await assertAppendOnlyTriggersOrThrow(db);
   const app = await buildApp(db, config);
   scheduleAppendOnlyCheck(db, app.log);
+  // ONE POLLER PER PROCESS (043 §7.1), started AFTER both fail-closed checks
+  // above and given the same shape as the detector beside it: an unref'd
+  // setInterval returning a stop function. Ordered after them deliberately — a
+  // worker that drained the queue while the append-only guarantee was off would
+  // be performing irreversible external effects and appending attempt rows that
+  // something could edit behind it.
+  //
+  // Two processes are safe by construction: each one's claim transaction takes
+  // `FOR UPDATE … SKIP LOCKED`, so the second skips rows the first holds. No
+  // lease table, no worker registry, no leader election (043 §7.2).
+  startOutboxPoller(db, buildConsumerRegistry(), loadOutboxParams(), app.log);
   await app.listen({ port: config.port, host: "0.0.0.0" });
 }
 

@@ -321,13 +321,26 @@ $("price-btn").onclick = async () => {
   show("draft-section");
 };
 
+// The draft is now a JOB, not a call this request waits on (043 §4.1, §4.2).
+// The server answers 202 with the id of the queued work; a worker performs the
+// Shopify mutation afterwards.
+//
+// THE COPY SAYS "BEING CREATED", NEVER "CREATED". 043 §4.2 is explicit that the
+// one thing which must not degrade when the effect goes asynchronous is honesty
+// of the screen: the operator is told the listing is being created and never
+// that it exists, because at this moment it does not. This is the minimal
+// truthful wording; the REGISTERED copy is E05's under 021's T26 pre-send step
+// (043 §9.3), and this is not it.
+//
+// 022 P4 is the reason the trade is acceptable rather than an obstacle to it: an
+// operator at a long box wants the next book, not a Shopify product id.
 $("draft-btn").onclick = async () => {
-  status("Creating Shopify draft…");
+  status("Requesting the listing…");
   const res = await fetch(api(`/scan-sessions/${sessionId}/draft`), { method: "POST" });
   const data = await res.json();
-  if (!res.ok) return status(`draft failed: ${JSON.stringify(data)}`);
+  if (!res.ok) return status(`draft request failed: ${JSON.stringify(data)}`);
   $("draft-result").textContent =
-    `DRAFT created: ${data.draft.product_gid}${data.stub ? " (STUB — no Shopify creds)" : ""}`;
+    "Requested. The listing is being created — it will appear in Shopify as a draft for the owner to review.";
   status("Done. Start another scan when ready.");
 };
 

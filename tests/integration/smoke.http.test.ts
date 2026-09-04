@@ -1,12 +1,22 @@
 // L6 smoke: one pass through the real HTTP app (fastify inject) with stub
 // clients — register shop → create session → confirm → condition → price →
-// draft → GET shows drafted. Stub Shopify/PriceCharting/eBay engage
-// automatically because no creds are configured (R11, R12, R14 DRAFT status).
+// draft → drain the outbox → GET shows drafted. Stub Shopify/PriceCharting/eBay
+// engage automatically because no creds are configured (R11, R12, R14 DRAFT
+// status).
+//
+// ⚠ THE DRAFT STEP IS ASYNCHRONOUS SINCE E02-D07 (043 §4.1, §4.2). `POST …/draft`
+// no longer calls Shopify: it appends `longbox.commerce.draft_requested` inside
+// the request transaction and answers **202** with the outbox row's id. So this
+// smoke test now drains one cycle explicitly, which is also what makes it
+// deterministic — the server's poller is a timer, and a smoke test that slept
+// waiting for one would be a smoke test that flakes on a slow machine.
 import { mkdirSync, rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
+import { buildConsumerRegistry } from "../../src/consumers/index.js";
+import { DEFAULT_OUTBOX_PARAMS, drainOnce } from "../../src/services/outbox.js";
 import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
@@ -122,14 +132,25 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
       expect(s.comps_count).toBe(0);
     }
 
-    // Draft: stub Shopify client returns a fake GID; status lands as draft.
+    // Draft: the request OWES the effect and returns 202 with the outbox id.
+    // Nothing has touched Shopify at this point, which is the whole change: the
+    // orphaned-draft window (a real DRAFT product with no shopify_draft row)
+    // cannot open, because the external call has not happened yet.
     const draft = await app.inject({ method: "POST", url: `${base}/${sessionId}/draft` });
-    expect(draft.statusCode).toBe(201);
-    expect(draft.json().stub).toBe(true);
-    expect(draft.json().draft.status).toBe("draft");
-    expect(draft.json().draft.product_gid).toMatch(/^gid:\/\/shopify\/Product\/stub-/);
-    // The productSet payload is DRAFT-only — nothing publishes without a human.
-    expect(draft.json().product_set_input.input.status).toBe("DRAFT");
+    expect(draft.statusCode).toBe(202);
+    expect(draft.json().status).toBe("accepted");
+    expect(draft.json().outbox_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(draft.json().already_requested).toBe(false);
+
+    // The listing does not exist yet, and the session does not claim it does.
+    const midway = await app.inject({ method: "GET", url: `${base}/${sessionId}` });
+    expect(midway.json().events.shopify_draft).toHaveLength(0);
+    expect(midway.json().session.status).not.toBe("drafted");
+
+    // One drain cycle: the worker claims the row, calls the STUB Shopify client
+    // (no creds configured), and records shopify_draft in its own transaction.
+    const drained = await drainOnce(pool, buildConsumerRegistry(), DEFAULT_OUTBOX_PARAMS, { shopId });
+    expect(drained).toMatchObject({ claimed: 1, delivered: 1, failed: 0, deadLettered: 0 });
 
     // GET shows the drafted session with its full event trail.
     const final = await app.inject({ method: "GET", url: `${base}/${sessionId}` });
@@ -140,6 +161,10 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     expect(body.events.condition_assessment).toHaveLength(1);
     expect(body.events.pricing_snapshot).toHaveLength(2); // one row per pricing source
     expect(body.events.shopify_draft).toHaveLength(1);
+    // The stub's GID is derived from the copy key, not the clock, so a retry
+    // against it behaves like the upsert it stands in for (043 §4.3).
+    expect(body.events.shopify_draft[0].product_gid).toMatch(/^gid:\/\/shopify\/Product\/stub-/);
+    expect(body.events.shopify_draft[0].outbox_id).toBe(draft.json().outbox_id);
   });
 
   it("guards the edges: unknown shop 404s, draft without confirmation 409s", async () => {

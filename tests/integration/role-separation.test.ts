@@ -25,7 +25,8 @@ import {
   superuserUrl,
 } from "./helpers.js";
 import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLE_NAMES } from "../../src/db/appendOnlyTables.js";
-import { NO_APP_GRANT_TABLE_NAMES } from "../../src/db/appRoleGrants.js";
+import { APP_LOCKABLE_TABLE_NAMES, NO_APP_GRANT_TABLE_NAMES } from "../../src/db/appRoleGrants.js";
+import { createScanSession } from "../../src/services/scanSession.js";
 import { checkRoleSeparation, assertRoleSeparationOrThrow } from "../../src/services/roleSeparation.js";
 
 const dbUp = await probeDb();
@@ -197,11 +198,57 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
   it("every append-only table grants the app role exactly SELECT and INSERT", async () => {
     const grants = await privilegesByTable(ownerPool);
     for (const table of APPEND_ONLY_TABLE_NAMES) {
+      if (APP_LOCKABLE_TABLE_NAMES.includes(table)) continue; // asserted separately below
       expect({ table, privileges: grants.get(table) }).toEqual({
         table,
         privileges: ["INSERT", "SELECT"],
       });
     }
+  });
+
+  // ⚠ THE ONE EXCEPTION, AND IT IS A DECLARED ROW RATHER THAN A LEAK (E02-D07).
+  //
+  // PostgreSQL puts `SELECT … FOR UPDATE` under the UPDATE privilege, so a table
+  // on the uniform SELECT+INSERT grant cannot be row-locked by the application
+  // at all — reproduced on postgres:16 in src/db/appendOnlyTables.ts's
+  // `appLockable` comment. 043 §7.2 ratifies `FOR UPDATE … SKIP LOCKED` as the
+  // outbox's claim mechanism and 043 §7.3 ratifies that the worker uses THIS
+  // SAME non-owner role rather than a third privileged principal, so the two
+  // decisions together require the privilege.
+  //
+  // The guarantee was never the grant. The next test proves the ENABLE ALWAYS
+  // trigger still refuses an actual UPDATE *while the privilege is held*, which
+  // is a stronger assertion than the loop above ever made.
+  it("a DECLARED row-lockable append-only table also grants UPDATE, and nothing else", async () => {
+    const grants = await privilegesByTable(ownerPool);
+    expect(APP_LOCKABLE_TABLE_NAMES.length).toBeGreaterThan(0);
+    for (const table of APP_LOCKABLE_TABLE_NAMES) {
+      expect({ table, privileges: grants.get(table) }).toEqual({
+        table,
+        privileges: ["INSERT", "SELECT", "UPDATE"],
+      });
+    }
+  });
+
+  it("the app role can TAKE the row lock but the trigger still refuses the UPDATE", async () => {
+    // Both halves in one test, because either alone is misleading: the privilege
+    // without the trigger would be a hole, and the trigger without the privilege
+    // would mean the outbox runtime cannot run as the least-privileged role.
+    // 041 §9.2 item 1's ranking, made concrete: a trigger does not consult
+    // privileges.
+    const sessionId = (await createScanSession(ownerPool, shopId, "employee")).id;
+    const outboxId = randomUUID();
+    await ownerPool.query(
+      `INSERT INTO outbox (id, shop_id, scan_session_id, event, ref_table, ref_id, authored_by)
+       VALUES ($1,$2,$3,'longbox.commerce.draft_requested','outbox',$1,'human')`,
+      [outboxId, shopId, sessionId]
+    );
+    await expect(
+      appPool.query(`SELECT id FROM outbox WHERE id = $1 FOR UPDATE SKIP LOCKED`, [outboxId])
+    ).resolves.toBeDefined();
+    await expect(appPool.query(`UPDATE outbox SET event = 'x' WHERE id = $1`, [outboxId])).rejects.toThrow(
+      /append-only/
+    );
   });
 
   it("every declared-exempt table present in the schema grants full DML", async () => {

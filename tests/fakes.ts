@@ -1,6 +1,7 @@
 // Shared unit-test fakes. The pg.Pool seam is the only thing faked — the
 // function under test is always the real implementation.
 import type pg from "pg";
+import type { DraftProductInput, ShopifyClient, ShopifyDraftResult } from "../src/services/shopify.js";
 
 export interface QueryCall {
   text: string;
@@ -55,6 +56,18 @@ export function fakeTxPool(
   const calls: QueryCall[] = [];
   const clients: FakeTxPool["clients"] = [];
   const pool = {
+    // A real `pg.Pool` answers BOTH `connect()` and `query()`, and code under
+    // test legitimately uses both: the outbox claim takes a held connection
+    // (043 A1) while the attempt writer runs on the pool. A fake that offered
+    // only `connect` would force a test to prove the transactional half against
+    // one seam and the non-transactional half against another, which is how two
+    // fakes start to disagree about the same pool. Pool-level statements land in
+    // `calls` and in no client, which is itself the observable difference.
+    async query(text: string, values?: unknown[]) {
+      const call = { text, values };
+      calls.push(call);
+      return handler(text, values) ?? { rows: [] };
+    },
     async connect() {
       const entry = { released: false, releasedWith: undefined as unknown, calls: [] as QueryCall[] };
       clients.push(entry);
@@ -80,6 +93,58 @@ export function pgError(code: string, message = `simulated ${code}`): Error & { 
   const err = new Error(message) as Error & { code: string };
   err.code = code;
   return err;
+}
+
+/**
+ * A fake `ShopifyClient` that behaves like `productSet`'s `customId` UPSERT:
+ * one product per copy key, however many times it is called.
+ *
+ * THIS IS THE PROVIDER SEAM, NOT THE FUNCTION UNDER TEST. The consumer, the
+ * fail-closed guard, the recording transaction and the unique constraint are all
+ * the real implementations; only the HTTP call to somebody else's server is
+ * replaced — which is the one thing an integration test cannot make and must not
+ * pretend to.
+ *
+ * IT MODELS THE UPSERT RATHER THAN A COUNTER, deliberately. 043 §4.3's safety
+ * property is that a second `productSet` with the same `customId` returns the
+ * SAME product, and a fake whose id moved every call would let a retry test pass
+ * against the fake while the equivalent real call duplicated. ⚠ Whether Shopify
+ * really behaves this way IMMEDIATELY after a create is 043 A11's OPEN
+ * assumption, closed by a dev-store measurement and not by this fake — see
+ * `tests/integration/shopify-customid-consistency.test.ts`.
+ */
+export function fakeShopifyClient(
+  opts: { fail?: { status: number; permanent?: boolean }; onCall?: (copyKey: string) => void } = {}
+): {
+  client: ShopifyClient;
+  /** Every copy key the consumer asked for, in order. */
+  calls: string[];
+  /** The "store": copy key → product GID. Its SIZE is the duplicate-product count. */
+  products: Map<string, string>;
+} {
+  const calls: string[] = [];
+  const products = new Map<string, string>();
+  return {
+    calls,
+    products,
+    client: {
+      async createDraft(input: DraftProductInput): Promise<ShopifyDraftResult> {
+        calls.push(input.copyKey);
+        opts.onCall?.(input.copyKey);
+        if (opts.fail) {
+          return {
+            ok: false,
+            status: opts.fail.status,
+            ...(opts.fail.permanent === true ? { permanent: true } : {}),
+          };
+        }
+        if (!products.has(input.copyKey)) {
+          products.set(input.copyKey, `gid://shopify/Product/${products.size + 1}`);
+        }
+        return { ok: true, status: 200, productGid: products.get(input.copyKey)! };
+      },
+    },
+  };
 }
 
 /** Minimal Response-like object for stubbing global fetch. */

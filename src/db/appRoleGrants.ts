@@ -36,10 +36,39 @@
 // indistinguishable from an oversight (the reasoning `appendOnlyTables.ts` gives
 // for exemptions being rows); the same rule applies to privileges.
 
-import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLE_NAMES } from "./appendOnlyTables.js";
+import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLE_NAMES, APPEND_ONLY_TABLES } from "./appendOnlyTables.js";
 
 /** Privileges an append-only table grants the app role: append and read, never edit. */
 export const APPEND_ONLY_PRIVILEGES = "SELECT, INSERT";
+
+/**
+ * The extra privilege a ROW-LOCKABLE append-only table needs (E02-D07).
+ *
+ * PostgreSQL's GRANT documentation puts `SELECT … FOR UPDATE` under the UPDATE
+ * privilege, so a table on the uniform `SELECT, INSERT` grant cannot be
+ * row-locked by the application at all — reproduced on postgres:16 in
+ * `appendOnlyTables.ts`'s `appLockable` comment. 043 §7.2's claim mechanism is
+ * `FOR UPDATE … SKIP LOCKED` and 043 §7.3 ratifies that the worker uses this
+ * same non-owner role, so the privilege is required by two ratified decisions
+ * together.
+ *
+ * IT IS NOT A HOLE IN THE APPEND-ONLY MODEL, and the reason is 041 §9.2 item 1's
+ * ranking: enforcement is the `ENABLE ALWAYS` `forbid_mutation()` trigger, and a
+ * trigger does not consult privileges. With UPDATE granted, `UPDATE outbox …` is
+ * still refused — by the trigger, at the database, in every replication role.
+ * The grant layer was never the guarantee; it is defence in depth, and this row
+ * says exactly which table trades a little of that depth and for which
+ * mechanism.
+ */
+export const ROW_LOCK_PRIVILEGE = "UPDATE";
+
+/**
+ * Append-only tables the application must be able to row-lock, as a DECLARED
+ * list rather than a special case inside the grant builder.
+ */
+export const APP_LOCKABLE_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.filter(
+  (t) => t.appLockable === true
+).map((t) => t.table);
 
 /** Privileges a declared-exempt (deliberately mutable) table grants the app role. */
 export const MUTABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE";
@@ -153,6 +182,13 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
   ];
   if (plan.appendOnly.length > 0) {
     statements.push(`GRANT ${APPEND_ONLY_PRIVILEGES} ON ${plan.appendOnly.join(", ")} TO ${role}`);
+  }
+  // The row-lock privilege, granted to the declared subset and to nothing else.
+  // Derived from the same list every other reader uses, so a table cannot
+  // acquire it by being edited here.
+  const lockable = plan.appendOnly.filter((t) => APP_LOCKABLE_TABLE_NAMES.includes(t));
+  if (lockable.length > 0) {
+    statements.push(`GRANT ${ROW_LOCK_PRIVILEGE} ON ${lockable.join(", ")} TO ${role}`);
   }
   if (plan.mutable.length > 0) {
     statements.push(`GRANT ${MUTABLE_PRIVILEGES} ON ${plan.mutable.join(", ")} TO ${role}`);

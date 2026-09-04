@@ -130,6 +130,8 @@ describe("runIdentify", () => {
       1000,
       500,
       out.costUsd,
+      // outbox_id: null — a REQUEST spent this, not a job (043 §8.1, 030 A1).
+      null,
     ]);
 
     const rerankInsert = calls.find((c) => c.text.includes("INSERT INTO llm_rerank"));

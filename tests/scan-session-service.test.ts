@@ -12,6 +12,7 @@ import {
   listSessionPhotos,
   lockScanSession,
   readConfirmationBaseline,
+  readDraftFacts,
   setSessionStatus,
 } from "../src/services/scanSession.js";
 import { fakePool } from "./fakes.js";
@@ -151,6 +152,49 @@ describe("insertHumanConfirmation", () => {
   });
 });
 
+describe("readDraftFacts", () => {
+  // The `draft_requested` job's read. Deliberately NOT getSessionEvents: that
+  // helper returns every row of seven tables so a GET can render a trail, and a
+  // job that pulled all of it to use three rows would make the read cost grow
+  // with the session's history.
+  it("reads the NEWEST confirmation, price and condition, plus the cover photos", async () => {
+    const { pool, calls } = fakePool((text) => {
+      if (text.includes("FROM human_confirmation")) {
+        return { rows: [{ confirmed_issue: { title: "Bone" } }] };
+      }
+      if (text.includes("FROM pricing_snapshot")) {
+        return { rows: [{ suggested_cents: 1200, override_cents: null }] };
+      }
+      if (text.includes("FROM condition_assessment")) {
+        return { rows: [{ grade_range_low: "FN", grade_range_high: "VF", defects: [] }] };
+      }
+      if (text.includes("FROM scan_photo")) return { rows: [{ storage_url: "uploads/a/cover.jpg" }] };
+      return undefined;
+    });
+    const facts = await readDraftFacts(pool, "shop-1", "s-1");
+    expect(facts.confirmedIssue).toEqual({ title: "Bone" });
+    expect(facts.pricing).toEqual({ suggested_cents: 1200, override_cents: null });
+    expect(facts.assessment?.grade_range_low).toBe("FN");
+    // Prefixed with "/" so the URL is site-absolute, as the route did before the
+    // block moved into the consumer.
+    expect(facts.coverUrls).toEqual(["/uploads/a/cover.jpg"]);
+    // Every read is shop-scoped (T24, non-waivable) and newest-first.
+    for (const call of calls) expect(call.values).toEqual(["s-1", "shop-1"]);
+    expect(calls.filter((c) => c.text.includes("ORDER BY created_at DESC"))).toHaveLength(3);
+    // Only cover photos reach a listing.
+    expect(calls.find((c) => c.text.includes("FROM scan_photo"))!.text).toContain("kind = 'cover'");
+  });
+
+  it("returns undefined facts on a bare session rather than inventing them", async () => {
+    const { pool } = fakePool(() => ({ rows: [] }));
+    const facts = await readDraftFacts(pool, "shop-1", "s-1");
+    expect(facts.confirmedIssue).toBeUndefined();
+    expect(facts.pricing).toBeUndefined();
+    expect(facts.assessment).toBeUndefined();
+    expect(facts.coverUrls).toEqual([]);
+  });
+});
+
 describe("insertShopifyDraft", () => {
   it("appends a successful draft row", async () => {
     const { pool, calls } = fakePool(() => ({
@@ -164,8 +208,36 @@ describe("insertShopifyDraft", () => {
       error: null,
       sessionSeq: 2,
     });
-    expect(row.status).toBe("draft");
-    expect(calls[0]?.values).toEqual(["s-1", "shop-1", "gid://1", "draft", null, 2]);
+    // `row` is optional since E02-D07: `ON CONFLICT … DO NOTHING` returns
+    // nothing when a concurrent delivery of the SAME job already recorded it
+    // (043 §11 I5(b)). Here there is no conflict, so a row comes back.
+    expect(row?.status).toBe("draft");
+    // `session_seq` (2) is E02-B10's counter; the trailing null is `outbox_id` —
+    // this row was written by a REQUEST, not a job (migration 012, 030 A1's
+    // one-meaning rule).
+    expect(calls[0]?.values).toEqual(["s-1", "shop-1", "gid://1", "draft", null, 2, null]);
+  });
+
+  it("carries the outbox_id when a JOB wrote the row — the constraint I5(b) leans on", async () => {
+    // The partial UNIQUE (outbox_id) index is what makes the draft_requested
+    // consumer idempotent under CONCURRENT duplicate delivery by a CONSTRAINT
+    // rather than by a read-then-write check (043 §3.2, §11 I5(b)). It can only
+    // do that if the writer actually passes the id.
+    const { pool, calls } = fakePool(() => ({
+      rows: [{ id: "d-3", product_gid: "gid://3", status: "draft", created_at: "t" }],
+    }));
+    await insertShopifyDraft(asTx(pool), {
+      sessionId: "s-1",
+      shopId: "shop-1",
+      productGid: "gid://3",
+      status: "draft",
+      error: null,
+      sessionSeq: 4,
+      outboxId: "ob-9",
+    });
+    expect(calls[0]?.text).toMatch(/outbox_id/);
+    expect(calls[0]?.text).toMatch(/ON CONFLICT \(outbox_id\)/);
+    expect(calls[0]?.values?.[6]).toBe("ob-9");
   });
 
   it("records a failed draft as a row rather than losing it (040 A4)", async () => {
@@ -180,8 +252,8 @@ describe("insertShopifyDraft", () => {
       error: '"status 500"',
       sessionSeq: 3,
     });
-    expect(row.status).toBe("failed");
-    expect(calls[0]?.values).toEqual(["s-1", "shop-1", null, "failed", '"status 500"', 3]);
+    expect(row?.status).toBe("failed");
+    expect(calls[0]?.values).toEqual(["s-1", "shop-1", null, "failed", '"status 500"', 3, null]);
   });
 });
 

@@ -82,6 +82,45 @@ export interface AppendOnlyTrigger {
    * `max()` across exactly these tables.
    */
   readonly sessionSeq: boolean;
+  /**
+   * TRUE for an append-only table whose rows must be LOCKED by the application —
+   * `SELECT … FOR UPDATE` — as part of a correctness mechanism.
+   *
+   * WHY THIS FLAG EXISTS, AND IT IS NOT A LOOPHOLE (E02-D07). PostgreSQL's GRANT
+   * documentation puts `SELECT … FOR UPDATE` under the **UPDATE** privilege, not
+   * under SELECT. Reproduced on postgres:16 against a table granted exactly
+   * `SELECT, INSERT` (2026-09-04):
+   *
+   *   longbox_app=> SELECT id FROM t;              -- (0 rows)
+   *   longbox_app=> SELECT id FROM t FOR UPDATE;
+   *   ERROR:  permission denied for table t
+   *
+   * (The transcript names a column rather than using a star. That is not a
+   * cosmetic edit to satisfy 042 I5's lint — the probe was RE-RUN that way and
+   * the output above is what it printed, because the refusal is about the
+   * locking clause and not about the projection.)
+   *
+   * So an append-only table on the uniform `SELECT, INSERT` grant CANNOT be
+   * row-locked by the application at all. 043 §7.2 ratifies
+   * `FOR UPDATE … SKIP LOCKED` as the outbox's claim mechanism and 043 §7.3
+   * ratifies that the worker connects as **this same non-owner role** and that
+   * inventing a third role "would put a second privileged principal in a system
+   * whose whole security argument is that there is one". The two together
+   * require the privilege.
+   *
+   * WHAT IT DOES NOT WEAKEN. The append-only guarantee is enforced by the
+   * `ENABLE ALWAYS` `forbid_mutation()` trigger, and a trigger does not consult
+   * privileges: with UPDATE granted, an actual `UPDATE outbox …` by the app role
+   * is still refused, by the trigger, at the database.
+   * `tests/integration/outbox-enqueue.test.ts` asserts exactly that — and the
+   * assertion is stronger now than before, because it can no longer pass by
+   * accident on a permission error instead of on the trigger.
+   *
+   * KEEP THIS SET AS SMALL AS THE MECHANISM REQUIRES. It is one table today.
+   * Adding a row means saying which correctness mechanism needs the lock; "it
+   * was convenient" is not one.
+   */
+  readonly appLockable?: true;
 }
 
 /**
@@ -146,6 +185,55 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     since: "003_reserve_principle_slots.sql",
     ordersByObservedAt: false,
     sessionSeq: false,
+  },
+  {
+    table: "outbox",
+    trigger: "outbox_append_only",
+    since: "011_outbox.sql",
+    // A record of INTENT, authored by Longbox — not an observation of another
+    // system's fact. `occurred_at` renders and never decides.
+    ordersByObservedAt: false,
+    // SESSION-SCOPED, so it takes the counter (041 §5.3, 041 I1's own criterion).
+    // This is not bookkeeping: 043 §3.2 promises that WITHIN ONE SESSION events
+    // are delivered in `session_seq` order, and 043 §7.2's claim query sorts by
+    // `(scan_session_id, session_seq NULLS LAST, created_at)`. With the column
+    // permanently NULL the sort would silently fall through to `created_at` and
+    // the only ordering guarantee the design makes would be unenforced. E02-B10
+    // shipped `assignSessionSeq`, so the draft route — which already holds the
+    // anchor lock — can now assign it, and the outbox stops being the one
+    // session-scoped table whose counter is a comment. `migrations/011` creates
+    // the column and `outbox_session_seq_idx` itself rather than joining 007's
+    // loop, because the table does not exist at 007.
+    sessionSeq: true,
+    // ⚠ THE ONE ROW THAT KEEPS ITS `appLockable` FLAG, AND WHY IT STAYS.
+    // The claim query is `SELECT … FOR UPDATE … SKIP LOCKED` on this table
+    // (043 §7.2), run by the app role (043 §7.3, which refuses to invent a third
+    // privileged principal). PostgreSQL puts `SELECT … FOR UPDATE` under the
+    // UPDATE privilege — see `appLockable`'s doc comment for the postgres:16
+    // reproduction — so without this flag the outbox runtime cannot claim a row
+    // at all as the least-privileged role. It does NOT weaken the append-only
+    // model: enforcement is the `ENABLE ALWAYS` trigger, which does not consult
+    // privileges, and `tests/integration/role-separation.test.ts` proves the
+    // trigger still refuses an actual UPDATE *while the privilege is held*.
+    appLockable: true,
+  },
+  {
+    table: "outbox_attempt",
+    trigger: "outbox_attempt_append_only",
+    since: "011_outbox.sql",
+    // Server-side `created_at` inside the claim transaction is the ONLY clock
+    // this table has (043 A7), and the eligibility predicate compares it against
+    // now(). There is no external observation here to order by.
+    ordersByObservedAt: false,
+    // NOT session-scoped: an attempt is keyed on an `outbox` row, not on a
+    // session, and it has no `scan_session_id` at all. Ordering attempts by a
+    // session's counter would be the claim 041 §2.0 declines to make. Their
+    // order within one outbox row is `(created_at, id)`, which is the order the
+    // claim transaction wrote them in.
+    sessionSeq: false,
+    // NOT row-locked either: nothing takes a lock on the attempt log — the claim
+    // locks the PARENT and derives everything else by reading. The lockable set
+    // stays as small as the mechanism requires.
   },
   {
     table: "pricing_snapshot",
@@ -324,4 +412,86 @@ export const APPEND_ONLY_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.map
  */
 export const SESSION_SEQ_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.filter((t) => t.sessionSeq).map(
   (t) => t.table
+);
+
+// ---------------------------------------------------------------------------
+// THE REPLAY-DRILL EXCLUSION LIST (043 §6.4, §11 I2) — E02-D07.
+//
+// WHY IT LIVES IN THIS FILE RATHER THAN ITS OWN. It was written as
+// `src/db/replayDrill.ts` and the architecture gate was right to call that an
+// ORPHAN: nothing imports it, because the drill it governs is E13-B07's and does
+// not exist yet. An unreachable module file is either dead or wired wrong, and
+// the honest answer here was neither an exemption nor a fake import — it was
+// that this is one more property a table DECLARES, and this file is where a
+// table's declarations live. `appGrant` and `ordersByObservedAt` already sit on
+// these rows for the same reason: a reader asking "what is this table's status?"
+// should not have to know the answer is split across modules.
+//
+// 041 §6.4 specifies a drill that drops every derived view and materialized read
+// model, recreates them, and asserts every invariant still passes and every
+// rebuilt table is byte-identical. Its whole point is that a derivation nobody
+// replays is not a derivation. `outbox` and `outbox_attempt` are EXCLUDED from
+// it — and the exclusion has to be DECLARED rather than assumed, because a table
+// sitting outside the drill with no row saying why is indistinguishable from a
+// table someone forgot. 041 §9.2's "exemptions are rows with a reason, never
+// absences", applied to a second list.
+// ---------------------------------------------------------------------------
+
+/** A table the replay drill must not attempt to drop and rebuild, and why. */
+export interface ReplayDrillExclusion {
+  readonly table: string;
+  /** The record that decided the exclusion. */
+  readonly since: string;
+  /**
+   * 043 §2.6's grounds, KEPT AS TWO because the cannon ruled them INDEPENDENT
+   * (A8, Hickey 2 + Kleppmann; §13 Q3). Reason 2 is sufficient today; reason 1
+   * is what remains if the `outbox_attempt` → `outbox` foreign key ever changes
+   * shape. A record that keeps only the currently-decisive reason has to
+   * re-derive the other one the day the structure moves — so both are stored,
+   * and the test asserts both are present rather than merely one.
+   */
+  readonly reasons: readonly [string, string];
+}
+
+export const REPLAY_DRILL_EXCLUSIONS: readonly ReplayDrillExclusion[] = [
+  {
+    table: "outbox",
+    since: "043 §2.6, §6.4 (bead longbox-e5b.2.17 / E02-D07)",
+    reasons: [
+      "It records INTENT AT A MOMENT. definition_version, correlation_id and occurred_at are " +
+        "captured as of the enqueue; a regenerated row would carry today's answers to " +
+        "yesterday's question — the defect 041 §5.3 names when it refuses to backfill " +
+        "session_seq, because a reconstructed sequence would be a fabricated observation " +
+        "about what order things happened in.",
+      "outbox_attempt FKs to it, and the attempts are not derivable by anything: what " +
+        "happened when Longbox tried to reach Shopify exists nowhere else in the universe. " +
+        "A dropped-and-rebuilt outbox would orphan every attempt or renumber every id, and " +
+        "an append-only child cannot be repointed. The parent is as durable as the child, " +
+        "by construction.",
+    ],
+  },
+  {
+    table: "outbox_attempt",
+    since: "043 §2.6, §6.4 (bead longbox-e5b.2.17 / E02-D07)",
+    reasons: [
+      "It records what happened at a moment — an HTTP status, a refusal code, a crash " +
+        "with a started row and no terminal partner. None of it is a function of any " +
+        "witness table, so there is no input from which it could be recomputed.",
+      "It is the sole state the drain reads: terminal, in-flight and due are predicates " +
+        "over this log (043 §2.4). Rebuilding it would not reconstruct a derivation — it " +
+        "would invent a delivery history.",
+    ],
+  },
+];
+
+/**
+ * What IS in the drill, stated here so the exclusion list is not read as
+ * covering the whole outbox area: `outbox_dead_letter` (011) is a derivation in
+ * the ordinary sense and must rebuild byte-identically, and so must any future
+ * read model over the attempt log (043 §6.4).
+ */
+export const REPLAY_DRILL_INCLUDED_DERIVATIONS: readonly string[] = ["outbox_dead_letter"];
+
+export const REPLAY_DRILL_EXCLUDED_TABLE_NAMES: readonly string[] = REPLAY_DRILL_EXCLUSIONS.map(
+  (e) => e.table
 );

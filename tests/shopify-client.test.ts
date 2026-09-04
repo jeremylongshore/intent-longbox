@@ -14,6 +14,10 @@ const input = {
   descriptionHtml: "<p>Marvel, 1988</p>",
   priceCents: 12999,
   imageUrls: ["/uploads/s/cover.jpg"],
+  // 043 §4.3: the upsert key is required, so a call cannot silently create a
+  // second product on retry. Today it is the scan_session_id (a forward-
+  // compatible stand-in for physical_item_id — see the field's doc comment).
+  copyKey: "1f0d1c1c-0000-4000-8000-000000000001",
 };
 
 afterEach(() => vi.unstubAllGlobals());

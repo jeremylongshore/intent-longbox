@@ -59,6 +59,8 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "008_supersession_integrity.sql",
       "009_request_idempotency.sql",
       "010_scan_session_transition.sql",
+      "011_outbox.sql",
+      "012_cost_log_outbox_id.sql",
     ]);
 
     const tables = await pool.query(
@@ -90,6 +92,10 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // 009 / 010 (E02-B10): 042 §5.2's replay cache and 040 §3.3's transitions.
       "request_idempotency",
       "scan_session_transition",
+      // 011 (E02-D07): the transactional outbox — the record that an effect is
+      // OWED, and the attempt log the lease is derived from (043 §2).
+      "outbox",
+      "outbox_attempt",
     ]) {
       expect(names).toContain(expected);
     }
@@ -106,8 +112,10 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  008_supersession_integrity.sql");
     expect(secondRun).toContain("skip  009_request_idempotency.sql");
     expect(secondRun).toContain("skip  010_scan_session_transition.sql");
+    expect(secondRun).toContain("skip  011_outbox.sql");
+    expect(secondRun).toContain("skip  012_cost_log_outbox_id.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(10);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(12);
 
     // E02-B10: the ledger records a checksum for every file it applied, and a
     // second run skips WITHOUT adopting anything — an adoption on a database this

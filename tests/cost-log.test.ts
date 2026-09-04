@@ -28,7 +28,23 @@ describe("appendCostLog", () => {
     });
     expect(usd).toBeCloseTo(0.0105, 10);
     expect(calls[0]?.text).toMatch(/INSERT INTO cost_log/);
-    expect(calls[0]?.values).toEqual(["shop-1", "s-1", "anthropic", "claude-sonnet-5", 1000, 500, usd]);
+    // The trailing null is `outbox_id` (043 §8.1): NULL means "spent by a
+    // REQUEST, not a job" — ONE meaning, not two (030 A1). This call had no job,
+    // so the honest value is null rather than a placeholder.
+    expect(calls[0]?.values).toEqual(["shop-1", "s-1", "anthropic", "claude-sonnet-5", 1000, 500, usd, null]);
+  });
+
+  it("carries the job reference when a JOB spent the money, and never invents one", async () => {
+    const { pool, calls } = fakePool();
+    await appendCostLog(pool, {
+      shopId: "shop-1",
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      tokensIn: 10,
+      tokensOut: 5,
+      outboxId: "ob-1",
+    });
+    expect(calls[0]?.values?.[7]).toBe("ob-1");
   });
 
   it("logs session-less calls with a null scan_session_id", async () => {

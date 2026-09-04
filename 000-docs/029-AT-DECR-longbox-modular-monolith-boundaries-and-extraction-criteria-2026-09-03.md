@@ -1,7 +1,7 @@
 # Decision Record — Modular-Monolith Module Boundaries, Dependency Rule and Extraction Criteria
 
-**Version:** 1.1.1
-**Status:** RATIFIED 2026-09-03 by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens architecture cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §9. **v1.1.1 is a factual repair under §9's "amend by a row" clause, not a superseding record** — see the change log below; the decision itself is unchanged.
+**Version:** 1.2.0
+**Status:** RATIFIED 2026-09-03 by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens architecture cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §9. **v1.1.1 and v1.2.0 are amendments by a row under §9's "amend by a row" clause, not superseding records** — see the change log below; the decision itself is unchanged in both.
 **Bead:** E02-B02 `longbox-e5b.2.2` (epic LBOX-E02 `longbox-e5b.2`, gate G2) — see 000-docs/014 §8
 **Drafted:** 2026-09-03 by `longbox-domain-builder` · **Cannon:** `rich-hickey-reviewer` + `martin-fowler-reviewer`, 2026-09-03 · **Decision owner:** Jeremy Longshore
 **Sensitivity:** Restricted internal (014 §10)
@@ -9,13 +9,14 @@
 
 ## Change log
 
-**Version convention.** The minor bump is not skipped numbering: **1.0.0 → 1.1.0** absorbed ten substantive cannon amendments that changed the decision's content (a rule was deleted, an edge added, a module's scope split, a whole section written), which is a minor bump. **1.1.0 → 1.1.1** changes no decision at all — it repairs statements of fact about the existing tree that were wrong, which is a patch. A reader who acted on v1.1.0's *decisions* need re-read nothing; a reader who quoted its *description of the code* must re-read §1, §2.10 and §12.
+**Version convention.** The minor bump is not skipped numbering: **1.0.0 → 1.1.0** absorbed ten substantive cannon amendments that changed the decision's content (a rule was deleted, an edge added, a module's scope split, a whole section written), which is a minor bump. **1.1.0 → 1.1.1** changes no decision at all — it repairs statements of fact about the existing tree that were wrong, which is a patch. A reader who acted on v1.1.0's *decisions* need re-read nothing; a reader who quoted its *description of the code* must re-read §1, §2.10 and §12. **1.1.1 → 1.2.0** is a minor bump because the owned-table lists *grew*: no boundary moved and no rule changed, but five modules now own tables they did not name before, which is new content a reader must have. A reader who quoted any owned-table list, or the table-ownership map, must re-read §2.1, §2.2, §2.3, §2.7, §2.8 and §2.10.
 
 | Version | Date | What changed | Authority |
 |---|---|---|---|
 | 1.0.0 | 2026-09-03 | Initial draft, Status PROPOSED. | `longbox-domain-builder` |
 | 1.1.0 | 2026-09-03 | RATIFIED. Ten cannon amendments absorbed: H1 (human_confirmation rationale), H2 (L2→L2 exception deleted), H3 (ingest-worker edge), H4 (workflow trigger counted), H5 (identity split; batch/bin/task → workflow), H6 (events are aspirational), F1 (CPU-share deleted; 500 ms signed), F2 (one commit per relocation), F3 (staged gate), F4 (new §12). | Two-lens cannon → acting head, §9 |
 | **1.1.1** | **2026-09-03** | **Factual repair after `longbox-gate-auditor` returned NOT-READY on four blockers. No decision changed.** **B1** — §1 fact 1 was false: `scanSession.ts` INSERTs two tables and *reads* six through a hardcoded read model; the six event inserts live in `identify.ts`, `pricingService.ts` and the route. §1, §2.2, §2.4, §2.5, §2.6, §2.7, §2.10, §5 moves 2 and 6, §7 alt 3 and §10 repaired; the argument now rests on fact 2, which reproduces. **B2** — §3.1's L2 row granted `identity` to all four L2 modules while three other surfaces denied it; struck, commerce-only. **B3** — `reporting` holds real code and was missing from `ENFORCED_MODULES`; added. **B4** — §12 was present-tense but no transaction exists in the request path; a NOTHING-EXISTS-YET block added and §2.2/§11 put in future tense. Plus **N1** (`$1` backreference restored in `module-public-surface-only`), **N2** (`db.query` blind spot documented as an E02-B10 obligation), **N3** (reporting cohort mislabelled G5 → design-partner, 019:153). | `longbox-gate-auditor` → acting head, under §9 "amend by a row" |
+| **1.2.0** | **2026-09-04** | **Eight amend-by-a-row entries applied under §9. No boundary, edge, rule or extraction criterion changed; only owned-table lists and the §2.10 map.** Three ratified records deferred or implied their entries to this one edit. **From 034 §7 (three entries):** §2.1 `identity` gains `organization`, `location`, `app_user`, `membership`, `membership_revocation`, `device`, `device_credential`, `device_credential_revocation`; §2.2 `workflow` gains `bin`, `batch`, `batch_close`, `batch_source_bin`, `task`, `task_event`; §2.8 `reporting` gains `labor_shift`, `labor_shift_confirmation` — which closes §2.10's own standing note that the `labor_shift` assignment "should be amended by a row rather than assumed". **From 036 §7.5 (four entries):** §2.2 `workflow` gains `physical_item`, `physical_item_identity_correction`, `physical_item_code_assignment`, `custody_event`, `write_off_event`, `scan_session_item_resolution`, `consignment_intake` (Entry 1); gains `identity_resolution` (Entry 2, deferred here by 030 §7.1/§12); gains the sale family `sale_event`, `return_event`, `refund_event`, `sale_resolution` plus one sentence in §2.2 (Entry 3, 036 A3); and §2.7 `commerce` replaces `shopify_draft` with `shopify_draft`, `listing_link`, `listing_link_deactivation`, `physical_item_active_listing` plus one sentence in §2.7, with `physical_item_active_listing` flagged in §2.10 as the one non-append-only table in the domain (Entry 4). **Entry 8 (030 §7 — ownership fact from a ratified record; 030 §2.6 assigned catalog by module rule but wrote no amend entry, closed here under §9):** §2.3 `catalog`'s owned-table list stops reserving "the LCID, edition, signature and crosswalk tables" in prose and **names them** — `lcid_registry`, `collectible_definition`, `edition`, `edition_signature`, `edition_external_id`, `data_source`, `vertical_pack`, `vertical_pack_version`. This assigns nothing new: 030 §2.6 checked its tables against this record's §2.3 and found them consistent; what was missing was the row that made the list checkable, which is precisely the gap §9's clause exists to close. `vertical_pack` is flagged in §2.10 as insert-only rather than append-only-immutable in the strict sense (030 §7). §2.10's map gains thirty-nine rows and its count line moves from seventeen to fifty-six; every table is still owned by exactly one module. | 034 §7 + 036 §7.5 + 030 §7 → E02-B05, under §9 "amend by a row" |
 
 ## Decision authority and evidence posture
 
@@ -56,7 +57,7 @@ Every table is owned by **exactly one** module. Ownership means: only that modul
 
 **What moved out at the cannon's instruction.** The draft also gave identity `batch`, `bin` and `task`. Those are **inventory and operations taxonomy**, not tenancy: they change at a different rate, for a different reason, driven by how a shop physically organizes a long box rather than by who may log in. They belong to `workflow` (§2.2). Keeping them here would have made every re-organization of a shop's floor a change to the auth module.
 
-**Tables owned.** `shop`, `shop_credentials`.
+**Tables owned.** `shop`, `shop_credentials`, `organization`, `location`, `app_user`, `membership`, `membership_revocation`, `device`, `device_credential`, `device_credential_revocation`.
 
 **Files today.** `scripts/register-shop.ts` (the whole of it). No `src/` file is identity-only today; `src/providers/registry.ts:*` reads `shop_credentials` and belongs to the provider seam, not to identity — it becomes a *consumer* of an identity port (§5 move 4).
 
@@ -72,7 +73,9 @@ Every table is owned by **exactly one** module. Ownership means: only that modul
 
 Once E02-B07 builds it, and until the outbox lands, workflow is also the **transaction owner** for every request — see §12, which is load-bearing for this record and specifies the mechanism that will keep a `scan_session` from holding a half-written Hickey chain. **No such mechanism exists today** (§12 opening block).
 
-**Tables owned.** `scan_session`, `scan_photo`, `human_confirmation`.
+**Tables owned.** `scan_session`, `scan_photo`, `human_confirmation`, `physical_item`, `physical_item_identity_correction`, `physical_item_code_assignment`, `custody_event`, `write_off_event`, `scan_session_item_resolution`, `consignment_intake`, `identity_resolution`, `sale_event`, `return_event`, `refund_event`, `sale_resolution`, `bin`, `batch`, `batch_close`, `batch_source_bin`, `task`, `task_event`.
+
+A sale, return, refund and sale resolution are the copy's facts and are written here; commerce derives the listing consequence from them.
 
 **Files today.** `src/services/scanSession.ts` in full — its two inserts, `scan_session` (`:19`) and `scan_photo` (`:49`), are already workflow's own. Two things arrive from elsewhere: the `human_confirmation` insert currently in the route (`src/routes/scanSessions.ts:175`), and ownership of the session/photo handlers in that route, which become thin calls into this module. One thing leaves: the hardcoded six-table read model `getSessionEvents` (`:73–81`), which names every other module's tables and must become each owner's own read function (§5 move 2).
 
@@ -86,7 +89,7 @@ Once E02-B07 builds it, and until the outbox lands, workflow is also the **trans
 
 **Responsibility.** Owns the Longbox Canonical Collectible ID (LCID) and everything hanging off it: the generic `collectible_definition → edition` core (E02-B04), the versioned per-vertical identity schemas and normalized signatures (E04-B02, E04-B03), the vertical-pack manifest (E04-B04, 014 §3.4), the provider crosswalk (E04-B06) and the immutable versioned corpus snapshots. **A provider ID is never a primary key and never a foreign-key target** (014 §18 decision 3); it is a versioned alias edge with method, confidence and provenance. Catalog is the module that must survive a partner leaving.
 
-**Tables owned.** `corpus_version` — and, on delivery of E04, the LCID, edition, signature and crosswalk tables.
+**Tables owned.** `corpus_version`, `lcid_registry`, `collectible_definition`, `edition`, `edition_signature`, `edition_external_id`, `data_source`, `vertical_pack`, `vertical_pack_version` — the LCID, edition, signature and crosswalk tables E04 delivers, now named rather than reserved in prose (v1.2.0, 030 §7).
 
 **Files today.** **None.** `corpus_version` has zero code references. Catalog is schema-reserved and unimplemented; this is the largest gap between the target architecture (014 §4) and the tree.
 
@@ -142,7 +145,9 @@ Once E02-B07 builds it, and until the outbox lands, workflow is also the **trans
 
 **Responsibility.** Owns the outward mutation. Shopify Admin GraphQL `productSet` with `status: DRAFT` (locked decision 3), staged media upload, the LCID↔SKU↔external-ID mapping (E10-B03), duplicate prevention across retries, the transactional outbox and idempotency (E10-B09), webhook/poll reconciliation, and the observed listing lifecycle that feeds retention anchors. **Nothing publishes without a human.** A second connector (Whatnot, eBay) is another adapter behind the same capability contract, not a second module.
 
-**Tables owned.** `shopify_draft`.
+**Tables owned.** `shopify_draft`, `listing_link`, `listing_link_deactivation`, `physical_item_active_listing`.
+
+`physical_item` is `workflow`'s; commerce receives a `physical_item_id` and binds it. A SKU is a field on `listing_link`, never a column on the copy. The sale itself is workflow's (036 §2.4); commerce consumes it and deactivates the binding.
 
 **Files today.** `src/services/shopify.ts` (the Admin client, which leaves for `src/providers/commerce/` at §5 move 5). The `shopify_draft` insert and the whole draft-creation block are **in the route** (`src/routes/scanSessions.ts:329`) and must genuinely move here; this is the third of the three real relocations (§5 move 2). (v1.1.0 placed the insert in `scanSession.ts`; that was the B1 error.)
 
@@ -156,7 +161,7 @@ Once E02-B07 builds it, and until the outbox lands, workflow is also the **trans
 
 **Responsibility.** Owns every derived view: the funnel (captured → confirmed → drafted → published → sold), the per-call cost ledger from day one (locked decision 7), cost per verified draft (T13a), the owner's weekly shop-facing report (T10, T11, T12, T20, T27, T28 and the north star), provider health, and the audit/privacy-request surfaces. It is **strictly downstream**: it consumes events and never appears on any write path. It measures workflow health, not covert worker surveillance (014 §3.2, 022 P3) — T35 per-operator rendering is 0 and non-waivable (019 v1.2.0), which is a *reporting* invariant, enforced here.
 
-**Tables owned.** `cost_log`.
+**Tables owned.** `cost_log`, `labor_shift`, `labor_shift_confirmation`.
 
 **Files today.** `src/services/costLog.ts`. Note the inversion to fix: `cost_log` is written today from `src/services/identify.ts` (resolution) calling `costLog.ts`. After the move, resolution publishes a cost fact and reporting records it; resolution stops owning a write to another module's table.
 
@@ -201,10 +206,49 @@ Once E02-B07 builds it, and until the outbox lands, workflow is also the **trans
 | `retention_policy` | 003:184 | platform | `scripts/register-shop.ts`, `scripts/retention-defaults.ts` |
 | `retention_hold` | 003:205 | platform | — (no code) |
 | `retention_hold_release` | 003:224 | platform | — (no code) |
+| `organization` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `location` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `app_user` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `membership` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `membership_revocation` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `device` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `device_credential` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `device_credential_revocation` | 004 (sketch, 034 §4.1) | identity | — (not created) |
+| `bin` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `batch` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `batch_close` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `batch_source_bin` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `task` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `task_event` | 004 (sketch, 034 §4.1) | workflow | — (not created) |
+| `labor_shift` | 004 (sketch, 034 §4.1) | reporting | — (not created) |
+| `labor_shift_confirmation` | 004 (sketch, 034 §4.1) | reporting | — (not created) |
+| `lcid_registry` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `collectible_definition` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `edition` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `edition_signature` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `edition_external_id` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `data_source` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `vertical_pack` | catalog migration (sketch, 030 §7) | catalog | — (not created) — insert-only rather than append-only-immutable in the strict sense: a pack is registered once and evolves by a new `vertical_pack_version` row (030 §7) |
+| `vertical_pack_version` | catalog migration (sketch, 030 §7) | catalog | — (not created) |
+| `identity_resolution` | catalog migration (sketch, 030 §7.1) | workflow | — (not created) |
+| `physical_item` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `physical_item_identity_correction` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `physical_item_code_assignment` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `custody_event` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `scan_session_item_resolution` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `sale_event` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `return_event` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `refund_event` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `sale_resolution` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `write_off_event` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
+| `listing_link` | 005 (sketch, 036 §7.1) | commerce | — (not created) |
+| `listing_link_deactivation` | 005 (sketch, 036 §7.1) | commerce | — (not created) |
+| `physical_item_active_listing` | 005 (sketch, 036 §7.1) | commerce | — (not created) — **the one non-append-only table in the domain**: a materialized index over the log, guarded on contents by 036 I9 and on shape by 036 I18 (036 §5.2, A2) |
+| `consignment_intake` | 005 (sketch, 036 §7.1) | workflow | — (not created) |
 
 **What the corrected column shows (v1.1.1).** Three of the six event inserts are **already in their owning module** — `candidate_set` and `llm_rerank` in `identify.ts` (resolution), `pricing_snapshot` in `pricingService.ts` (valuation). Relocating those is a **no-op** for ownership: they move directory in §5 move 3 along with the rest of their module, and no insert changes hands. Only three inserts are genuinely misplaced, and all three are misplaced in the *same* place — the route (`:175`, `:201`, `:329`). That is fact 2, not fact 1, and it is why §5 move 2 is re-scoped below.
 
-Seventeen tables, seventeen owners, no table owned twice and none unowned. Migration 002 adds no table (it widens the `shop_credentials.kind` CHECK). `labor_shift` appears in two CHECK enums in 003 (`:187`, `:215`) but **the table does not exist**; when E11/E12 create it, it belongs to reporting, and this record should be amended by a row rather than assumed.
+**Fifty-six tables, fifty-six owners, no table owned twice and none unowned** (v1.2.0: seventeen created, thirty-nine not yet created). Migration 002 adds no table (it widens the `shop_credentials.kind` CHECK). `labor_shift` appears in two CHECK enums in 003 (`:187`, `:215`) but **the table does not exist**; v1.1.1 said it belongs to reporting when E11/E12 create it and that this record should be amended by a row rather than assumed — **that row is applied at v1.2.0** (034 §7), and `labor_shift` and `labor_shift_confirmation` are now named in §2.8's owned-table list.
 
 ### 2.11 Tables whose ownership is genuinely contested
 

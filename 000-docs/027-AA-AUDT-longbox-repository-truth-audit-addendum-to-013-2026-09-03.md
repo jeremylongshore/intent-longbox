@@ -1,6 +1,6 @@
 # Repository Truth Audit — Addendum to 013 (appaudit EXISTS/TARGET re-check at a pinned HEAD)
 
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Bead:** E02-B01 `longbox-e5b.2.1` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class CODE) — see 000-docs/014 §8
 **Filed:** 2026-09-03 · **Owner:** Jeremy Longshore · **Author:** parent session via `longbox-domain-builder` · **Audit pending:** `longbox-gate-auditor`
 **Sensitivity:** Restricted internal (014 §10) — cites file:line and identifiers only, never file contents beyond single lines already public inside the repo.
@@ -342,7 +342,7 @@ E15-B01's remaining scope after this change is therefore: bead notes, GitHub iss
 |---|---|---|---|
 | OPEN-1 | The integration lane (`pnpm test:integration`) was **not run** | Not run because the diff is docs and identity strings only and `src/migrations/scripts/public` are byte-identical to the last CI-tested commit; Postgres was available (`docker-compose.test.yml`) and simply not started — a choice, not an impossibility (v1.0.1 correction); the lane skips cleanly without one (`tests/integration/helpers.ts:23`). Migration idempotency, trigger rejection and the scan-session flow are therefore **TESTED per the last CI run, not re-TESTED here**. `pnpm lint`, `pnpm typecheck` and `pnpm test` (162/162) were run and are green at HEAD | any run of the E14 lane |
 | ~~OPEN-2~~ CONTRADICTED (v1.0.1) | 014 §0's "**720 blocking edges**, 0 dangling targets, 0 cycles" | Recomputed from the JSONL `dependencies` key at HEAD: **722 blocking edges**, 227 parent-child, 0 dangling, 0 cycles — 014 §0 is stale by the four discovered beads (benign) | 014 §0 at next edit |
-| ~~OPEN-3~~ VERIFIED absent (v1.0.1) | Branch protection on `main` | `gh api repos/jeremylongshore/intent-longbox/branches/main/protection` → 404 "Branch not protected" — confirmed absent, not unknowable | E15-B01 |
+| ~~OPEN-3~~ VERIFIED absent (v1.0.1) → **RESOLVED (v1.0.2)** | Branch protection on `main` | `gh api repos/jeremylongshore/intent-longbox/branches/main/protection` → 404 "Branch not protected" — confirmed absent, not unknowable. **Resolution line, appended 2026-09-03 (029 PR, E02-B02): branch protection on main set 2026-09-03 (6 required checks, linear history).** The 404 finding above stands as the state at audit time `46d9910` and is not rewritten; this line records the later change. | E15-B01 |
 | OPEN-4 | Plane project **Longbox**, and the GitHub issue bodies for #3/#6 | Off-repo surfaces; 006:53 lists both as pending | Jeremy; **E15-B01** |
 | ~~OPEN-5~~ VERIFIED (v1.0.1) | Dependabot PRs #10–#17 (016 §4) | `gh pr list` → all eight still open; `.github/dependabot.yml` declares `github-actions` **and** `npm` (the `pip` misconfiguration TEST_AUDIT gap 1 named is fixed) | **E15-B03/B04** |
 | ~~OPEN-6~~ VERIFIED (v1.0.1) | Whether the MiniMax advisory review is actually live | `gh variable list` → `ENABLE_MINIMAX_REVIEW=true`; `gh secret list` → `MINIMAX_API_KEY` set; both review lanes posted on PRs #25–#28 | — |

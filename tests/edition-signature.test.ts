@@ -4,13 +4,21 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   NORMALIZATION_VERSION,
+  REGISTERED_VERTICALS,
   UnregisteredVerticalError,
   comicEditionSignature,
   editionSignature,
   normalizeField,
   normalizeIssue,
 } from "../src/catalog/index.js";
-import { identityKey } from "../src/services/confirmationOutcome.js";
+import { MEASURED_VERTICALS, identityKey } from "../src/services/confirmationOutcome.js";
+
+// ⚠ THIS IS THE ONE FILE THAT IMPORTS BOTH SIDES, AND IT IS ALLOWED TO BECAUSE
+// IT EXISTS TO COMPARE THEM. `pnpm depcruise` cruises `src` only, and rule 7's
+// `checkIdentityFunctionSeparation` reads the real source tree — neither is
+// weakened by a test that holds the two functions up next to each other. What
+// would weaken them is a shared constant in `src/`, which is what both guards
+// forbid and what neither side has.
 
 describe("the comic edition signature (030 §3.3)", () => {
   it("is series + issue + variant + printing — 030's ratified four", () => {
@@ -89,6 +97,17 @@ describe("the comic edition signature (030 §3.3)", () => {
 // PR-level check that touching both functions without a 000-docs/006 row FAILS —
 // is E04-B02's acceptance line and is NOT built here. What IS built here is the
 // property that makes the mechanical merge unavailable.
+/**
+ * The message BOTH tripwire assertions carry. It is written for the person who
+ * will see it fail in CI months from now, whose first instinct will be to make
+ * the two sides agree — which is precisely the drift 047 §9.3 predicts: "two
+ * functions with two names drift into one the first time a builder notices they
+ * look alike, and the drift is silent because both still compile."
+ */
+const SEPARATELY_OWNED =
+  "these two lists are separately owned (019 vs 030 A5). If this fails, one of them moved — " +
+  "decide which is right and file the row. Do NOT edit one to match the other.";
+
 describe("edition_signature and identityKey are two functions (047 §9.3, A8)", () => {
   it("share no field-list constant and no import edge", () => {
     const source = readFileSync(new URL("../src/catalog/editionSignature.ts", import.meta.url), "utf8");
@@ -116,7 +135,7 @@ describe("edition_signature and identityKey are two functions (047 §9.3, A8)", 
     // series + issue + variant + PRINTING, because a printing is a different
     // edition and the barcode has been decoding that digit since v0.
     const shared = { issue: "300", variant: "direct" };
-    const key = identityKey({ title: "Amazing Spider-Man", ...shared });
+    const key = identityKey("comic", { title: "Amazing Spider-Man", ...shared });
     const firstPrinting = comicEditionSignature({ series: "Amazing Spider-Man", ...shared, printing: "1" });
     const secondPrinting = comicEditionSignature({ series: "Amazing Spider-Man", ...shared, printing: "2" });
 
@@ -125,5 +144,53 @@ describe("edition_signature and identityKey are two functions (047 §9.3, A8)", 
     // they are the same identity claim.
     expect(firstPrinting).not.toBe(secondPrinting);
     expect(key).not.toBe(firstPrinting);
+  });
+
+  // ═══ E04-D04 ═══
+  //
+  // Making `identityKey` vertical-aware created a SECOND per-vertical registry —
+  // the confirmation keys in `src/services/confirmationOutcome.ts` — and that is
+  // deliberate: registering a vertical is a CATALOG act, deciding what 019 T1/T3
+  // compare for it is a 019 act, and A8 requires the two to be versioned by
+  // different things (052 §6: "two questions, two owners, two versioning
+  // schemes"). The cost of two registries is that one can be updated without the
+  // other, and the cost is paid HERE rather than hoped about: a pack registered
+  // with no confirmation key would reach `recordConfirmation` and throw at a
+  // counter, which is the failure 049 §8's acceptance line is about.
+  it("registers a confirmation key for exactly the verticals the catalog registers", () => {
+    expect([...MEASURED_VERTICALS].sort()).toEqual([...REGISTERED_VERTICALS].sort());
+  });
+
+  // ⚠ THIS CASE IS A TRIPWIRE, NOT A DESCRIPTION — and the first version of it
+  // said the opposite (*"records the coincidence as a fact of today rather than a
+  // rule for tomorrow"*), which is false of any assertion: an assertion IS a rule,
+  // because it fails a build. Naming it honestly is the difference between a
+  // reader who investigates the failure and one who edits a list to make it green.
+  it("TRIPWIRE: the comic lists differ and the card lists coincide — if this fails, one list MOVED", () => {
+    // Comic: the measurement drops `printing` (an operator cannot see it while
+    // picking) so the two lists differ by a field. If THIS one fails, the comic
+    // measurement key and the comic signature have converged — the merge 047 A8
+    // exists to prevent, arriving by drift rather than by refactor.
+    expect(identityKey("comic", { title: "Hulk", issue: "181" }), SEPARATELY_OWNED).not.toBe(
+      editionSignature("comic", { series: "Hulk", issue: "181" })
+    );
+    // Card: the two lists COINCIDE today — every one of a card's five positions is
+    // visible on the card in the operator's hand, so there is nothing to drop.
+    // Rule 7 is deliberately not "the field lists differ" ("two lists that happen
+    // to be equal today are still two decisions"), so the coincidence is not
+    // REQUIRED — but it is PINNED, because the day it stops being true is the day
+    // one of two separately-owned lists moved, and that is worth a build failure
+    // rather than a silent divergence nobody looked at.
+    expect(
+      identityKey("sports-card", { set: "Prizm", number: "12", parallel: "Silver" }),
+      SEPARATELY_OWNED
+    ).toBe(editionSignature("sports-card", { set: "Prizm", number: "12", parallel: "Silver" }));
+  });
+
+  it("refuses an unregistered vertical on BOTH sides, with each side's own error", () => {
+    expect(() => editionSignature("coin", { series: "x" })).toThrow(UnregisteredVerticalError);
+    // And not the same error class: the catalog refuses because no pack signs it;
+    // the workflow refuses because 019 cannot measure it. Two questions.
+    expect(() => identityKey("coin", { title: "x" })).toThrow(/cannot be measured/);
   });
 });

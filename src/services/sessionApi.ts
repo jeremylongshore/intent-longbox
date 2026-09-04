@@ -629,6 +629,12 @@ export async function confirm(
 
     const baseline = await readConfirmationBaseline(tx, ctx.shopId, session.id);
     const outcome = decideOutcome({
+      // E04-D04. The SAME constant `resolveConfirmationIdentity` is given below,
+      // read from one place, so the fact the catalog resolves against and the
+      // fact 019 T1/T3 are measured on can never name two different verticals.
+      // `identityKey` refuses an unregistered one rather than degrading to the
+      // comic field list (049 §8).
+      vertical: COMIC_VERTICAL,
       source: body.source,
       confirmed: body.issue,
       topProposal: topCandidateOf(baseline.topProposalSource),

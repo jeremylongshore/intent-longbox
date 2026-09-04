@@ -27,6 +27,7 @@
 import "dotenv/config";
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import pg from "pg";
 import { checksum, readMigrations } from "./migrationDiscipline.js";
@@ -68,6 +69,70 @@ function arg(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
+/** Thrown when this generator is pointed at anything but the local test cluster. */
+export class UnsafeFixtureTargetError extends Error {
+  constructor(message: string) {
+    super(
+      `refusing to generate a fixture: ${message}. This script DROPs and CREATEs databases and ` +
+        `writes a dump into the repository, so it runs only against the throwaway local test ` +
+        `cluster (docker-compose.test.yml).`
+    );
+    this.name = "UnsafeFixtureTargetError";
+  }
+}
+
+/** Hosts that can only be this machine. A tunnel is somebody's problem, not this script's. */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+/**
+ * **Refuse any target that is not the local test cluster** (E03-D04).
+ *
+ * The script previously took whatever `TEST_DATABASE_ADMIN_URL` said, dropped
+ * databases on it, ran `pg_dump` with no `--schema-only` and no table filter, and
+ * wrote the result INSIDE THE REPOSITORY. Pointed at a real database — by an
+ * exported variable in a shell, which is the whole way this repository passes
+ * connection strings around — that sequence is a destructive operation followed
+ * by exfiltration of live rows into a file somebody then commits.
+ *
+ * Three conditions, all required, each independently sufficient to make the
+ * accident impossible:
+ *   1. the host is loopback — a production database is not on this machine;
+ *   2. the ADMIN user is the local cluster's throwaway superuser (`longbox`),
+ *      because a loopback port can be a tunnel to somewhere else;
+ *   3. `NODE_ENV` is not `production`.
+ */
+export function assertLocalTestCluster(adminUrl: string, env: NodeJS.ProcessEnv = process.env): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(adminUrl);
+  } catch {
+    throw new UnsafeFixtureTargetError("the admin URL is not a URL");
+  }
+  if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
+    throw new UnsafeFixtureTargetError(`the host is ${parsed.hostname}, which is not loopback`);
+  }
+  if (parsed.username !== "longbox") {
+    throw new UnsafeFixtureTargetError(
+      `the admin user is '${parsed.username}', not the local test cluster's 'longbox'`
+    );
+  }
+  if (env.NODE_ENV === "production") {
+    throw new UnsafeFixtureTargetError("NODE_ENV is production");
+  }
+}
+
+/** The tables the synthetic seed writes, named explicitly (E03-D04). */
+export const SEEDED_TABLES: readonly string[] = [
+  "shop",
+  "shop_pricing_policy",
+  "scan_session",
+  "scan_photo",
+  "candidate_set",
+  "human_confirmation",
+  "condition_assessment",
+  "cost_log",
+];
+
 async function main(): Promise<void> {
   const upto = arg("upto");
   const out = arg("out");
@@ -78,6 +143,8 @@ async function main(): Promise<void> {
   }
   const adminUrl =
     process.env.TEST_DATABASE_ADMIN_URL ?? "postgres://longbox:longbox@127.0.0.1:54329/postgres";
+  // BEFORE the first DROP DATABASE, and before anything is dumped (E03-D04).
+  assertLocalTestCluster(adminUrl);
   const dbName = `longbox_fixture_gen_${upto}`;
 
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -120,17 +187,53 @@ async function main(): Promise<void> {
     await client.end();
   }
 
+  // `--schema-only`, and the DATA comes from the synthetic seed above (E03-D04).
+  //
+  // WHY NOT DUMP THE DATA. A plain `pg_dump` emits every row in every table of
+  // whatever database it was pointed at. Here that database is generated moments
+  // earlier and holds nothing but `FIXTURE_SEED`, so the two are the same bytes
+  // TODAY — and that is the whole problem: the safety of the output depended on
+  // the target being the right database, when the target is an environment
+  // variable. `--schema-only` makes the dump structurally incapable of carrying a
+  // row, and the seed section below is written from the constant in this file, so
+  // a fixture can only ever contain rows this repository authored.
   const { stdout } = await execFileAsync(
     "pg_dump",
-    ["--no-owner", "--no-privileges", "--no-comments", "--quote-all-identifiers", migrateUrl],
+    [
+      "--schema-only",
+      "--no-owner",
+      "--no-privileges",
+      "--no-comments",
+      "--quote-all-identifiers",
+      migrateUrl,
+    ],
     { maxBuffer: 64 * 1024 * 1024 }
   );
   // Drop pg_dump's version banner: it changes with the client and the server and
   // would make every regeneration a diff about nothing.
-  const body = stdout
+  const schema = stdout
     .split("\n")
     .filter((l) => !l.startsWith("-- Dumped from") && !l.startsWith("-- Dumped by"))
     .join("\n");
+
+  // The ledger rows the restored database must carry, and the seed — named table
+  // by table so a reader can see exactly what a fixture contains without running
+  // it. `schema_migrations` deliberately has NO checksum column here (044 §3).
+  const applied = readMigrations()
+    .filter((f) => f.filename.slice(0, 3) <= upto)
+    .map((f) => `  ('${f.filename}')`)
+    .join(",\n");
+  const body =
+    `${schema}\n` +
+    `--\n-- Synthetic seed, written from FIXTURE_SEED in scripts/makeSchemaFixture.ts.\n` +
+    `-- NOT a dump of anything: the tables it touches are ${SEEDED_TABLES.join(", ")}\n` +
+    `-- plus schema_migrations, and every id is fixed so a regeneration is byte-stable.\n--\n` +
+    // pg_dump empties the search_path (`set_config('search_path', '', false)`) so
+    // its own statements are unambiguous. These are ours, and they are written
+    // unqualified for readability, so the path is restored for them explicitly.
+    `SET search_path TO "public";\n` +
+    `INSERT INTO schema_migrations (filename) VALUES\n${applied};\n` +
+    `${FIXTURE_SEED}\n`;
 
   writeFileSync(
     out,
@@ -152,7 +255,15 @@ async function main(): Promise<void> {
   await admin2.end();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only when RUN, never when imported. `tests/schema-fixture-target.test.ts`
+// imports `assertLocalTestCluster` to prove the refusals, and a module that
+// generated a fixture on import would make that test do the very thing it exists
+// to prevent.
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

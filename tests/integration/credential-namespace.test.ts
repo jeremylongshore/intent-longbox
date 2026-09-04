@@ -1,0 +1,148 @@
+// The database half of 046 §11 I4, proved as the role that would actually be
+// holding the connection when a write surface exists: `longbox_app`.
+//
+// Bead: longbox-e5b.3.11 (alias E03-D01). Docs: 046 §5 A7/A15, §11 I4;
+// migrations/014; 000-docs/044 §3 (a migration applies clean and its constraints
+// are asserted against a live schema, not read off the file).
+//
+// WHY AS THE APP ROLE AND NOT AS THE MIGRATE ROLE. E02-D06's whole argument is
+// that the connection the server holds owns nothing. A CHECK constraint is one
+// of the very few controls that binds the OWNER too, and asserting it from the
+// least-privileged role is the assertion that matches the threat: 046 §5 A15's
+// attacker is whoever reaches a future config write path, and that path runs on
+// this connection.
+import pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appUrl, createFreshDb, probeDb, runMigrations } from "./helpers.js";
+
+const DB = "longbox_test_credential_namespace";
+
+let enabled = false;
+let pool: pg.Pool | undefined;
+let shopId: string | undefined;
+
+beforeAll(async () => {
+  enabled = await probeDb();
+  if (!enabled) return;
+  const migrateUrl = await createFreshDb(DB);
+  await runMigrations(migrateUrl);
+  pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
+  const res = await pool.query(`INSERT INTO shop (name, slug) VALUES ($1, $2) RETURNING id`, [
+    "Namespace Test Shop",
+    "nstest",
+  ]);
+  shopId = (res.rows[0] as { id: string }).id;
+}, 120_000);
+
+afterAll(async () => {
+  await pool?.end();
+});
+
+async function insertCredential(keyRef: string, baseUrl: string | null): Promise<void> {
+  await pool!.query(`INSERT INTO shop_credentials (shop_id, kind, key_ref, base_url) VALUES ($1,$2,$3,$4)`, [
+    shopId,
+    "anthropic",
+    keyRef,
+    baseUrl,
+  ]);
+}
+
+describe("shop_credentials refuses a row that could exfiltrate a key (migrations/014)", () => {
+  it("accepts the row register-shop writes", async () => {
+    if (!enabled) return;
+    await expect(insertCredential("LONGBOX_NSTEST_ANTHROPIC_KEY", null)).resolves.toBeUndefined();
+    await expect(
+      insertCredential("LONGBOX_NSTEST_OPENAI_KEY", "https://api.openai.com/v1")
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a key_ref naming a global secret — the exfiltration primitive's first half", async () => {
+    if (!enabled) return;
+    for (const hostile of ["ANTHROPIC_API_KEY", "DATABASE_URL", "LLM_API_KEY", "AWS_SECRET_ACCESS_KEY"]) {
+      await expect(insertCredential(hostile, null)).rejects.toThrow(/shop_credentials_key_ref_namespaced/);
+    }
+  });
+
+  it("refuses the old SHOP_<SLUG>_<KIND> convention, which named a variable outside the namespace", async () => {
+    if (!enabled) return;
+    await expect(insertCredential("SHOP_NSTEST_ANTHROPIC_API_KEY", null)).rejects.toThrow(
+      /shop_credentials_key_ref_namespaced/
+    );
+  });
+
+  it("refuses a base_url off the registered-host list — the second half", async () => {
+    if (!enabled) return;
+    for (const host of [
+      "https://attacker.example",
+      "https://api.anthropic.com.attacker.example",
+      "http://api.anthropic.com",
+    ]) {
+      await expect(insertCredential("LONGBOX_NSTEST_ANTHROPIC_KEY", host)).rejects.toThrow(
+        /shop_credentials_base_url_registered/
+      );
+    }
+  });
+
+  it("THE SIBLING-SLUG NAME is refused by the CHECK — the invariant review's finding", async () => {
+    if (!enabled) return;
+    // Shops `gotham` and `gotham-city` in one estate. Under the first version of
+    // this constraint (`^LONGBOX_[A-Z0-9]+_[A-Z0-9_]+$`) the name below was
+    // well-formed, and `gotham`'s resolver accepted it on a `startsWith` test —
+    // so shop `gotham` could read shop `gotham-city`'s key. The closed suffix set
+    // removes the second slug segment `CITY` was hiding in.
+    await expect(insertCredential("LONGBOX_GOTHAM_CITY_ANTHROPIC_KEY", null)).rejects.toThrow(
+      /shop_credentials_key_ref_namespaced/
+    );
+    // And the fold register-shop actually produces for `gotham-city` is legal.
+    await expect(insertCredential("LONGBOX_GOTHAMCITY_ANTHROPIC_KEY", null)).resolves.toBeUndefined();
+  });
+
+  it("refuses a suffix outside the closed set, however plausible", async () => {
+    if (!enabled) return;
+    for (const bad of [
+      "LONGBOX_NSTEST_STRIPE_KEY",
+      "LONGBOX_NSTEST_ANTHROPIC_TOKEN",
+      "LONGBOX_NSTEST_ANTHROPIC_KEY_BACKUP",
+    ]) {
+      await expect(insertCredential(bad, null)).rejects.toThrow(/shop_credentials_key_ref_namespaced/);
+    }
+  });
+
+  it("shop.slug now has a charset, so an env fold cannot be re-segmented by a slug", async () => {
+    if (!enabled) return;
+    // `001:25` gave slug UNIQUE and no charset. A slug carrying `_` or `.` folds
+    // into a name whose segmentation nobody intended — the same defect class,
+    // entered from the other end.
+    for (const bad of ["gotham_city", "gotham.city", "Gotham", "gotham city"]) {
+      await expect(
+        pool!.query(`INSERT INTO shop (name, slug) VALUES ($1, $2)`, ["Bad Slug Shop", bad])
+      ).rejects.toThrow(/shop_slug_charset/);
+    }
+    await expect(
+      pool!.query(`INSERT INTO shop (name, slug) VALUES ($1, $2)`, ["Sibling Shop", "gotham-city"])
+    ).resolves.toBeDefined();
+  });
+
+  it("THE HOSTILE ROW IS UNREPRESENTABLE: neither half of it may be written", async () => {
+    if (!enabled) return;
+    // (key_ref = 'ANTHROPIC_API_KEY', base_url = 'https://attacker.example') —
+    // 046 §5 A15's row, refused by the first constraint it meets. Postgres
+    // reports one violated constraint; the two cases above prove each half
+    // independently, and this one proves the combination is refused as written.
+    await expect(insertCredential("ANTHROPIC_API_KEY", "https://attacker.example")).rejects.toThrow(
+      /shop_credentials_(key_ref_namespaced|base_url_registered)/
+    );
+  });
+
+  it("the app role really is the least-privileged one (the refusal is the CHECK, not a grant)", async () => {
+    if (!enabled) return;
+    const who = await pool!.query(`SELECT current_user AS role`);
+    expect((who.rows[0] as { role: string }).role).toBe("longbox_app");
+    // Proof the role can write this table at all — otherwise every refusal above
+    // would be a permission error wearing a constraint's name.
+    const count = await pool!.query(`SELECT count(*)::int AS n FROM shop_credentials WHERE shop_id = $1`, [
+      shopId,
+    ]);
+    expect((count.rows[0] as { n: number }).n).toBeGreaterThan(0);
+  });
+});

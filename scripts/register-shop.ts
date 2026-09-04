@@ -10,6 +10,12 @@ import { parseArgs } from "node:util";
 import pg from "pg";
 import { DEFAULT_RETENTION } from "./retention-defaults.js";
 import { resolveMigrateUrl } from "./migrateUrl.js";
+import {
+  deriveKeyRef,
+  envSlug,
+  findNamespaceClash,
+  keyRefNamespace,
+} from "../src/providers/credentialPolicy.js";
 
 const { values } = parseArgs({
   options: {
@@ -37,17 +43,45 @@ async function main(): Promise<void> {
   // scripts/migrateUrl.ts (E02-D06).
   const url = resolveMigrateUrl();
 
-  const envSlug = slug.toUpperCase().replace(/-/g, "_");
+  // E03-D01 (046 §5 A7/A15): key_refs are derived, never typed, and they carry
+  // the shop's own namespace — `LONGBOX_<SLUG>_<PROVIDER>_KEY`. The rows this
+  // script writes are the ones `migrations/014`'s CHECK and
+  // `resolveKeyRef(keyRef, shopSlug)` both accept; the older `SHOP_<SLUG>_<KIND>`
+  // convention is gone, and a database still holding one fails migration 014
+  // loudly rather than resolving a variable outside its shop.
   const refs = {
-    anthropic: `SHOP_${envSlug}_ANTHROPIC_API_KEY`,
-    shopify: `SHOP_${envSlug}_SHOPIFY_ADMIN_TOKEN`,
-    pricecharting: `SHOP_${envSlug}_PRICECHARTING_TOKEN`,
-  };
+    anthropic: deriveKeyRef(slug, "anthropic"),
+    shopify: deriveKeyRef(slug, "shopify"),
+    pricecharting: deriveKeyRef(slug, "pricecharting"),
+  } as const;
 
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
     await client.query("BEGIN");
+    // ⚠ THE FOLD IS NOT INJECTIVE, AND THIS IS WHERE THAT IS PAID FOR (E03-D01,
+    // invariant review). `envSlug` strips separators — `gotham-city` and
+    // `gothamcity` both become `GOTHAMCITY` — because a fold that could not
+    // collide would need to encode the separator, and a multi-segment env name is
+    // exactly what let one shop read a sibling's variable. Collisions are
+    // therefore refused at the ONE place a second colliding slug can be created,
+    // rather than tolerated and then explained. Two shops sharing a namespace
+    // would each satisfy every check in the system while reading each other's
+    // keys, which is the defect this whole bead exists to remove.
+    const existing = await client.query(`SELECT slug FROM shop`);
+    const clash = findNamespaceClash(
+      slug,
+      (existing.rows as Array<{ slug: string }>).map((row) => row.slug)
+    );
+    if (clash) {
+      await client.query("ROLLBACK");
+      console.error(
+        `refusing: shop '${clash}' already owns the credential namespace ` +
+          `${keyRefNamespace(slug)} (both slugs fold to '${envSlug(slug)}'). ` +
+          `Pick a slug that does not collide once separators are stripped.`
+      );
+      process.exit(1);
+    }
     const shopRes = await client.query(
       `INSERT INTO shop (name, slug, shopify_domain) VALUES ($1, $2, $3) RETURNING id`,
       [name, slug, values["shopify-domain"] ?? null]
@@ -79,9 +113,11 @@ async function main(): Promise<void> {
     await client.query("COMMIT");
     console.log(`shop registered: ${name} (${slug})`);
     console.log(`shop_id: ${shopId}`);
-    console.log("\nSet these env vars (via SOPS/.env, never committed) to give this shop its own keys;");
+    console.log("\nSet these env vars (via SOPS/.env, never committed) to give this shop its own keys.");
     console.log(
-      "leave them unset to fall back to the global ANTHROPIC_API_KEY / SHOPIFY_ADMIN_TOKEN / PRICECHARTING_TOKEN:"
+      "There is NO global fallback for a shop that has credential rows (E03-D01): leaving one unset\n" +
+        "means the vision provider REFUSES for this shop and the Shopify/PriceCharting clients STUB —\n" +
+        "the estate's global key is never silently substituted for a shop's own."
     );
     for (const ref of Object.values(refs)) console.log(`  ${ref}=`);
   } catch (err) {

@@ -348,14 +348,19 @@ describe("identify — the metered fallback (042 §8.3)", () => {
     // and needs no network: the provider-TRANSPORT half is `tests/identify.test.ts`
     // ("surfaces provider transport failures without inserting a vision set").
     // Both arrive at the same place, which is the point of a registry.
-    process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-one";
+    // E03-D01: the credential row names a variable in THIS shop's namespace, and
+    // the `shop` row supplies the slug the resolver derives it from. The fixture
+    // used to name `ANTHROPIC_API_KEY` directly, which is now a refusal rather
+    // than a resolution — a different failure from the one this test is about.
+    process.env["LONGBOX_TESTSHOP_ANTHROPIC_KEY"] = "test-key-not-a-real-one";
     const fetchSpy = vi.fn(async () => fakeResponse(500, { error: { message: "upstream exploded" } }));
     vi.stubGlobal("fetch", fetchSpy);
     try {
       const p = apiPool((text) => {
         if (text.includes("shop_credentials")) {
-          return { rows: [{ kind: "anthropic", key_ref: "ANTHROPIC_API_KEY", base_url: null }] };
+          return { rows: [{ kind: "anthropic", key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY", base_url: null }] };
         }
+        if (text.includes("FROM shop ")) return { rows: [{ slug: "testshop" }] };
         if (text.includes("FROM scan_photo")) return { rows: [] };
         return undefined;
       });
@@ -375,7 +380,7 @@ describe("identify — the metered fallback (042 §8.3)", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
-      delete process.env["ANTHROPIC_API_KEY"];
+      delete process.env["LONGBOX_TESTSHOP_ANTHROPIC_KEY"];
     }
   });
 });

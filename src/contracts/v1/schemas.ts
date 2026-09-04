@@ -97,9 +97,42 @@ export const identifyRequest = z
   })
   .strict();
 
+/**
+ * The confirmed issue — a DECLARED shape, not `z.record(z.unknown())`.
+ *
+ * E03-D02 (bead longbox-e5b.3.12; 046 §5 A16, §11 I3). The old `z.record(z.unknown())`
+ * accepted arbitrary client JSON of arbitrary size and depth, and its fields were
+ * interpolated into a Shopify `descriptionHtml` unescaped — a stored-injection
+ * path from a phone at the counter into the shop's own storefront, across a
+ * boundary (046 §3.3 B9) into a system Longbox does not own and cannot clean up.
+ *
+ * THE PATH IS THE MODEL'S, WHICH IS WHY THE BOUND MATTERS. These strings are not
+ * typed by an operator in the normal case: they are the candidate the model
+ * returned, tapped once (`public/app.js` one-tap → `confirmIssue`). So the
+ * hostile input is a cover, a sticker or a QR code carrying markup (046 §5 A8),
+ * and the operator confirming it is the design working, not a mistake.
+ *
+ * SIX FIELDS, ALL STRINGS, NO NESTING, EVERY ONE CAPPED. `year` is a string
+ * because a bounded string is the same fact with fewer coercion rules, and
+ * because the identify response already carries it as displayed text. `.strict()`
+ * means an unexpected key is a 422 rather than a silently stored one — the same
+ * argument 042 §3.1 R2 made for `created_by`: "a body key the server silently
+ * drops is a promise a client keeps making".
+ */
+export const confirmedIssue = z
+  .object({
+    title: z.string().max(300).optional(),
+    issue: z.string().max(50).optional(),
+    variant: z.string().max(200).optional(),
+    publisher: z.string().max(200).optional(),
+    year: z.string().max(10).optional(),
+    upc: z.string().max(50).optional(),
+  })
+  .strict();
+
 export const confirmRequest = z
   .object({
-    issue: z.record(z.unknown()),
+    issue: confirmedIssue,
     source: z.enum(["one_tap", "grid_pick", "manual_search", "owner_review"]),
     ...withAgainst,
   })

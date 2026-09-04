@@ -112,12 +112,56 @@ export interface DraftFacts {
   readonly coverUrls: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Escaping and bounding, on the way OUT (E03-D02, 046 §5 A16, §11 I3)
+// ---------------------------------------------------------------------------
+
+/** Field caps, mirroring `confirmedIssue` in the v1 contract. */
+const CAPS = { title: 300, issue: 50, variant: 200, publisher: 200, year: 10, defects: 400 } as const;
+
+/**
+ * A stored value as bounded plain text.
+ *
+ * BOUNDED HERE AS WELL AS AT THE CONTRACT, and that is not belt-and-braces for
+ * its own sake: `human_confirmation` is append-only, so every row written before
+ * E03-D02 landed is still there and still unbounded, and this function reads
+ * from the table rather than from the request. A guard that only lived in the
+ * Zod schema would be a guard the historical rows walk straight past.
+ */
+export function boundedText(value: unknown, max: number): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return ""; // no nesting reaches a storefront
+  return String(value).slice(0, max);
+}
+
+/**
+ * HTML-escape one value for interpolation into `descriptionHtml`.
+ *
+ * Five characters, the standard set, applied AFTER bounding so a truncation can
+ * never cut an entity in half. `&` is replaced first for the same reason it
+ * always is: escaping it later would double-escape the ones before it.
+ */
+export function escapeHtml(value: unknown, max: number): string {
+  return boundedText(value, max)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
  * Build the product payload from the session's own committed facts.
  *
  * CONDITION IS NEVER NUMERIC (locked decision 5; 019 T7 = 0, non-waivable). The
  * copy below renders a grade RANGE and defect callouts and nothing else — no
  * score, no percentage, no confidence figure.
+ *
+ * NOTHING CLIENT- OR MODEL-AUTHORED CROSSES B9 UNESCAPED (E03-D02). Every value
+ * interpolated into `descriptionHtml` goes through `escapeHtml`, and the `title`
+ * — which Shopify renders as PLAIN TEXT, so escaping it would put `&amp;` in
+ * front of a customer — is bounded instead. The distinction is deliberate: an
+ * escape applied to a non-HTML sink is a corruption, not a control.
  *
  * Returns `undefined` when the session cannot be drafted, which is a terminal
  * outcome rather than a retryable one: the facts do not appear by waiting.
@@ -126,18 +170,26 @@ export function composeDraftInput(facts: DraftFacts, copyKey: string): DraftProd
   const issue = facts.confirmedIssue;
   if (!issue || !facts.pricing) return undefined;
 
-  const title = [issue.title, issue.issue ? `#${String(issue.issue)}` : null, issue.variant ?? null]
-    .filter(Boolean)
+  const issueNumber = boundedText(issue.issue, CAPS.issue);
+  const title = [
+    boundedText(issue.title, CAPS.title),
+    issueNumber ? `#${issueNumber}` : "",
+    boundedText(issue.variant, CAPS.variant),
+  ]
+    .filter((part) => part.length > 0)
     .join(" ");
   const a = facts.assessment;
   const gradeCopy = a
-    ? `Condition: ${a.grade_range_low === a.grade_range_high ? a.grade_range_low : `${a.grade_range_low}-${a.grade_range_high}`}` +
-      `${a.defects.length ? `. Noted: ${a.defects.join(", ").replace(/_/g, " ")}` : ""}`
+    ? `Condition: ${escapeHtml(a.grade_range_low === a.grade_range_high ? a.grade_range_low : `${a.grade_range_low}-${a.grade_range_high}`, CAPS.issue)}` +
+      `${a.defects.length ? `. Noted: ${escapeHtml(a.defects.join(", ").replace(/_/g, " "), CAPS.defects)}` : ""}`
     : "";
+  const provenance = [escapeHtml(issue.publisher, CAPS.publisher), escapeHtml(issue.year, CAPS.year)]
+    .filter((part) => part.length > 0)
+    .join(", ");
 
   return {
     title: title || "Unidentified comic",
-    descriptionHtml: `<p>${[issue.publisher, issue.year].filter(Boolean).join(", ")}</p><p>${gradeCopy}</p>`,
+    descriptionHtml: `<p>${provenance}</p><p>${gradeCopy}</p>`,
     priceCents: facts.pricing.override_cents ?? facts.pricing.suggested_cents,
     imageUrls: facts.coverUrls,
     copyKey,

@@ -62,6 +62,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "011_outbox.sql",
       "012_cost_log_outbox_id.sql",
       "013_supersession_forward_ordering.sql",
+      "014_credential_namespace_and_host_allowlist.sql",
     ]);
 
     const tables = await pool.query(
@@ -117,7 +118,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  012_cost_log_outbox_id.sql");
     expect(secondRun).toContain("skip  013_supersession_forward_ordering.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(13);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(14);
 
     // E02-B10: the ledger records a checksum for every file it applied, and a
     // second run skips WITHOUT adopting anything — an adoption on a database this

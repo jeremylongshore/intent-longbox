@@ -105,7 +105,10 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     // reason `created_by` is: 019 T35 signs per-operator rendering at zero and
     // an append-only row cannot be corrected later (042 I1).
     const confirm = await post(`${base}/${sessionId}/confirm`, {
-      issue: { title: "Amazing Spider-Man", issue: "300", publisher: "Marvel", year: 1988 },
+      // E03-D02: `year` is a bounded STRING in the v1 contract, not a number.
+      // The client stringifies before it posts (`public/app.js` `boundedIssue`),
+      // in the same PR as this change per 042 A4.
+      issue: { title: "Amazing Spider-Man", issue: "300", publisher: "Marvel", year: "1988" },
       source: "grid_pick",
     });
     expect(confirm.statusCode).toBe(201);

@@ -10,7 +10,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict zoFMdRTmkRDtSlsKV8OrpdAQ98H2fKRciZNmUCVfMPb7NCFuGyuZiqdgP4XCvsx
+\restrict vTnfNXGg5dVZh0ZSiEnR3zm5iRpy7lJZ0JYsRLojd8u54OoCVuDOSEH8cLZYAIQ
 
 
 SET statement_timeout = 0;
@@ -541,193 +541,6 @@ CREATE TABLE "public"."shopify_draft" (
     CONSTRAINT "shopify_draft_session_seq_positive" CHECK ((("session_seq" IS NULL) OR ("session_seq" > 0))),
     CONSTRAINT "shopify_draft_status_check" CHECK (("status" = ANY (ARRAY['draft'::"text", 'published'::"text", 'failed'::"text", 'delisted'::"text", 'archived'::"text"])))
 );
-
-
---
--- Data for Name: candidate_set; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."candidate_set" ("id", "scan_session_id", "shop_id", "corpus_version_id", "method", "candidates", "barcode_raw", "created_at", "session_seq") FROM stdin;
-44444444-4444-4444-8444-444444444441	22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	\N	barcode	[]	\N	2026-09-04 12:10:06.133542+00	\N
-44444444-4444-4444-8444-444444444442	22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	\N	llm_vision	[]	\N	2026-09-04 12:10:06.133542+00	\N
-\.
-
-
---
--- Data for Name: condition_assessment; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."condition_assessment" ("id", "scan_session_id", "shop_id", "grade_range_low", "grade_range_high", "defects", "notes", "created_at", "operator_id", "actor_verified", "supersedes_id", "authored_by", "session_seq") FROM stdin;
-66666666-6666-4666-8666-666666666661	22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	VG	FN	{}	\N	2026-09-04 12:10:06.133542+00	\N	f	\N	human	\N
-\.
-
-
---
--- Data for Name: corpus_version; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."corpus_version" ("id", "source_set", "built_at", "notes", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: cost_log; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."cost_log" ("id", "shop_id", "scan_session_id", "provider", "model", "tokens_in", "tokens_out", "estimated_usd", "created_at", "authored_by", "session_seq") FROM stdin;
-77777777-7777-4777-8777-777777777771	11111111-1111-4111-8111-111111111111	22222222-2222-4222-8222-222222222221	anthropic	claude-sonnet-5	100	20	0.001200	2026-09-04 12:10:06.133542+00	system	\N
-\.
-
-
---
--- Data for Name: human_confirmation; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."human_confirmation" ("id", "scan_session_id", "shop_id", "confirmed_issue", "source", "confirmed_by", "created_at", "operator_id", "actor_verified", "supersedes_id", "outcome", "authored_by", "session_seq") FROM stdin;
-55555555-5555-4555-8555-555555555551	22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	{"issue": "1", "title": "Fixture"}	one_tap	fixture-operator	2026-09-04 12:10:06.133542+00	\N	f	\N	\N	human	\N
-\.
-
-
---
--- Data for Name: listing_status_observation; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."listing_status_observation" ("id", "shop_id", "shopify_draft_id", "observed_status", "published_by", "observed_at", "source", "raw", "created_at", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: llm_rerank; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."llm_rerank" ("id", "candidate_set_id", "scan_session_id", "shop_id", "provider", "model", "prompt_hash", "response", "confidence", "band", "contradiction", "tokens_in", "tokens_out", "cost_usd", "created_at", "authored_by", "session_seq") FROM stdin;
-\.
-
-
---
--- Data for Name: media_deletion; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."media_deletion" ("id", "shop_id", "scan_photo_id", "storage_key", "reason_code", "requested_by", "created_at", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: pricing_snapshot; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."pricing_snapshot" ("id", "scan_session_id", "shop_id", "source", "query", "comps", "suggested_cents", "override_cents", "policy_id", "fetched_at", "created_at", "operator_id", "actor_verified", "supersedes_id", "authored_by", "session_seq") FROM stdin;
-\.
-
-
---
--- Data for Name: request_idempotency; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."request_idempotency" ("id", "shop_id", "idempotency_key", "route", "request_hash", "response_status", "response_body", "created_at") FROM stdin;
-\.
-
-
---
--- Data for Name: retention_hold; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."retention_hold" ("id", "shop_id", "target_table", "target_id", "reason", "review_date", "created_at", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: retention_hold_release; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."retention_hold_release" ("id", "hold_id", "released_by", "created_at", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: retention_policy; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."retention_policy" ("id", "shop_id", "artifact_class", "anchor", "window_days", "ceiling_days", "created_at", "authored_by") FROM stdin;
-\.
-
-
---
--- Data for Name: scan_photo; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."scan_photo" ("id", "scan_session_id", "shop_id", "kind", "storage_url", "taken_at", "storage_key", "content_hash", "authored_by", "session_seq") FROM stdin;
-33333333-3333-4333-8333-333333333331	22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	cover	file:///fixture/cover.jpg	2026-09-04 12:10:06.133542+00	\N	\N	human	\N
-\.
-
-
---
--- Data for Name: scan_session; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."scan_session" ("id", "shop_id", "created_by", "status", "created_at", "operator_id", "actor_verified") FROM stdin;
-22222222-2222-4222-8222-222222222221	11111111-1111-4111-8111-111111111111	fixture-operator	in_progress	2026-09-04 12:10:06.133542+00	\N	f
-\.
-
-
---
--- Data for Name: scan_session_transition; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."scan_session_transition" ("id", "shop_id", "scan_session_id", "kind", "reopened_to_rung", "against_table", "against_id", "observed_state", "reason", "operator_id", "actor_verified", "actor_role", "device_id", "batch_id", "authored_by", "session_seq", "created_at") FROM stdin;
-\.
-
-
---
--- Data for Name: schema_migrations; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."schema_migrations" ("filename", "applied_at") FROM stdin;
-001_init.sql	2026-09-04 12:10:05.845016+00
-002_ebay_credential_kind.sql	2026-09-04 12:10:05.851214+00
-003_reserve_principle_slots.sql	2026-09-04 12:10:05.933887+00
-004_human_confirmation_outcome.sql	2026-09-04 12:10:05.949211+00
-005_listing_status_observation.sql	2026-09-04 12:10:05.976338+00
-006_append_only_enable_always.sql	2026-09-04 12:10:05.989092+00
-007_observation_envelope.sql	2026-09-04 12:10:06.059612+00
-008_supersession_integrity.sql	2026-09-04 12:10:06.086817+00
-009_request_idempotency.sql	2026-09-04 12:10:06.105052+00
-010_scan_session_transition.sql	2026-09-04 12:10:06.13079+00
-\.
-
-
---
--- Data for Name: shop; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."shop" ("id", "name", "slug", "shopify_domain", "created_at") FROM stdin;
-11111111-1111-4111-8111-111111111111	Fixture Comics	fixture-comics	\N	2026-09-04 12:10:06.133542+00
-\.
-
-
---
--- Data for Name: shop_credentials; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."shop_credentials" ("id", "shop_id", "kind", "key_ref", "base_url", "created_at") FROM stdin;
-\.
-
-
---
--- Data for Name: shop_pricing_policy; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."shop_pricing_policy" ("id", "shop_id", "comp_percent", "floor_cents", "rounding_rule", "effective_from") FROM stdin;
-11111111-1111-4111-8111-111111111112	11111111-1111-4111-8111-111111111111	90	300	nearest_99	2026-09-04 12:10:06.133542+00
-\.
-
-
---
--- Data for Name: shopify_draft; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY "public"."shopify_draft" ("id", "scan_session_id", "shop_id", "product_gid", "status", "error", "created_at", "authored_by", "session_seq") FROM stdin;
-\.
 
 
 --
@@ -1582,5 +1395,51 @@ ALTER TABLE ONLY "public"."shopify_draft"
 -- PostgreSQL database dump complete
 --
 
-\unrestrict zoFMdRTmkRDtSlsKV8OrpdAQ98H2fKRciZNmUCVfMPb7NCFuGyuZiqdgP4XCvsx
+\unrestrict vTnfNXGg5dVZh0ZSiEnR3zm5iRpy7lJZ0JYsRLojd8u54OoCVuDOSEH8cLZYAIQ
+
+
+--
+-- Synthetic seed, written from FIXTURE_SEED in scripts/makeSchemaFixture.ts.
+-- NOT a dump of anything: the tables it touches are shop, shop_pricing_policy, scan_session, scan_photo, candidate_set, human_confirmation, condition_assessment, cost_log
+-- plus schema_migrations, and every id is fixed so a regeneration is byte-stable.
+--
+SET search_path TO "public";
+INSERT INTO schema_migrations (filename) VALUES
+  ('001_init.sql'),
+  ('002_ebay_credential_kind.sql'),
+  ('003_reserve_principle_slots.sql'),
+  ('004_human_confirmation_outcome.sql'),
+  ('005_listing_status_observation.sql'),
+  ('006_append_only_enable_always.sql'),
+  ('007_observation_envelope.sql'),
+  ('008_supersession_integrity.sql'),
+  ('009_request_idempotency.sql'),
+  ('010_scan_session_transition.sql');
+
+INSERT INTO shop (id, name, slug) VALUES
+  ('11111111-1111-4111-8111-111111111111', 'Fixture Comics', 'fixture-comics');
+INSERT INTO shop_pricing_policy (id, shop_id, comp_percent, floor_cents, rounding_rule) VALUES
+  ('11111111-1111-4111-8111-111111111112', '11111111-1111-4111-8111-111111111111', 90, 300, 'nearest_99');
+INSERT INTO scan_session (id, shop_id, created_by) VALUES
+  ('22222222-2222-4222-8222-222222222221', '11111111-1111-4111-8111-111111111111', 'fixture-operator');
+INSERT INTO scan_photo (id, scan_session_id, shop_id, kind, storage_url) VALUES
+  ('33333333-3333-4333-8333-333333333331', '22222222-2222-4222-8222-222222222221',
+   '11111111-1111-4111-8111-111111111111', 'cover', 'file:///fixture/cover.jpg');
+-- Two candidate sets, one per authorship branch, so 007's GENERATED derivation is
+-- exercised in BOTH directions by the upgrade test rather than in one.
+INSERT INTO candidate_set (id, scan_session_id, shop_id, method, candidates) VALUES
+  ('44444444-4444-4444-8444-444444444441', '22222222-2222-4222-8222-222222222221',
+   '11111111-1111-4111-8111-111111111111', 'barcode', '[]'::jsonb),
+  ('44444444-4444-4444-8444-444444444442', '22222222-2222-4222-8222-222222222221',
+   '11111111-1111-4111-8111-111111111111', 'llm_vision', '[]'::jsonb);
+INSERT INTO human_confirmation (id, scan_session_id, shop_id, confirmed_issue, source, confirmed_by) VALUES
+  ('55555555-5555-4555-8555-555555555551', '22222222-2222-4222-8222-222222222221',
+   '11111111-1111-4111-8111-111111111111', '{"title":"Fixture","issue":"1"}'::jsonb,
+   'one_tap', 'fixture-operator');
+INSERT INTO condition_assessment (id, scan_session_id, shop_id, grade_range_low, grade_range_high, defects) VALUES
+  ('66666666-6666-4666-8666-666666666661', '22222222-2222-4222-8222-222222222221',
+   '11111111-1111-4111-8111-111111111111', 'VG', 'FN', ARRAY[]::text[]);
+INSERT INTO cost_log (id, shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd) VALUES
+  ('77777777-7777-4777-8777-777777777771', '11111111-1111-4111-8111-111111111111',
+   '22222222-2222-4222-8222-222222222221', 'anthropic', 'claude-sonnet-5', 100, 20, 0.0012);
 

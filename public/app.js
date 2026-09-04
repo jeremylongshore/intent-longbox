@@ -219,6 +219,33 @@ $("identify-btn").onclick = async () => {
   renderCandidates(data);
 };
 
+/**
+ * Build one element with a class and its text (E03-D03).
+ *
+ * Every place this screen used to assemble markup as a string now goes through
+ * here. `textContent` is the whole point: a `<script>` in a title becomes eleven
+ * visible characters and never a node, whatever the catalog, the model or the
+ * server put in the string.
+ */
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/**
+ * The band as a class-safe token.
+ *
+ * The band is a server field. This screen already selects its COPY from it via a
+ * declared table, and the class name is the one place the raw value used to
+ * travel — so it is confined to the three words the design actually has, and an
+ * unrecognised value renders as `low` rather than as whatever arrived.
+ */
+function bandOf(data) {
+  return BAND_COPY[data.band] ? data.band : "low";
+}
+
 // Band copy — registered verbatim in 000-docs/021 §3.1 (C1 high, C2 medium,
 // C3 low + contradiction). Band words only, never a number: 022 P6, 019 §2.
 const BAND_COPY = {
@@ -235,8 +262,15 @@ function renderCandidates(data) {
   selectedCandidate = null;
   show("candidates-section");
   const copy = BAND_COPY[data.band] || BAND_COPY.low;
-  $("band-line").innerHTML =
-    `<span class="band ${data.band}">${copy.heading}</span><div class="band-body">${copy.body}</div>`;
+  // E03-D03 (046 §11 I14): built as NODES, not as a string. This line used to
+  // interpolate `data.band` — a SERVER-derived value — into a class attribute
+  // inside `innerHTML`, which is markup assembled from a field this screen does
+  // not control. `el(...)` sets `textContent` and `className` through the DOM,
+  // where a string is a string and can never become an element.
+  const bandLine = $("band-line");
+  bandLine.innerHTML = "";
+  bandLine.appendChild(el("span", `band ${bandOf(data)}`, copy.heading));
+  bandLine.appendChild(el("div", "band-body", copy.body));
   // Cost is an owner-facing figure (cost_log), never shown on the operator
   // screen — 022 P8. It stays in the immutable llm_rerank / cost_log record.
   $("contradiction-line").textContent = data.contradiction ? CONTRADICTION_TEXT : "";
@@ -277,7 +311,7 @@ function renderCandidates(data) {
     renderCandidateGrid(data, "grid_pick");
   } else {
     // low band: manual search box
-    list.innerHTML = "<p>" + copy.body + "</p>";
+    list.appendChild(el("p", null, copy.body));
     for (const c of candidates) {
       const div = document.createElement("div");
       div.className = "candidate";
@@ -329,8 +363,29 @@ function renderCandidateGrid(data, confirmSource) {
   btn.onclick = () => selectedCandidate && confirmIssue(selectedCandidate, confirmSource);
 }
 
+/**
+ * The six fields the v1 contract's `confirmedIssue` declares, as strings.
+ *
+ * E03-D02: the one-tap path used to post the model's candidate object WHOLE, and
+ * the server accepted it whole (`z.record(z.unknown())`). Now the schema is
+ * `.strict()`, so the client states the same six fields the server declares —
+ * which is the point of a contract, and is why this function exists rather than
+ * a spread. Numbers (a `year` from the model) become strings here rather than
+ * being coerced at the edge: a bounded string is the same fact with fewer rules.
+ */
+function boundedIssue(issue) {
+  const out = {};
+  for (const field of ["title", "issue", "variant", "publisher", "year", "upc"]) {
+    const value = issue[field];
+    if (value === null || value === undefined || value === "") continue;
+    if (typeof value === "object") continue;
+    out[field] = String(value);
+  }
+  return out;
+}
+
 async function confirmIssue(issue, source) {
-  const out = await write(`/scan-sessions/${sessionId}/confirm`, { issue, source });
+  const out = await write(`/scan-sessions/${sessionId}/confirm`, { issue: boundedIssue(issue), source });
   if (!out.ok) {
     // A contradiction refuses the one-tap and forces the grid (040 F3). The
     // server states it as a CODE, and this screen turns the code into the forced
@@ -365,7 +420,11 @@ function initCondition() {
   if (!box.children.length) {
     for (const d of DEFECTS) {
       const l = document.createElement("label");
-      l.innerHTML = `<input type="checkbox" value="${d}"> ${d.replace(/_/g, " ")}`;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = d;
+      l.appendChild(input);
+      l.appendChild(document.createTextNode(` ${d.replace(/_/g, " ")}`));
       box.appendChild(l);
     }
   }
@@ -419,9 +478,9 @@ $("price-btn").onclick = async () => {
     card.appendChild(name);
     const detail = document.createElement("div");
     if (s.status === "failed") {
-      detail.innerHTML = `<span class="src-failed">unavailable</span>`;
+      detail.appendChild(el("span", "src-failed", "unavailable"));
     } else if (s.stub) {
-      detail.innerHTML = `<span class="src-stub">STUB — no credentials</span>`;
+      detail.appendChild(el("span", "src-stub", "STUB — no credentials"));
     } else if (s.comps_count === 0) {
       detail.textContent = "no comps found";
     } else {

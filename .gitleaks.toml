@@ -6,9 +6,26 @@ title = "intent-longbox"
 useDefault = true
 
 [allowlist]
-description = "Fixture-only credentials in contract tests, and the one scaffolding commit that introduced realistic-looking placeholders before they were renamed"
-# Fixture values are always prefixed test- so a real key can never hide behind this.
+description = "Fixture-only credentials in contract tests. One rule, one shape: a fixture value is prefixed test- and suffixed -key/-token/-secret, so a real key can never hide behind this allowlist."
 regexes = ['''test-[a-z0-9-]+(-key|-token|-secret)(-[a-z0-9]+)?''']
-# 192d632 (was 37441a7 before the rebase onto main) shipped shpat_7f3a91c2 / PRD-… placeholder strings in tests/contract;
-# renamed in the next commit. History is not rewritten on a shared PR branch.
-commits = ["192d632149113cb97a1c2793e19c2de315c333c7"]
+
+# THE WHOLE-COMMIT EXEMPTION IS GONE (E03-D04, bead longbox-e5b.3.14).
+#
+# It read `commits = ["192d632…"]` and exempted that commit ENTIRELY — every
+# file, every line, every future re-scan of it — to cover two realistic-looking
+# placeholder strings (`shpat_7f3a91c2`, a `PRD-…` eBay client id) that the
+# following commit renamed. A permanent blanket over one commit is a
+# permanent blanket: it is not scoped to the strings it was written for, and
+# nothing prevents a later reader from adding a second one "the same way".
+#
+# The replacement is that the placeholders now MATCH THE RULE. The eBay client
+# id in tests/contract/ebay-browse.contract.test.ts is a `test-…-token` value
+# like every other fixture credential, so the regex above covers it and no
+# exemption is required. `tests/contract/secret-fixture-convention.test.ts`
+# asserts the other half — that every value matching this regex lives under
+# tests/ or docker/postgres-init/ — which turns the convention into an
+# invariant rather than a comment in a config file.
+#
+# The historical commit keeps its historical content; history is not rewritten
+# on a shared branch. CI's gitleaks-action scans the commits of the change under
+# review, so a commit already on main is not re-scanned by a later PR.

@@ -14,7 +14,7 @@ afterEach(() => {
 
 const TOKEN_PATH = /\/identity\/v1\/oauth2\/token$/;
 const CREDS = {
-  clientId: "GothamCi-longbox-PRD-4c1d2e9f0-a1b2c3d4",
+  clientId: "test-ebay-client-id-token",
   clientSecret: "test-ebay-client-secret",
 };
 
@@ -80,8 +80,7 @@ describe("eBay OAuth client-credentials — request contract", () => {
     expect(init.method).toBe("POST");
     expect(init.headers).toEqual({
       authorization:
-        "Basic " +
-        Buffer.from("GothamCi-longbox-PRD-4c1d2e9f0-a1b2c3d4:test-ebay-client-secret").toString("base64"),
+        "Basic " + Buffer.from("test-ebay-client-id-token:test-ebay-client-secret").toString("base64"),
       "content-type": "application/x-www-form-urlencoded",
     });
     expect(init.body).toBe(

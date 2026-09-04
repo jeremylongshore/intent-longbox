@@ -1,0 +1,584 @@
+# Decision Record — The Transactional Outbox, the Event Catalogue, the Shopify Saga, the Job Queue, Retry, Dead-Lettering and the Replay Boundaries
+
+**Version:** 1.0.0
+**Status:** **PROPOSED** — drafted 2026-09-04, **§14 unsigned**, eight questions open in §13. Not binding until ratified.
+**Bead:** E02-B09 `longbox-e5b.2.9` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class DEC, owner-role eng, risk critical) — see 000-docs/014 §8 row E02-B09
+**Drafted:** 2026-09-04 by `longbox-domain-builder` · **Cannon:** *(pending — two lenses proposed in §13)* · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
+**Sensitivity:** Restricted internal (014 §10)
+**Supersedes:** nothing — first record on delivery, jobs, retry, dead-lettering and replay. It **discharges** the half of 029 §11 (`029:704`) that 042 §9.2 Entry B left open — *"delivery semantics"* — and it **supersedes 029 §12** only on the day the outbox it specifies is running, never on the day this record ratifies (§12.3). It **executes 042 §7.4's assignment**: the event catalogue, the verb set and the naming rule are this record's, and §3 writes them.
+**Inputs:** 014 §8 rows E02-B09, E02-B10, E02-D04, E05-B08, E10-B03, E10-B04, E10-B05, E10-B08, E10-B09, E12-B07, E13-B01, E13-B03, E13-B04, E13-B06, E14-B04 · 015 alias map · 018 v1.1.0 A3, C3 · 019 v1.2.0 **T7, T17, T19, T22, T23, T24, T34, T35, K1, K2, K4**, §3.0, §5 · 021 v1.3.0 B16, B17, B19 · 022 v1.1.1 P3, P6, P7, P8 · 023 v1.0.1 §3, §5 · 024 v1.0.0 §2 (artifact map), §3 (runtime topology) · 029 v1.2.0 §2.7, §2.8, §2.9, §2.10, §3.1, §5 move 8 note N2, §9, **§11 (`029:704`)**, **§12 in full (`029:712-743`)** · 033 §5.1, §5.3 · 034 v1.1.1 §3.1, §3.3 · 035 §pilot volumes · 036 v1.1.0 §2.4, §5.1, §5.2, §7.3, §13.1 · 037 v1.1.0 §1.1 · **040 v1.2.1 §4.4, §4.5, F1, F6, G-c, I4, §7** · **041 v1.1.2 §2.0, §2.1, §2.4, §2.5, §2.6, §4.1, §4.2, §4.4, §4.5, §5.3, §6.1–§6.4, §8.2, §8.4, §9.2, §10** · **042 v1.1.1 §4.2, §5.1–§5.3, §6.1, §7.1–§7.4, §8.3, §8.4, §9.1, §9.4, A2, A3, A5, A6, A7, A9, I17, I18** · `src/services/shopify.ts`, `src/routes/scanSessions.ts`, `src/services/costLog.ts`, `src/services/listingStatus.ts`, `src/services/appendOnlyDetector.ts`, `src/db/appendOnlyTables.ts`, `migrations/001_init.sql`, `migrations/005_listing_status_observation.sql`, `tests/JOURNEYS.md` · Shopify Admin GraphQL `productSet` reference and its `ProductSetIdentifiers` / `UniqueMetafieldValueInput` input objects (§4.3, fetched 2026-09-04) · CLAUDE.md locked decisions 3, 4, 5, 7.
+
+## Change log
+
+**Version convention** (006 `:6`, as used by 029/030/034/036/037/040/041/042): a **minor** bump means the content of a decision changed; a **patch** means a statement of fact was repaired with no decision changing.
+
+| Version | Date | What changed | Authority |
+|---|---|---|---|
+| 1.0.0 | 2026-09-04 | Initial draft. **Status PROPOSED, §14 unsigned**, eight questions open in §13. **Drafted against `98e34e6` and re-derived at `17b98ab`:** both preconditions the draft cited as unmerged PRs — E02-D04's request transaction (#56) and E02-D06's role separation (#57) — **merged during drafting**, so E1, E2, E3, E4, E6 and E9 were re-run with their real output pasted, §7.3 and §9.1 record the shipments, and the six ⛔-blocked invariants became writable. **No finding changed; six sentences would have gone stale inside one merge**, which is the failure 042 v1.1.1's gate audit caught in that record. Seven decisions: the outbox as two append-only tables in the same database, written inside the request transaction, with **no mutable status column and no exemption** because the lease is *derived from the attempt log* rather than stored (§2); the draining order, the guarantees a consumer gets, and **the event catalogue 042 A2 struck and assigned here** — nine names derived from the pipeline's own appends, with `event_version` = the referenced row's `definition_version` (§3); the Shopify draft as a job, made replay-safe by `productSet`'s `identifier: { customId }` **upsert** rather than by a lease, with the not-left-`draft` guard that keeps an upsert from un-publishing a human's listing, and orphan reconciliation through the E10-B05 watcher — which is the E02-D04 obligation this bead was given (§4); append-only attempts, exponential backoff with jitter, a **PROVISIONAL** attempt ceiling under 042 A3's floors-are-not-facts rule, and dead-lettering as a terminal attempt kind with a T34 heartbeat filed as an E00-B03 candidate (§5); the replay boundaries — delivery always, the Shopify call only under §4.3's key, a witness row never — and why the outbox is **excluded from 041 §6.4's replay drill** (§6); one poller per process, `FOR UPDATE … SKIP LOCKED`, and two processes safe by construction (§7); and per-job cost logging plus the T22 story, whose honest form is that **today's ≤24 h RPO with no PITR (024 §2) is itself an argument for §4.3's idempotent key** (§8). | `longbox-domain-builder` |
+
+## 0. Evidence posture
+
+Per 018 A1/A3, and with 029 v1.0.0's gate-audit blocker B1 as the governing lesson — a "today" claim asserted at REPRODUCED on the strength of having read a file, later found false:
+
+- **Every "today" claim in §1 is REPRODUCED at `17b98ab`** — `main`, the E02-D04 merge (PR #56) — each carrying a `file:line` **or** the verbatim command that produced it **with its exit status**. §1 prints the commands so a reader re-runs them rather than trusting the reading. **A rung is earned by the citation, not by the reading.**
+- **A negative claim names the symbols that must return nothing, never "zero lines" alone.** This is 042 v1.1.1's lesson applied rather than repeated: two of that record's negative claims (E6, E7) were true when written and false one merge later, because a later commit introduced a name the grep covered. Every negative row below lists **the exact identifiers searched**, so a reader can tell a surviving finding from a stale sentence without re-deriving the argument. Where a grep returns matches that are not the thing being denied, the matches are printed and characterised (E3, E5, E9).
+- **Everything in §2–§9 is ASSERTED.** No table, column, poller, job, attempt row, event name or line of code exists as a result of this record. Every invariant in §11 names a test file that does not exist. **This record writes no migration and no TypeScript.**
+- **⚠ THE TWO PRECONDITIONS THIS RECORD WAS DRAFTED AGAINST BOTH SHIPPED DURING DRAFTING, and every claim they touch was re-derived rather than left standing.** §1 was first written at `98e34e6` and said, correctly at that moment, that **029 §12's request transaction did not exist** and that **role separation was pending**, each citing an open PR. Between the draft and the commit, **PR #56 merged as `17b98ab`** (E02-D04 `longbox-e5b.2.14` — `withTransaction`, `lockScanSession`, `insertShopifyDraft`, with the confirm and draft paths wrapped) and **PR #57 merged as `418c2de`** (E02-D06 — the `longbox_migrate` / `longbox_app` role split). **Both statements would have become false inside one merge**, which is precisely the failure 042 v1.1.1's gate audit found in that record's E6 and E7. So **E1, E2, E3, E4, E6 and E9 are re-derived at `17b98ab` with their real output pasted**, §7.3 and §9.1 record the two shipments, and **the six invariants the draft marked ⛔ blocked are unblocked**. What did **not** change is the finding: §1 E4's orphaned-draft window is live at `17b98ab`, and the merged code names it and assigns it to this bead in its own comment. **This record therefore has no blocking precondition. Its remaining conditionals are E10-B05's absent watcher and E02-B10's absent architecture gate**, and §11 marks each.
+- **A third precondition shipped earlier.** 041 §10 row 0 — `ENABLE ALWAYS` on every append-only trigger plus the `pg_trigger` detector — landed at `3269573` as migration `006` with `src/db/appendOnlyTables.ts` as the declared list (042 §0, v1.1.1). So the two tables §2 adds join a set whose enforcement is real, and §7's five-minute detector has a working precedent to copy rather than a design to invent (`src/services/appendOnlyDetector.ts:169-190`).
+- **No percentage appears in this record that is not a quoted 019 threshold.** 021 B16 forbids any 022 `control`, `contract` or `detector` line being spoken as an achievement, and 022 P6 (`022:65`) forbids *"probability language"* and *"a bare number pretending to be a grade"* on a screen. §5's backoff and §8's cost seam are stated as structure, never as a measured rate, and the two records that state the percentage rule at length — 042 §0 and 018 A3 — are cited rather than re-derived.
+- **No number set in this record is a measurement.** The lines this record leans on — **T19** auto-publish incidents = 0, **non-waivable**, `any → K1`; **T22** RPO ≤24 h / RTO ≤4 h; **T23** lost/duplicated offline items = 0; **T17** draft success ≥99% excluding declared provider outage; **T34** detector liveness, **non-waivable**; **T35** per-operator rendering = 0, **non-waivable**; **T7** numeric grades = 0, **non-waivable**; **K1**, **K4** — are quoted from 019 v1.2.0 as 040 §0, 041 §0 and 042 §0 quote them, and are **never re-derived**. The three parameters §5 and §7 configure take **PROVISIONAL, explicitly non-evidentiary circuit-breaker defaults** under 042 A3's ruling — *"018 A3 caps claims of fact, not safety floors"* — each with its derivation stated.
+- **This record is exposed to the objection that killed 042 §7's catalogue, and it says so rather than hoping nobody notices.** 042 A2 struck a generated event catalogue on the ground that *"a design fixed against zero running code is unfalsifiable"* and handed the catalogue **here**, *"written against a running outbox with at least one real consumer."* **There is still no running outbox** (§1 E1). What has changed is not that code exists — it is that **this record specifies the outbox and its first consumer in the same document**, so every name in §3 is answerable to a concrete producer (§2), a concrete drain (§7) and a concrete consumer (§4's Shopify job), and each can be wrong in a way §11 can catch. That is a weaker position than "written against running code" and a stronger one than 042's draft had. **§13 Q1 puts it to the cannon directly**, and the honest alternative — split this record and defer §3 again — is argued in §10 A2 rather than dismissed.
+- **Ratification will not move anything up the ladder.** When §14 is signed it will record that a design was argued and adopted. It will not make any claim in §2–§9 true of any running system, and in particular it will not close the orphaned-draft window §1 E4 establishes, which is live today and stays live until E02-D07 ships.
+
+## 1. What exists today (REPRODUCED at `17b98ab`)
+
+| # | Claim | Evidence |
+|---|---|---|
+| **E1** | **There is no outbox, no queue, no worker, no dead-letter and no job of any kind — and the tree now names the missing thing in a comment.** `grep -rniE 'outbox\|dead.?letter\|\bdlq\b\|job_queue\|\bworker\b\|SKIP LOCKED\|enqueue\|dequeue' --include=*.ts --include=*.sql --include=*.js src migrations public scripts tests` returns **one line, exit 0**, and it is not an implementation: `src/routes/scanSessions.ts:464`, a comment reading *"the reconciliation is **E02-B09's transactional outbox** (041:788), which owns it"* — PR #56 assigning this bead's deliverable by name. `grep -rniE 'CREATE TABLE[^;]*outbox' migrations` returns **zero lines, exit 1**. **The symbols that must return nothing, and do:** `dead_letter`, `dlq`, `job_queue`, `worker`, `SKIP LOCKED`, `enqueue`, `dequeue` appear nowhere in any casing, and `outbox` appears only in that comment. 029 `:52` still states it in prose: *"There is no event bus, no outbox and no publish call anywhere in this repository today."* *(Written at `98e34e6` as "zero lines, exit 1" — true then, false one merge later. The finding is unchanged and better sourced: the absence is now recorded in the tree rather than merely true.)* | grep, one match, characterised; `src/routes/scanSessions.ts:464`; `CREATE TABLE` grep exit 1; `029:52` |
+| **E2** | **029 §12's request transaction EXISTS, for the first time in five records.** 040 §0 recorded its absence at `aa448bb`, 041 §0 at `12470b3`, 042 §0 at `b72033f`, and this record's own draft at `98e34e6`. **At `17b98ab` it is there**: `withTransaction` at `src/db.ts:105` delegating to `withTransactionResult` at `:121`, one `pg.PoolClient` held for the call's lifetime, `BEGIN` / `COMMIT` / `ROLLBACK` at `:145`, `:147`, `:152`, and retry on `40001` / `40P01` only (`:38`, `:136`). **Two paths are wrapped** — `POST …/confirm` at `src/routes/scanSessions.ts:266` and `POST …/draft` at `:482`, each taking `lockScanSession` as the first statement inside `fn` (`:269`, `:485`) — and **four are deliberately not, with the omission written down as a decision** at `:93-104`. **So §2's "inside the request transaction" is now a claim about running code, and the six invariants this record's draft marked ⛔ are unblocked.** | `src/db.ts:38`, `:105`, `:121`, `:136`, `:145`, `:147`, `:152`; `src/routes/scanSessions.ts:93-104`, `:266`, `:269`, `:482`, `:485` |
+| **E3** | **029 §2.7's owed relocation is half done: the `shopify_draft` INSERT left the route; the Shopify call did not.** The INSERT is now `insertShopifyDraft` in `src/services/scanSession.ts:200`, called on the transaction handle (`routes:487`), and `grep -n 'db.query' src/routes/scanSessions.ts` returns **four** lines (`:65`, `:73`, `:128`, `:325`), down from eight at `98e34e6`. **But `client.createDraft(draftInput)` is still executed by the route handler**, at `src/routes/scanSessions.ts:467`. 029 §2.7 (`029:152`) asks for both halves — *"The `shopify_draft` insert and the whole draft-creation block are **in the route** … and must genuinely move here"* — and **the provider call is the half still outstanding**, which §4.1 and §9.1 row 4 finally land. | `src/services/scanSession.ts:200`; `routes:467`, `:487`; grep, four matches; `029:152` |
+| **E4** | **A Shopify DRAFT can exist with no `shopify_draft` row, at `17b98ab`, and the merged code says so in its own words and assigns it here.** `createDraft` is called at `src/routes/scanSessions.ts:467`, **outside and before** the `withTransaction` that opens at `:482`; inside it, `lockScanSession` returning undefined produces a 404 (`:485-486`, `:499`) with the Shopify product already created, and any throw between does the same. The comment immediately above the call (`:456-466`) states the whole finding without this record having to argue it: *"if this call SUCCEEDS and the transaction below then fails … a real DRAFT product exists in Shopify with NO `shopify_draft` row recording it. A Shopify mutation cannot join a Postgres transaction, so no arrangement of this code closes it … the reconciliation is **E02-B09's transactional outbox** … which owns it. The window is not introduced here — before this change the same gap sat between the INSERT and the status write, and was wider."* **The ordering is required, not chosen** — 041 §4.1: *"`fn` performs no side effect outside the transaction. No provider call, no Shopify mutation, no file write."* **This is the unavoidable consequence of a correct rule, and closing it is this record's job.** | `routes:456-466`, `:467`, `:482`, `:485-486`, `:499`; `041 §4.1`; the bead's own 2026-09-04 note |
+| **E5** | **Nothing publishes an event, and the only scheduled work in the tree is a detector.** `grep -rniE 'publishEvent\|emitEvent\|eventBus\|\bpublish\(' --include=*.ts src` returns **zero lines, exit 1**. `grep -rniE 'setInterval\|setTimeout\|cron\|schedule' --include=*.ts src scripts` returns **four lines, exit 0, and none is a job runner**: `src/server.ts:5` and `:26` wire `scheduleAppendOnlyCheck`, and `src/services/appendOnlyDetector.ts:169`, `:174` define it — 041 §9.2 item 3's five-minute trigger detector. **The symbols that must return nothing, and do:** `publishEvent`, `emitEvent`, `eventBus`, `publish(` appear nowhere. **What the four matches give this record is a precedent, not a contradiction**: an unref'd `setInterval` started from `src/server.ts`, with a stop function returned, is exactly §7's poller shape, already in the tree and already tested. | two greps; `src/server.ts:5`, `:26`; `src/services/appendOnlyDetector.ts:169-190` |
+| **E6** | **A retry now exists, and it is the wrong kind of retry — deliberately, and by a ratified rule.** `grep -rniE 'retry\|retries\|backoff\|jitter' --include=*.ts src` returns matches, **and every one is in `src/db.ts`**: `RETRYABLE_SQLSTATES = new Set(["40001", "40P01"])` (`:38`), plus the loop and its counting (`:60`, `:136-155`). **041 §4.5 scopes it to those two SQLSTATEs *"and on nothing else"***, so it is a database-conflict retry and is explicitly not a delivery retry. **The symbols that must return nothing, and do:** `backoff`, `jitter`, `dead_letter`, `attempt_no` appear nowhere in `src/`. So a failed `createDraft` still returns `{ok:false}` (`src/services/shopify.ts:73`, `:79`, `:81`, `:83`), `insertShopifyDraft` still records `status='failed'` with the error as jsonb (`routes:487-493`), the route returns 502 — **and nothing ever tries again.** The operator's only recovery is to press the button, which today produces a *second* Shopify product (E7). *(Written at `98e34e6` as "zero lines, exit 1" for both greps; re-derived here. The finding is unchanged and sharper: retry infrastructure now exists and is correctly scoped away from this problem.)* | grep, all matches in `src/db.ts:38`, `:60`, `:136-155`; the `backoff\|jitter` half exit 1; `src/services/shopify.ts:73-84`; `routes:487-493`; 041 §4.5 |
+| **E7** | **`productSet` is called with no identifier, so every call creates a new product.** `grep -rniE 'identifier\|customId\|handle' --include=*.ts src/services/shopify.ts` returns **zero lines, exit 1**. `buildProductSetInput` (`shopify.ts:23-40`) emits `{ input: { title, descriptionHtml, status: "DRAFT", productType, variants, productOptions, files } }` and the mutation document (`shopify.ts:12-17`) is `mutation productSet($input: ProductSetInput!)` — **one variable, no `$identifier`**. **The symbols that must return nothing, and do:** `identifier`, `customId`, `handle`. Shopify's `productSet` accepts an `identifier` argument of type `ProductSetIdentifiers` whose fields are `customId`, `handle` and `id` (§4.3, fetched 2026-09-04); **the tree uses none of them**, which is precisely why a retry duplicates. | grep, exit 1; `src/services/shopify.ts:12-17`, `:23-40` |
+| **E8** | **`listing_status_observation` exists and has no producer.** Migration `005_listing_status_observation.sql` created it, `src/db/appendOnlyTables.ts:105-107` declares it in the append-only set, and `src/services/listingStatus.ts:105` is the only `INSERT` — but `grep -rn 'recordListingStatus\|listingStatus' --include=*.ts src/routes src/server.ts` finds no caller: **no webhook route, no poller, no watcher entrypoint exists.** 040 §4.4 gives the T19 watcher this table to write and 040 `:694` assigns the watcher itself to **E10-B05**. So §4.5's orphan reconciliation is specified against a table that exists and a writer that does not. | `migrations/005_listing_status_observation.sql`; `src/db/appendOnlyTables.ts:105-107`; `src/services/listingStatus.ts:105`, `:139`; `040:694` |
+| **E9** | **No request or job carries a correlation id or an idempotency key, and `request_idempotency` is still declared-and-not-built.** `grep -rniE 'correlation_id\|request_id\|idempotency' --include=*.ts src` returns **eight lines, exit 0, and not one is an implementation**: `src/db/appendOnlyTables.ts:214` (the exemption row for `request_idempotency`, `pending: true`, whose reason says *"Does not exist yet"*) and seven comments PR #56 added to `src/routes/scanSessions.ts` (`:106`, `:110`, `:114`, `:116`, `:261`, `:262`, `:480`) recording where 042's idempotency INSERT will go — one of which says it outright: *"There is no idempotency row to insert yet."* **The symbols that must return nothing, and do:** `correlation_id`, `request_id`, `Idempotency-Key`, `idempotencyKey` appear nowhere in any casing. This is 042 §1 E6/E7 surviving two merges, and it matters here for one specific reason: **§3's envelope carries `correlation_id`, so an event emitted today would carry a field the producing request does not have.** §9.3 states the ordering that follows. | grep, eight matches, all characterised; `src/db/appendOnlyTables.ts:214`; `routes:106`, `:110`, `:114`, `:116`, `:261-262`, `:480` |
+| **E10** | **There is no reconciliation and no orphan concept.** `grep -rniE 'reconcil\|orphan' --include=*.ts --include=*.sql src migrations` returns **zero lines, exit 1**. **The symbols that must return nothing, and do:** `reconcile`, `reconciliation`, `orphan`. 036 §5.3 specifies a daily T18 reconciliation in SQL and 036 §13.2 (`036:779`) reserves the cadence to E10-B05/B08; nothing is built, and **no query anywhere asks Shopify what it holds.** | grep, exit 1; `036 §5.3` |
+| **E11** | **`shopify_draft` has no idempotency key, no attempt count and no job reference**, and `cost_log` has no job dimension. `migrations/001_init.sql:147-155` is `shopify_draft(id, scan_session_id, shop_id, product_gid, status CHECK IN ('draft','published','failed'), error jsonb, created_at)`; `:158-168` is `cost_log(id, shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd, created_at)`. **So "which attempt produced this row" and "what did this job cost" are both unanswerable by construction**, and `appendCostLog` (`src/services/costLog.ts:5-23`) takes a `pg.Pool` rather than a transaction handle, so a cost row cannot commit with the fact it describes. | `migrations/001_init.sql:147-155`, `:158-168`; `src/services/costLog.ts:5-23` |
+| **E12** | **There is no PITR, and the estate backup is the only thing standing between a crash and lost state.** 024 §2's artifact map says it in the row for every Postgres artifact: backup today is *"estate borg; **no PITR**"*, with *"PITR + nightly logical dump; restore drill"* listed as **planned** and owned by **E13-B07**; 024 §3's DB tier repeats it — *"same, with RLS (E03-B04), PITR (E13-B07)"*. 019 **T22** signs RPO ≤24 h / RTO ≤4 h, measured by a restore drill, at **G3**. **A restore that rewinds the database by up to a day cannot rewind Shopify**, and §8.2 is the consequence. | `024 §2` (three rows), `024 §3`; `019` T22 row |
+
+**What §1 adds up to.** Longbox makes an irreversible external call from inside an HTTP handler and writes the record of it afterwards, with nothing binding the two. Every property that would make that safe is absent: there is **no outbox**, so there is no record that an effect was *intended* before it was *attempted* (E1); there is **no transaction** on `main`, so the record and the state change are two independent writes (E2, E3); there is **no retry**, so a transient Shopify failure is a dead end an operator resolves by creating a duplicate (E6); there is **no identifier on the mutation**, so that duplicate is a genuinely new product rather than an upsert (E7); there is **no watcher**, so nobody ever asks Shopify what it holds (E8, E10); and there is **no PITR**, so a restore reintroduces work whose effects already happened (E12).
+
+**The through-line, and it is not 040's, 041's or 042's.** Those three records are about what the system *records*: 040 stopped it keeping a lossy second copy of a fact, 041 made the log say who wrote each row and against what, 042 made the boundary refuse to leak what the log protects. **All three are about writes Longbox controls. This record is about the one write it does not** — a `productSet` mutation on someone else's server, which cannot be rolled back, cannot be locked, and does not care what Longbox's transaction did afterwards. 041 §4.1's rule that a provider call never runs inside `fn` is correct and it is precisely what creates the gap: **the moment you forbid the external call from joining the transaction, you have two systems that can disagree, and the only remaining question is whether the disagreement is recorded and repaired or silent and permanent.** E02-B09 is the decision that it is recorded and repaired.
+
+## 2. Decision A — The outbox: two append-only tables, in the same database, written inside the request transaction
+
+### 2.1 The rule
+
+> **An effect that leaves Longbox is never performed by the request that decides it. The request appends an `outbox` row inside its own transaction — the same transaction as the fact that justifies the effect — and commits. A poller in the same process claims the row later and performs the effect. Every attempt to perform it appends an `outbox_attempt` row. Both tables are append-only, both join 041 §9.2's declared trigger set, and neither carries a mutable status column.**
+
+The property this buys is the one 029 §12.1 point 4 states for the request transaction and cannot state for an external call: **the database's record of what should happen and the fact that justifies it commit together or not at all.** If the request rolls back, there is no outbox row and no effect. If the request commits, the intent is durable, and the effect is owed — not maybe-sent, not sent-and-unrecorded, but *owed*, with a row saying so.
+
+### 2.2 One table in the same database, not a broker — and when a broker earns its place
+
+Three constructions were available.
+
+**(a) A table in the same Postgres database, written in the same transaction.** Adopted.
+**(b) A message broker — Redis Streams, SQS, NATS, RabbitMQ — written after commit.** Rejected for v0.
+**(c) A queue library on Postgres — pg-boss, graphile-worker.** Rejected for v0, and it is the closest call.
+
+**(b) fails on the one property the whole design exists for.** A broker is a second store, so writing to it is a second commit, and there is no transaction spanning Postgres and a broker. Whatever you do, one of two things is possible: the row commits and the message is lost, or the message is sent and the row rolls back. **That is exactly the divergence §1 E4 describes, moved one layer down and made harder to see** — the outbox pattern exists precisely because a broker cannot be enrolled in the database's transaction. Adding a broker *and* an outbox is a real architecture; adding a broker *instead of* one is the bug.
+
+**(c) is rejected for a different and weaker reason, and the record should be honest about which.** `pg-boss` and `graphile-worker` are transactional-outbox implementations on Postgres and would work. What they cost here is the thing this project is unusually strict about: **they own their own schema, on their own migration schedule, outside `migrations/`, outside 041 §9.2's declared trigger set, and outside the append-only model that locked decision 4 makes non-negotiable.** A library's job table is mutable by design — it updates a state column, deletes on completion, and reaps by timestamp — and 041 §9.2's detector would either flag it forever or need a permanent exemption for a schema nobody in this repository controls. The gain is a few hundred lines; the cost is a hole in the one invariant the project will not trade. **§13 Q2 puts this to the cannon**, because "we hand-rolled a queue" is a sentence that has aged badly in many other projects and the record should not pretend otherwise.
+
+**When a broker becomes worth it — stated now so it is a threshold rather than a taste.** The outbox in a table is right while **all** of the following hold, and the day any one fails, E13-B03 revisits it with a measurement rather than a preference:
+
+1. **One process drains it.** Multi-process fan-out is handled by §7's `SKIP LOCKED` and stays correct, but the moment ordering across processes matters, or the poll interval becomes a latency problem, a broker's push semantics start earning their keep.
+2. **The drain rate is bounded by the pilot's item rate.** 035's largest batch is Pilot C's ≥300 items, and 042 §8.4's compressed ceiling is ≈75 items/hour for a whole shop. **A poller that wakes on an interval is over-provisioned for that by orders of magnitude** — a direction, not a measurement (042 A10's discipline).
+3. **Every consumer is in-process.** A consumer in another service needs a transport, and at that point the outbox becomes the *source* that feeds one rather than a substitute for it.
+4. **Postgres is not the bottleneck.** A queue table's contention is a measured thing, and 041 §7's O-A benchmark is the instrument that would say so.
+
+That list is the honest version of "we'll add Kafka later": it names what would have to be true, so a future reader can check rather than argue.
+
+### 2.3 The two tables
+
+**Nothing here is written and no migration number is claimed** — 041 §10's rule, learned twice: *"A file number is claimed when the file is written, never reserved in prose."*
+
+```
+outbox(
+  id                uuid PK DEFAULT gen_random_uuid(),
+  shop_id           uuid NOT NULL REFERENCES shop(id),          -- locked decision 4
+  scan_session_id   uuid REFERENCES scan_session(id),           -- NULL only for a shop-scoped effect with no session
+  session_seq       bigint,                                     -- 041 §5.3; NULL where the session lock was not held
+  event             text NOT NULL,                              -- §3.3's catalogue
+  ref_table         text NOT NULL,                              -- §3.1; the committed row this event references
+  ref_id            uuid NOT NULL,
+  payload_hash      text NOT NULL,                              -- SHA-256, §2.5
+  definition_version text,                                      -- 041 §2.4; the event's ONLY version (042 §7.3)
+  correlation_id    uuid,                                       -- 042 §4.7; NULL until E02-B08 ships one (E9)
+  occurred_at       timestamptz,                                -- 041 §2.5 observed_at, on the wire as occurred_at
+  authored_by       text NOT NULL CHECK (authored_by IN ('human','system','provider')),   -- 041 §2.3
+  operator_id       uuid REFERENCES app_user(id),
+  actor_verified    boolean NOT NULL DEFAULT false,
+  actor_role        text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (shop_id, event, ref_table, ref_id)                    -- §2.4
+)
+
+outbox_attempt(
+  id           uuid PK DEFAULT gen_random_uuid(),
+  shop_id      uuid NOT NULL REFERENCES shop(id),
+  outbox_id    uuid NOT NULL REFERENCES outbox(id),
+  attempt_no   integer NOT NULL CHECK (attempt_no >= 1),
+  kind         text NOT NULL CHECK (kind IN ('started','delivered','failed','dead_lettered','replay_requested')),
+  detail       jsonb,                                           -- §2.5: references and codes, never values
+  operator_id  uuid REFERENCES app_user(id),                    -- §6.3: a replay names a person
+  reason       text,                                            -- §6.3: a replay states why
+  authored_by  text NOT NULL CHECK (authored_by IN ('human','system','provider')),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (outbox_id, attempt_no, kind)
+)
+```
+
+`shop_id` is on both because locked decision 4 requires it on every shop-scoped table even in a single-tenant v0, and because §7's claim query filters on it for the fairness E13-B03 will need. The envelope columns are 041 §2.1's, **spelled out on each table rather than inherited** — 041 §2.2's decision, which this record follows without re-arguing.
+
+### 2.4 There is no status column, and there is no exemption, because the lease is derived
+
+The obvious design gives `outbox` a `status text` and a `claimed_at timestamptz`, updates them as the row moves, and reaps stale claims by timestamp. **That column is not built**, and the argument is 041 §4.2(i)'s preference order plus one observation the draft nearly missed.
+
+**The precedent that was available and is declined.** 042 §5.2 makes `request_idempotency` a **declared mutable exemption** — a row on 041 §9.2's list, `kind: permanent`, with three stated reasons — and it would be entirely consistent to do the same here. That is the alternative, and it is a good one (§10 A3). It is declined because **the exemption is not needed**, and 041 §9.2's own framing is why: an exemption is for a table that is *correct* and would look wrong without a reason. An outbox with a mutable status column is not correct-but-odd; **it is a second, lossy copy of a history that the attempt rows already hold in full** — which is 040's entire argument against `scan_session.status`, one bead later and one table over. A status column that says `failed` cannot say *how many times*, *when*, *why*, or *whether a human asked for the last one*. The attempt log says all four.
+
+**The mechanical objection, and the answer.** A poller needs three things from a row before it claims it: *is it terminal*, *is someone else working it*, and *is it due*. All three are **derivable from `outbox_attempt`**, which means the lease is a computation and not a stored fact:
+
+| Question | Derivation |
+|---|---|
+| **Terminal?** | an attempt row exists with `kind ∈ {delivered, dead_lettered}` |
+| **In flight?** | the newest attempt is `kind='started'` **and** its `created_at` is within `attempt_visibility` (§5.4) |
+| **Due?** | `now() >= last_failed.created_at + backoff(attempt_no)` (§5.2) |
+
+> **Decision: eligibility is a predicate over `outbox_attempt`, evaluated inside the claim transaction under `FOR UPDATE … SKIP LOCKED` on the `outbox` row. There is no `status`, no `claimed_at`, no lease column, and no reaper. A crashed worker's row becomes eligible again when its `started` attempt ages past `attempt_visibility` — which is not a reaper repairing state, it is a predicate whose inputs changed.**
+
+**This is Hickey's move and it is worth naming as such**, because it is the same one 040 made and the same one 041 §5.3 made: a stale claim is not corrupt state that something must clean up; **it is a fact about the past that stops satisfying a predicate about the present.** Nothing has to notice. Nothing has to run. There is no window in which a reaper has not yet fired.
+
+**What it costs, stated.** The predicate is more expensive than `WHERE status='pending'` — it is a `NOT EXISTS` and a `DISTINCT ON` over a child table rather than an index scan on a column. At the pilot's volumes that is not a consideration (§2.2 point 2), and the index E02-B10 owns is named in §9.1. **At a volume where it becomes one, the correct response is a materialized index over the log — 041 §6.2's first form, keys only, maintained in the same transaction — not a status column.** 041 §6.3's four conditions govern it, and the measurement is condition 1. Stating the escape hatch here is what stops a future engineer reaching for the column under load.
+
+### 2.5 What an outbox row carries, and what it must never carry
+
+> **A row carries a reference and an envelope. It never carries the referenced row's values.**
+
+This is 042 §7.1 applied to the producer's own storage rather than only to the wire, and the three reasons transfer intact: a copy is a second source of truth (locked decision 4; 041 §6.4); a copy is un-purgeable (041 §8 destroys bytes and appends a tombstone — an outbox row holding a purged photo's metadata is a copy of purged content sitting outside the purge path); and a copy ages while the row it copied is corrected by supersession (041 §3).
+
+**`payload_hash` is SHA-256 over the canonical serialization of the reference and the envelope — never over the referenced row's contents.** The hash class is pinned exactly as 041 A5 pins `content_hash` and 042 §5.4 pins `request_hash`: *"No perceptual or fuzzy hash … may be stored under this or any other column without its own decision record."* Its job is narrow and worth stating so nobody widens it: it lets a consumer or an audit detect that **the same event was enqueued twice with different envelopes**, which is a producer bug, and nothing else.
+
+**`outbox_attempt.detail` is structured and bounded.** It holds an HTTP status, a provider error *code*, a reference id, a duration. **It never holds a response body, a provider's exception message, an operator name or any shop content** — 042 §4.3's rule that the server emits no operator prose, applied to a table instead of a wire, plus 022 P8 (cost stays in `cost_log`) and 019 T35. §11 I6 asserts it.
+
+### 2.6 The outbox is a witness, not a derivation — and this is the sharpest question in the record
+
+041 §6.4 forbids a derived artifact from being the only place a fact lives, and 041 §2.6 defines replayable: *"it can be dropped entirely and recomputed from the witness tables plus its own `definition_version`, with no other input."* **Is an `outbox` row derivable?** The uncomfortable answer is *nearly*. §3.3's catalogue is a function of the witness tables — one `confirmation_recorded` per `human_confirmation` row — so in principle a rebuild could regenerate the whole set.
+
+**It is kept anyway, and in the append-only set rather than the exemption list, for two reasons the second of which is decisive.**
+
+1. **It records intent at a moment.** `definition_version`, `correlation_id`, `occurred_at` and `payload_hash` are captured **as of the enqueue**. A regenerated row would carry today's answers to yesterday's question — the same defect 041 §5.3 names when it refuses to backfill `session_seq`, because *"a reconstructed sequence would be a fabricated observation about what order things happened in."*
+2. **`outbox_attempt` FKs to it, and the attempts are not derivable by anything.** What happened when Longbox tried to reach Shopify exists nowhere else in the universe. A dropped-and-rebuilt `outbox` would orphan every attempt or renumber every id, and **an append-only child cannot be repointed.** So the parent is as durable as the child, by construction.
+
+> **Decision: `outbox` and `outbox_attempt` both join 041 §9.2's declared append-only trigger set, and both are EXCLUDED from 041 §6.4's replay drill as a declared row with this reason.** §11 I2 asserts the exclusion is declared rather than merely observed — 041 §9.2's *"Exemptions are rows on the list with a reason, never absences"*, applied to a second list.
+
+**§13 Q3 asks the cannon whether reason 1 is real or a rationalisation**, because the honest reading is that reason 2 alone settles it and reason 1 is the kind of argument that sounds better than it is.
+
+## 3. Decision B — Draining order, the guarantee a consumer gets, and the event catalogue
+
+### 3.1 An event is a reference plus 041's envelope
+
+Unchanged from 042 §7.1, which this record does not reopen: the wire shape is `{shop_id, scan_session_id, session_seq, ref: {table, id}, definition_version, occurred_at, recorded_at, correlation_id}` plus the event's name. **§2.3's `outbox` row is that envelope in a table**, one column per field, which is 041 §2.2's specification-not-payload rule holding at the producer.
+
+### 3.2 What a consumer may rely on, and what the drain order confers
+
+> **Within one `scan_session`, events are delivered in `session_seq` order. Across sessions, across shops and across time, nothing orders anything. Delivery is at-least-once. Every consumer is idempotent on `(event, ref.id)`, including under concurrent delivery of two copies of one event.**
+
+That is 042 §7.2 verbatim, and this record's contribution is to state the producer-side facts that make it true and to refuse to state any more.
+
+**The poller drains by `outbox.id`, and that confers nothing (042 A7, discharged).** 042 §9.4 put this on E02-B09 as an obligation so it would not be re-derived here, and here is the discharge:
+
+> **The drain order is an implementation detail of §7's claim query. A consumer that observes it and depends on it has depended on nothing this record promises.** In particular, `SKIP LOCKED` means the drain order is *not even the claim order* under concurrency: worker A skips a row worker B holds and takes a later one, so two rows enqueued in one order can be delivered in the reverse. The only ordering guaranteed is the one above, and it holds because `session_seq` is assigned under the session lock (041 §5.3) and the poller sorts by it within a session — not because rows come out of a table in the order they went in.
+
+**Concurrent duplicate delivery is the case that must be constructed, not reasoned about (042 A7's second half).** At-least-once plus `SKIP LOCKED` plus §5.4's visibility timeout means two workers can process two deliveries of one event **at the same time**, not merely one after the other. A consumer that is idempotent by *checking then writing* is not idempotent under that interleaving; a consumer that is idempotent by *a unique constraint* is. So:
+
+> **A consumer's idempotency is enforced by a database constraint or by a provider-side natural key, never by a read-then-write check.** §4.3 is the provider-side case and §11 I5 constructs the concurrent one.
+
+**Exactly-once is not offered and cannot be**, which 042 §7.2 already says and 019 T23's signed zero does not contradict: T23 counts *lost or duplicated items*, and a duplicate *delivery* that a constraint absorbs produces no duplicate *item*.
+
+### 3.3 The catalogue — nine names, derived from what the pipeline actually appends
+
+**This is the section 042 A2 struck from that record and assigned here** (042 §7.4, §9.4). §0 states the exposure honestly; §13 Q1 puts it to the cannon.
+
+**The naming rule.** `longbox.<module>.<past-tense verb phrase>`, where `<module>` is 029 §2's owning module for the referenced table. The module segment is not decoration: it is what makes the routing rule in §4.1 checkable, and it is derived from a list 029 §2.10 already maintains rather than invented here.
+
+**Derivation.** Start from the fourteen append-only tables in `src/db/appendOnlyTables.ts` and the pipeline's own steps as `tests/JOURNEYS.md` walks them, and **keep only the appends a consumer outside the writing module could act on.** That filter is the whole of the argument, and it is what stops the catalogue being a mirror of the schema — which is the failure mode 042 A2 caught, where three of 029 §2's thirty-two aspirational names had no table and the draft reported the mismatch as a feature.
+
+| Event | Module (029 §2) | `ref_table` | Why a consumer outside the writer needs it |
+|---|---|---|---|
+| `longbox.workflow.photo_captured` | workflow | `scan_photo` | **Retention anchors.** 022 P7 Q6 counts originals from draft creation with a ceiling from capture; platform owns the sweep (029 §2.9) and cannot see workflow's write. Also E13-B06's derivative pipeline. |
+| `longbox.resolution.candidate_set_written` | resolution | `candidate_set` | **Reporting's funnel and the eval set (R19).** 029 §2.8 makes reporting strictly downstream and forbids it from any write path, so an event is the only way it learns. |
+| `longbox.workflow.confirmation_recorded` | workflow | `human_confirmation` | **Commerce consumes it** (029 §2.7 lists it under "Consumes"), and it is a T3 numerator input. |
+| `longbox.condition.condition_recorded` | condition | `condition_assessment` | **Commerce's draft gate** (040 F6 refuses a draft with no condition). |
+| `longbox.valuation.pricing_recorded` | valuation | `pricing_snapshot` | **Commerce consumes it** (029 §2.7); 029 §2.6 forbids commerce from re-deriving a price, so it must be told one. |
+| `longbox.commerce.draft_requested` | commerce | *(the outbox row's own id)* | **§4's job.** This is the one event with a *job* as its consumer rather than a reader, and §3.4 is the special case it forces. |
+| `longbox.commerce.draft_recorded` | commerce | `shopify_draft` | **Platform's retention anchor** (029 §2.9 "Consumes `CommerceDraftCreated`"): originals count from draft creation. Also T17's numerator. |
+| `longbox.commerce.listing_status_observed` | commerce | `listing_status_observation` | **The T19 detector and the derivative retention anchor** (040 §4.4; 022 P7 Q6's *"life of the listing"*). |
+| `longbox.workflow.transition_recorded` | workflow | `scan_session_transition` | **040 §3.3's explicit transitions**; reporting's funnel and E05's resumable list read it. |
+
+**Nine, and the exclusions are the argument.** `cost_log` produces no event — 029 §2.8 makes reporting the *sink* that owns the table, and an event to tell reporting about a row reporting wrote is a loop. `llm_rerank` produces none: it is written in the same transaction as its `candidate_set` (029 §12.1 point 4's worked example) and a consumer that wants it reads it through the reference. `media_deletion`, `retention_policy`, `retention_hold`, `retention_hold_release` and `retention_sweep_run` produce none: they are platform's own tables, and 029 §2.9 makes platform the graph's leaf — **nothing may import it and it publishes to nobody who is not already inside it.** `corpus_version` produces none because nothing writes it (041 §10.1). **Five tables in, nine events out, and every exclusion names the rule that excludes it** — which is the falsifiability §0 claims: a reader who thinks `llm_rerank` needs an event has a specific sentence to attack.
+
+**Additive by 042 §2.3.** A new event name is an additive change within `v1`. **A rename or a removal is a `v2` change**, and a retired name is retired forever — 042 §2.3's rule for error codes, applied to the same class of object for the same reason.
+
+### 3.4 `draft_requested` is a command wearing an event's clothes, and the record says so
+
+Eight of the nine names reference a committed witness row. **`draft_requested` does not**, because the thing it asks for has not happened — that is the entire point of a saga step. Its `ref_table`/`ref_id` therefore point at **the outbox row itself**, which is honest but ugly, and the ugliness is worth one paragraph rather than a workaround.
+
+Two alternatives were available. **(a) Make it reference the `human_confirmation` that justifies the draft.** Rejected: it would say a confirmation happened, which is `confirmation_recorded`'s job, and two events referencing one row with different meanings is how a catalogue starts lying. **(b) Give it no reference and let the payload carry the session id.** Rejected under §2.5 — a payload with values is the thing this design does not have.
+
+> **Decision: `draft_requested` is a self-referencing row. `ref_table = 'outbox'` and `ref_id = id`. The catalogue declares it as the one command in the set, and §11 I3 asserts there is exactly one.**
+
+**Why one command is acceptable and a second would not be.** 042 §7.1's reference rule exists so a consumer always reads current truth rather than a snapshot. A command has no truth to read — it *is* the request — so the rule has nothing to protect. The hazard is that "commands are fine, actually" becomes a habit, and the guard is a count: **the catalogue admits exactly one command-shaped event, and adding a second requires a decision record.** That is the same posture 041 §5.3 takes toward its sanctioned exceptions — both are permitted *by being named*, and an unnamed one is the bug.
+
+## 4. Decision C — The Shopify saga
+
+### 4.1 The shape, and the module seam it respects
+
+> **`POST …/draft` no longer calls Shopify. It runs its gates, appends `draft_requested` inside the request transaction, and returns. A worker claims the row, calls Shopify, and — in its own transaction — appends `shopify_draft` with the returned product id and an `outbox_attempt` of kind `delivered`, or an attempt of kind `failed`.**
+
+**Two transactions, and the external call between them, outside both.** That is not a compromise around 041 §4.1 — it is what 041 §4.1 requires once you accept that the call cannot be rolled back. The rule and the shape are the same rule stated twice.
+
+**Module ownership (029 §2.7, §2.9).** The **outbox runtime** — the tables, the poller, the claim query, the attempt writer — is **platform's**; 029 `:176` already claims *"the durable queue and outbox runtime (E02-B09, E13-B03)"* by name. The **`draft_requested` handler** — the `productSet` call, the `shopify_draft` write, the not-yet-published guard — is **commerce's**; 029 §2.7 owns *"the outward mutation"* and `shopify_draft`. **Platform never knows what a job means; commerce never knows how it was scheduled.** The dispatch between them is a registry keyed on the event name, which is why §3.3's names carry a module segment. This also finally lands 029 §2.7's owed relocation (§1 E3): the draft-creation block leaves `src/routes/` for the module that owns it, and E02-B10's `depcruise` gate is what keeps it there.
+
+### 4.2 What the request still does synchronously, and why the answer is "the gates"
+
+A worker-run draft changes what the operator sees at the moment they tap. **The gates do not move**: 040 F6 (no draft without a condition), 040 G-c (`BLOCKED_BY_RETENTION_HOLD`), 042's `SESSION_HAS_NO_CONFIRMATION` and `SESSION_HAS_NO_PRICING` are all **reads of the session under the anchor lock**, and all of them stay in the request. A caller that is missing a confirmation still gets a 409 immediately, with the code 042 §4.2 registers.
+
+**What the caller stops getting is the 201-with-a-product-id.** `POST …/draft` becomes `202 Accepted` carrying the outbox row's id, and the client learns the outcome from the ordinary read path — `GET …/:id`, whose `state` is derived (040 A8) and whose event trail already exists. **This is an API change and it belongs to 042's contract**, so §9.3 hands it over rather than deciding it here; what this record fixes is only that the effect is asynchronous, which is the fact 042's DTO has to describe.
+
+**022 P4's rapid loop is the reason this is acceptable, not an obstacle to it.** An operator at a long box wants the next book, not a Shopify product id. 019 T10's ≤90 s median is *capture-to-draft*, and a draft that is *owed and recorded* at the moment of the tap is a better answer for the person holding the book than a request that blocks on a third party's latency. **The one thing that must not degrade is honesty of the screen**: the operator is told the listing is being created, in 021 registered copy, never that it exists. §9.3 carries it to E05.
+
+### 4.3 Idempotency at the provider — what Shopify actually offers, verified
+
+**Shopify's Admin GraphQL API provides no idempotency-key mechanism for `productSet`.** Verified against the API reference on 2026-09-04: `productSet` accepts exactly three arguments — `identifier` (`ProductSetIdentifiers`), *"Specifies the identifier that will be used to lookup the resource"*; `input` (`ProductSetInput!`), *"The properties of the newly created or updated product"*; and `synchronous` (`Boolean`, default `true`), *"Whether the mutation should be run synchronously or asynchronously. If `true`, the mutation will return the updated `product`. If `false`, the mutation will return a `productSetOperation`."* **There is no idempotency argument and no idempotency header in the argument list.**
+
+**What it offers instead is an upsert on a caller-chosen key.** `ProductSetIdentifiers` has three fields: `customId` — *"Custom ID of product to upsert"*; `handle` — *"Handle of product to upsert"*; and `id` — *"ID of product to update"*. `customId` is a `UniqueMetafieldValueInput` with `namespace` (optional, *"If omitted, the app-reserved namespace will be used"*), `key` (required) and `value` (required).
+
+> **Decision: every `productSet` call carries `identifier: { customId: { namespace: "longbox", key: "copy", value: <the copy key> } }`. Idempotency at Shopify is an upsert on a key Longbox owns, not a retry token — and that is a stronger guarantee, because it survives a restore (§8.2) as well as a retry.**
+
+**The copy key is the physical copy, and today that is a forward-compatible lie the record names rather than hides.** 036 §2.1 makes `physical_item` the inventory identity and 036 §5.1 D1 forbids two active listings for one copy; **`physical_item` does not exist** (041 §1 E19; 036 §7.1's migration is unwritten). So `value` is the `scan_session_id` today and becomes the `physical_item_id` when that table lands. **That migration is not free and pretending otherwise would be the error**: a key change means an upsert stops matching and creates a second product. So the transition is E10-B03's — it owns the LCID↔SKU↔external-ID mapping — and it is a **backfill of the metafield on existing products, not a key swap**, recorded here so it is planned rather than discovered. §9.3 carries it.
+
+**The guard that keeps an upsert from becoming an un-publish, and it is the sharpest hazard in this record.** `productSet` **updates** an existing product, and `buildProductSetInput` hardcodes `status: "DRAFT"` (`src/services/shopify.ts:28`). So a re-run against a product **a human has since published** would set it back to `DRAFT`. That is not a T19 auto-publish — nothing publishes — but it is the mirror image: **Longbox silently un-publishing a listing a person decided to publish**, which is 022 P1's human-authority principle and 033 B3's *"publish is a normal Shopify action, never the app's"* broken from the other side.
+
+> **Decision: a `draft_requested` job whose copy has any `listing_status_observation` with a status other than `draft` does not run. It appends an `outbox_attempt` of kind `dead_lettered` with `detail.reason_code = 'listing_left_draft'` and stops. It is never retried automatically, and a replay requires §6.3's human record.**
+
+This is why §3.3 includes `listing_status_observed` and why §4.5's watcher is a dependency rather than a nicety: **without the watcher, this guard has nothing to read**, and the job would be free to un-publish. §11 I8 constructs the case. **⚠ E10-B05 owns the watcher and it does not exist (§1 E8), so this guard is specified and unenforceable until it does** — stated here rather than left for someone to find.
+
+### 4.4 Compensation: none, and the reason is a non-waivable line rather than an oversight
+
+A saga step usually needs a compensating action. **This one does not, and the reason is T19.**
+
+The effect is the creation of a **DRAFT** product. Nothing publishes (locked decision 3; 019 T19 = 0, non-waivable, `any → K1`; 040 F1 makes it an architecture-gate failure). **A DRAFT product that Longbox forgot about is invisible to buyers, sells nothing, charges nobody and misprices nothing.** Its cost is clutter in the owner's admin, which is a housekeeping problem, not a safety one.
+
+**So compensation would mean deleting a product from the shop's store, and that is a worse act than the one it repairs.** `productDelete` against a store Longbox does not own, triggered automatically, on the strength of Longbox's own belief that it created something — with no way to distinguish a product it created from one the owner created and edited — is exactly the class of unilateral action 022 P1 exists to forbid. **Longbox creates drafts and never destroys the shop's data.** §10 A5 records the alternative and why it loses.
+
+> **Decision: there is no compensating action. The repair for a divergence is reconciliation and a human, never an automatic delete.**
+
+### 4.5 Reconciliation — the orphan, which is the E02-D04 obligation this bead was given
+
+The bead's note states the failure to own: *"a Shopify DRAFT can exist with no `shopify_draft` row … The outbox/saga must make the Shopify call an at-least-once job whose result is recorded, with reconciliation for drafts Shopify has that Longbox does not."*
+
+**The outbox closes the common case and does not close all of it.** With §4.1's shape, a crash between the `productSet` response and the recording transaction leaves an orphan — and §5.4's visibility timeout means the job is retried, and §4.3's `customId` upsert means the retry **matches the orphan and adopts it** rather than creating a second product. **That is the mechanism, and it is why the key is load-bearing rather than an optimisation.** What it does not cover is an orphan whose outbox row is gone: a database restore that rewinds past the enqueue (§8.2, T22 ≤24 h RPO with no PITR — §1 E12), or a product created by a version of the code that predates the key.
+
+> **Decision: the E10-B05 watcher, which already polls Shopify for `listing_status_observation` (040 §4.4), additionally reports every product carrying the `longbox` `customId` metafield. A product whose key resolves to no `shopify_draft` row appends an `orphan_listing` observation — a fact, in the same append-only shape as every other observation, with a reference and no values.**
+
+**Who sees it, and this is a 019 T35 question rather than a UX one.** An orphan names a copy, a time and a store. It does **not** name an operator, and the surface that shows it does not acquire the ability to: **it is owner-visible only, in the owner's weekly report (029 §2.8's shop-facing report; 019 §5), never on the operator's phone.** 022 P3 and 019 T35 (per-operator rendering = 0, non-waivable) are the reason, and the second reason is that the operator can do nothing about it while the owner can. **The copy is 021 registered** — a shop-facing sentence about a listing, subject to B19 (no "AI") and B16 (no control spoken as an achievement) — and is drafted by E11-B06 under the T26 pre-send step, **not written here**.
+
+**The cadence is not set here.** 036 §13.2 (`036:779`) reserves the reconciliation cadence to E10-B05/B08 and 036 §10 Q6 already names the detection latency as load-bearing. This record adds one fact to that decision and no number: **the cadence must be shorter than the retention anchor it feeds**, because 022 P7 Q6 counts originals from draft creation, and an orphan discovered after the sweep has run is a photo deleted against a listing nobody knew existed.
+
+## 5. Decision D — Retry, backoff and dead-lettering
+
+### 5.1 Attempts are appends, and the attempt number is the state
+
+Every attempt appends. **`kind='started'` before the effect, then exactly one terminal row — `delivered`, `failed` or `dead_lettered` — after it.** `UNIQUE (outbox_id, attempt_no, kind)` makes a duplicate attempt row a loud failure rather than a silent second history, which is 041 §5.3's `UNIQUE (scan_session_id, session_seq)` construction applied to a different counter for the same reason.
+
+**Why `started` is written at all, when it costs a transaction.** Without it, a worker that crashes mid-call leaves no trace, and the row simply becomes due again — the retry happens and nothing records that a previous attempt was made and lost. **The attempt count would then undercount exactly the failures that matter most** (the ones that killed the worker), and §5.3's ceiling would never be reached by the class of failure most likely to be systemic. A `started` row with no terminal partner **is** the record of a crash, and it is readable by a human without a log.
+
+### 5.2 Exponential backoff with jitter, and jitter is not decoration
+
+> **`delay(n) = min(base × 2^(n-1), ceiling) × random(0.5, 1.5)`, computed at claim time from the attempt log, never stored.**
+
+**Exponential** because the failures worth retrying are transient (a 429, a 502, a dropped connection) and the ones that are not (a validation `userErrors` array) should not be retried at all — §5.3 separates them. **Jitter** because without it every job that failed during one Shopify incident retries at the same instant when it ends, which converts one outage into a self-inflicted second one. That is the standard argument and it is stated because the pilot's scale makes it *look* unnecessary: with 035's Pilot C at ≥300 items, a shop that scans a batch during an outage has ≈300 jobs that failed within minutes of each other, and they would retry in a spike. **The number of jobs is small; the correlation between them is total.**
+
+**A permanent failure is not retried, which is 042 §4.4's `retryable` distinction one layer down.** A Shopify `userErrors` entry — an invalid price, a missing required field — will fail identically forever. `src/services/shopify.ts:80-81` already separates that case from a transport failure (`:73`) and an HTTP failure (`:79`), so the classification exists in the tree and only its consequence is missing: **`userErrors` → `dead_lettered` on the first attempt, no backoff, no retry.** E10-B09's acceptance says the same thing in its own words — *"permanent validation failures are not retried."*
+
+### 5.3 The ceiling, as a PROVISIONAL floor with its derivation stated
+
+042 A3 is the governing ruling and it is quoted rather than re-argued: *"018 A3 caps claims of fact, not safety floors … A system with no limit at all is not epistemically humble — it is unprotected."* And 042 §8.4 draws the line this record applies: a number that **protects** the system may be provisional; a number that **describes** it may not.
+
+| Field | Value |
+|---|---|
+| `job_max_attempts` | **PROVISIONAL 6.** With `base` = 30 s and `ceiling` = 30 min, six attempts span roughly **75 minutes** of wall clock before dead-lettering. The derivation is a ceiling, not an estimate: a shop scans in batches (033 §5.1, 035), and a provider incident that outlives an hus and a quarter is not a blip a retry loop should be papering over — it is a `declared provider outage`, which is the exact phrase **019 T17** uses to exclude such a window from the draft-success denominator. **The ceiling is set where the system should stop pretending and start telling the owner.** |
+| `job_backoff_base` / `job_backoff_ceiling` | **PROVISIONAL 30 s / 30 min.** The floor is above any plausible transient and below any operator's patience; the ceiling keeps a long outage from stretching one job across a working day. |
+| `attempt_visibility` | **PROVISIONAL 5 min** (§5.4). |
+| Rung | **PROVISIONAL — explicitly NON-EVIDENTIARY.** These are **not** measurements, are **never** quoted as reliability, throughput or latency in any artifact at any class (021 B16), and support no claim of fact. They are floors. |
+| Closing evidence | the observed attempt-count and time-to-delivery distributions across the 019 §5 pilot batches, **segmented by whether a real Shopify credential was configured** — a stub client never fails, so a mixed sample would report a reliability that belongs to the stub. |
+| Guard | **every attempt is counted from day one**, and a dead-letter during normal pilot work is a finding either way: the floor was wrong, or something is. Both are worth a 006 row. |
+| Red line | 018 C3: a ceiling may be **raised** freely (it binds less); **lowering one after seeing a result it would change** requires a 006 row saying so in those words. |
+
+### 5.4 Dead-lettering is a terminal attempt kind, not a table
+
+> **There is no DLQ table. A dead letter is an `outbox_attempt` row with `kind='dead_lettered'`, and the dead-letter queue is a view over the attempt log.**
+
+A second table would hold a copy of a row that already exists — locked decision 4's prohibition, and 041 §6.4's *"if dropping it loses information, it is not a read model"*. **A view loses nothing and cannot drift.**
+
+**The heartbeat, and it is filed rather than declared.** A dead letter nobody looks at is a draft that never reached Shopify and a T17 numerator quietly falling. So the drain wants a liveness signal — and **019 T34 enumerates six heartbeats and this record has no standing to add a seventh.** 041 §9.3 hit exactly this and set the precedent this record follows: *"filed as a 019 amend-by-row candidate for E00-B03, not as an edit to 019 by this record … 019 is a ratified contract with signed thresholds."*
+
+> **Filed as an E00-B03 amend-by-row candidate, with its text supplied and not applied: the outbox drain emits a heartbeat, and an `outbox_attempt` of kind `dead_lettered` with no subsequent `replay_requested` after a review window is surfaced in the owner's report.**
+
+**And the record declines to call it a K1.** The bead's framing invites it — *"a dead letter unseen for N hours is K1"* — and **that is not this record's to sign.** 019's K1 list is closed and non-waivable; a stale *detector* is a K1 (T34), so a **dead drain** would be, but a **dead letter sitting in a live drain is a T17 miss**, which is a different instrument with a different owner. Conflating them would inflate a K1 and 018's whole ladder exists to stop that. **The N in "N hours" is likewise not invented here**; it belongs with the review window E13-B01 owns.
+
+### 5.5 No automatic re-drive, ever
+
+> **Nothing re-enqueues a dead letter automatically. A replay is a human act with a record (§6.3).**
+
+A dead letter means the retry budget was spent against a failure that did not clear. Something re-driving it on a timer is a retry loop with extra steps and no ceiling — and for §4.3's upsert, an automatic re-drive is the mechanism that would eventually un-publish a listing when the guard's data is stale. **E10-B09's acceptance already says a replay records actor and reason; this record makes the absence of an automatic path the reason that is possible.**
+
+## 6. Decision E — Replay boundaries
+
+### 6.1 The three classes
+
+> **Delivery to a consumer may always be replayed. The Shopify call may be replayed only because §4.3's key makes it an upsert and §4.3's guard makes it refuse a listing that has left `draft`. A witness row may never be replayed, in any sense of the word.**
+
+| Class | Replayable? | Why |
+|---|---|---|
+| **Delivery of an event to an in-process consumer** | **Always** | §3.2 makes consumers idempotent on `(event, ref.id)` by constraint, and the payload is a reference, so a second delivery is a second read of current truth. 042 §7.1's third reason for reference-not-value is exactly this property. |
+| **The `productSet` call** | **Conditionally** | idempotent by upsert on the `customId` (§4.3); refused when a `listing_status_observation` says the listing left `draft` (§4.3's guard). Without **both**, it is not replayable and must not be replayed. |
+| **A witness row** | **Never** | an append-only row cannot be re-appended, and "replaying" a `human_confirmation` would mean writing a second row asserting a person did something twice. A correction is a **superseding row** (041 §3), authored by whoever authored it, and it is not a replay. |
+| **`cost_log`** | **Never** | a meter reading. A replayed job that calls a paid provider a second time appends a *second* cost row, because it spent money a second time (§8.1). Replaying the *row* would be falsifying a ledger. |
+
+### 6.2 A replay writes attempts; it never edits anything
+
+A replay is `outbox_attempt` rows: one `replay_requested` carrying `operator_id` and `reason`, then the ordinary `started` / terminal pair with the next `attempt_no`. **The original attempts stay exactly as they are.** This is 022 P2 — *"undo writes a superseding record; it never edits history"* — and 041 §3.6's *"a correction never edits and never hides"*, applied to an operational table that is nevertheless a witness (§2.6).
+
+### 6.3 A replay names a person and states why
+
+> **`replay_requested` requires a non-null `operator_id` and a non-empty `reason`, enforced by a CHECK, not by a handler.**
+
+E10-B09's acceptance requires it — *"replay records actor and reason"* — and 041 §2.3's argument is why it is a constraint: *"stop forbidding a thing and start making it unrepresentable."* A replay with no author is the one row in this design that could quietly re-run an external effect, and a nullable column is an invitation.
+
+**⚠ `operator_id` FKs `app_user`, which does not exist** (034 §2.13's tenancy migration is unwritten; 041 §10 row 2 is blocked on it). So the CHECK is specified and the column is unpopulatable until then, and the replay path is **not built before it** — stated here rather than discovered as a null.
+
+### 6.4 The replay drill, and why the outbox is outside it
+
+041 §6.4's drill drops every derived view and materialized read model, recreates them, and asserts every invariant still passes and every rebuilt table is byte-identical. **`outbox` and `outbox_attempt` are excluded, as a declared row with §2.6's reason.**
+
+**And the exclusion has to be declared rather than assumed, because the failure mode is specific**: the drill's whole point is that a derivation nobody replays is not a derivation. A table sitting outside it with no row saying why is indistinguishable from a table someone forgot. §11 I2 asserts the row exists and carries a reason.
+
+**What *is* in the drill is the dead-letter view** (§5.4) and any read model over the attempt log, because those are derivations in the ordinary sense and must rebuild byte-identically.
+
+## 7. Decision F — Concurrency
+
+### 7.1 One poller per process, and the shape already exists in the tree
+
+> **The drain is a `setInterval` started from `src/server.ts`, unref'd, returning a stop function — the shape `scheduleAppendOnlyCheck` already uses (`src/services/appendOnlyDetector.ts:169-190`). One poller per process. No second scheduler, no cron, no external runner.**
+
+Choosing the shape already in the tree is not laziness; it is 041 §9.2 item 4's reasoning about the trigger list applied to a runtime pattern — *a second spelling of one thing is how two things start to drift.* The precedent is tested, it is unref'd so it never holds the process open, and its stop function is what makes an integration test deterministic. **`LISTEN`/`NOTIFY` was the alternative and §10 A4 records why it loses at this scale.**
+
+### 7.2 The claim, and why `SKIP LOCKED` makes two processes safe by construction
+
+```sql
+SELECT o.id
+FROM outbox o
+WHERE o.shop_id = $1
+  AND NOT EXISTS (SELECT 1 FROM outbox_attempt a
+                  WHERE a.outbox_id = o.id AND a.kind IN ('delivered','dead_lettered'))
+  AND <not in flight>          -- §2.4: newest attempt is not a 'started' within attempt_visibility
+  AND <due>                    -- §2.4: now() >= last failure + backoff(attempt_no)
+ORDER BY o.scan_session_id, o.session_seq NULLS LAST, o.created_at
+FOR UPDATE OF o SKIP LOCKED
+LIMIT $2;
+```
+
+**`FOR UPDATE … SKIP LOCKED` is the whole of the multi-process story.** A second process's claim transaction skips rows the first holds and takes different ones. No lease table, no worker registry, no partitioning, no leader election. **E13's horizontal scaling costs nothing here because the mechanism was never single-process-dependent** — it is single-*poller*-per-process by choice, not by constraint.
+
+**The `ORDER BY` delivers §3.2's guarantee and nothing more.** Sorting by `(scan_session_id, session_seq)` is what makes within-session order hold; it confers no cross-session promise, and §3.2 says so explicitly so nobody reads the clause as one.
+
+**Two mechanical rules, both learned from 042 §5.3's amendments.** (a) **One connection for the claim transaction's lifetime** — 042 A5/I21's rule, for the identical reason: a `pool.query` per statement would release the row lock at the first statement boundary and `SKIP LOCKED` would stop skipping anything. (b) **A fixed lock order** — 042 A6/I22 fixes idempotency-row-then-anchor for handlers; a worker takes **the `outbox` row, then anything else**, always. A worker that took a `scan_session` lock first and then an outbox row could deadlock against a request holding them the other way, and `40P01` at a counter is the symptom 042 §5.3(b) describes: *"an intermittent failure … that reproduces on nobody's laptop."*
+
+### 7.3 The worker's database role
+
+041 §9.2 item 2 makes role separation the **primary** control over the append-only model — *"a migration role that owns the schema and an application role that owns nothing"* — and it **SHIPPED at `418c2de` as E02-D06** (PR #57, merged 2026-09-04): `docker/postgres-init/00-roles.sql`, `src/db/appRoleGrants.ts`, `src/services/roleSeparation.ts`, and a server that refuses to boot on a connection whose role owns an append-only table or is a superuser. The worker connects as the same non-owner application role as the server, for the same reason and with the same consequence: **a worker connection cannot `SET session_replication_role`, cannot `ALTER TABLE … DISABLE TRIGGER`, and therefore cannot write a non-append-only row into either of §2.3's tables even by mistake.** Nothing here needs a new role, and inventing one would put a second privileged principal in a system whose whole security argument is that there is one.
+
+## 8. Decision G — Cost per job, and the T22 story
+
+### 8.1 A job that spends money logs it in the recording transaction
+
+`appendCostLog` today takes a `pg.Pool` and writes its own statement (`src/services/costLog.ts:5-23`), so a cost row cannot commit with the fact it describes (§1 E11). **Both halves change, and only the second is this record's decision.**
+
+- **It takes a transaction handle first**, per 029 §12.1 point 3 — *"Any module function that writes takes the handle as its first parameter"*. That is E02-D04's shape, not a new rule.
+- **`cost_log` gains `outbox_id uuid REFERENCES outbox(id)`, nullable.** NULL means *"spent by a request, not a job"* — **one meaning, which is the test 030 A1 sets and 041 §9.4 restates**: a nullable column whose NULL carries two meanings is the defect; this one carries exactly one, and the alternative (a `source` enum beside a nullable FK) encodes the same fact twice.
+
+**The Shopify draft job writes no cost row, and that is deliberate.** `productSet` costs no money. Writing a zero-dollar row to prove the seam works would put a fact in the ledger that is not a measurement — 022 P8's decision strip and 019 T13a both read this table. **A job logs a cost when it spends; the seam exists for E10-B04's staged media upload and for any future provider job, and it stays empty until one arrives.**
+
+### 8.2 T22 — the outbox is in the database, and that is exactly why the key matters
+
+> **`outbox` and `outbox_attempt` are ordinary Postgres tables, so they inherit the database's backup and restore posture unchanged: 019 T22's ≤24 h RPO and ≤4 h RTO, measured by a restore drill at G3, owned by E13-B07. This record asks for no separate backup and no separate drill.**
+
+**The interesting half is what a restore does to a system with an external effect**, and 024 §2 is blunt about the current posture — *"estate borg; **no PITR**"*, with PITR planned under E13-B07. So:
+
+> **A restore can rewind Longbox by up to a day. It cannot rewind Shopify. Every replayed outbox row therefore meets a Shopify that already has its product — and `productSet`'s `customId` upsert (§4.3) turns that from a day's worth of duplicate listings into a day's worth of no-ops.**
+
+**That is the strongest argument for §4.3 and it does not come from retries at all**; it comes from the backup posture. Stating it here is what makes the two decisions legible as one design rather than two conveniences. **The converse is the honest cost**: rows appended *after* the restore point are gone, so effects owed in that window are never performed — and the thing that finds them is §4.5's reconciliation, which is the only mechanism in the design that compares Longbox's belief against Shopify's state. **Reconciliation is not a nicety attached to the saga; it is the restore story.**
+
+## 9. What this record hands to other beads
+
+**Nothing in this section is written.** No file number is claimed and no migration is numbered — 041 §10's rule, learned twice.
+
+### 9.1 Order
+
+| # | Artifact | Blocked on |
+|---|---|---|
+| ~~**0**~~ | ~~`withTransaction` + the `FOR UPDATE` anchor~~ | **SHIPPED** at `17b98ab` — E02-D04 `longbox-e5b.2.14`, PR #56, merged 2026-09-04, with `POST …/confirm` and `POST …/draft` wrapped. **Nothing below is blocked on it.** |
+| **1** | *migration* — `outbox` + `outbox_attempt` per §2.3, their append-only triggers, the `ENABLE ALWAYS` clause, their rows on `src/db/appendOnlyTables.ts`'s declared list, and the **partial index** supporting §7.2's eligibility predicate. **E02-B10 owns the index shape, the expand/contract order and the rollback** | 0 |
+| **2** | *migration* — `cost_log.outbox_id` (§8.1) | 1 |
+| **3** | The outbox runtime in `platform`: the appender, the poller, the claim query, the attempt writer, the backoff function, the dead-letter view. **E02-D07** *(a new discovered-work bead, §9.3)* | 1 |
+| **4** | The `draft_requested` handler in `commerce`: the `productSet` call with §4.3's `identifier`, the not-left-`draft` guard, the `shopify_draft` write. **This is where 029 §2.7's owed relocation of the draft block out of `src/routes/` finally happens** | 3 |
+| **5** | `POST …/draft` becomes `202` with the outbox row id; the DTO and the error codes are **042's contract, E02-B08's execution** | 3, and 042 §9.1 rows 2–3 |
+| **6** | The watcher's orphan report and the `customId` metafield scan — **E10-B05** | 4 |
+| **7** | The `replay_requested` path and its CHECK — **E10-B09**, and blocked on `app_user` (034 §4.1's unwritten migration) | 3 |
+
+### 9.2 The 029 amend-by-a-row entries this bead owes
+
+029 §9 (`029:680-683`) permits amending a statement of fact by a row. **This record does not edit 029.** These are the exact rows for the parent to apply.
+
+> **Entry A — 029 §2.9 (`platform`), "Tables owned".** Add **`outbox`** and **`outbox_attempt`**.
+> *Rationale:* `029:176` already claims *"the durable queue and outbox runtime (E02-B09, E13-B03)"* among platform's responsibilities; these are its tables. Note beside them that **`outbox` is a witness table in the append-only set** (§2.6), not an operational cache — the distinction that separates it from `request_idempotency`, which 042 §9.2 Entry A adds to the same list.
+
+> **Entry B — 029 §11 (`029:704`).** Append: *"E02-B09 discharges the delivery-semantics half of this bullet (000-docs/043), completing the bullet that 042 §9.2 Entry B half-discharged."*
+> *Rationale:* the bullet is a non-decision naming the two beads that would decide it. Both have now decided.
+
+> **Entry C — 029 §12 (`029:712`).** Append: *"E02-B09's design (000-docs/043) is the replacement §12.3 names. §12 is superseded on the day the outbox in 043 §2 is RUNNING, not on the day 043 ratifies — see 043 §12.3."*
+> *Rationale:* 029 §12.3 says *"When E02-B09 lands, §12 is superseded and this record should be amended to say so."* **"Lands" means running code, and this record is a design.** Recording the condition rather than the event is the honest row.
+
+> **Entry D — 029 §2.7 (`commerce`), "Files today".** Append: *"The draft-creation block leaves `src/routes/scanSessions.ts` as the `draft_requested` job handler (043 §4.1, §9.1 row 4), which is the relocation this section has owed since 029 v1.1.1."*
+
+### 9.3 Note-obligations, and the discovered-work bead
+
+- **E02-D07 *(new, `-D` alias per 014's discovered-work rule; needs a 015 row)*** — build the outbox runtime per §2, §5 and §7. It is a `-D` bead rather than part of E02-B09 because **E02-B09 is a DEC bead and this is code**, and 023 §5 closes a decision bead on an argued design, not on an implementation.
+- **E10-B05** — two obligations: report every Shopify product carrying the `longbox` `customId` metafield, not only status (§4.5); and **the watcher is what makes §4.3's not-left-`draft` guard enforceable**, so the guard and the watcher must not ship apart — a guard reading a table nothing writes always passes.
+- **E10-B03** — the `customId` value migrates from `scan_session_id` to `physical_item_id` when 036 §7.1's table lands, **as a metafield backfill on existing products, never a key swap** (§4.3).
+- **E10-B09** — implements §5 and §6 for commerce effects; the `replay_requested` CHECK is its acceptance line, and it is blocked on `app_user`.
+- **E13-B03** — §2.2's four conditions are the threshold at which a broker is revisited, with a measurement rather than a preference.
+- **E13-B04** — the drain's heartbeat and its correlation-id propagation; **a job inherits the enqueueing request's `correlation_id` and never mints a new one**, which is what makes "what happened to this book" one query.
+- **E13-B01 / E13-B07** — the dead-letter review window's N (§5.4) and the restore drill that T22 measures, including §8.2's post-restore reconciliation pass.
+- **E05 (B04 / B08)** — the operator is told a listing is *being created*, in 021 registered copy, never that it exists (§4.2); and the offline queue's `Idempotency-Key` rule (042 §5.6, A9) is unchanged by this record — a queued write still mints its key at the act.
+- **E00-B03** — the 019 amend-by-row candidate for the drain heartbeat (§5.4), text supplied, **not applied**.
+- **E02-B08** — `POST …/draft`'s `202` response DTO (§4.2), and the fact that §3.1's envelope carries a `correlation_id` the producing request does not yet have (§1 E9).
+- **E14-B04** — contract tests generate from `contracts/openapi.v1.json` **and now also from §3.3's catalogue**, which is a declared list in `src/` on 041 §9.2's model.
+
+### 9.4 One discovered citation nit, filed and not fixed
+
+PR #56's comment at `src/routes/scanSessions.ts:464` cites **`041:788`** for the reconciliation obligation. `041:788` is 041 §12.3's *"It does not amend 019"* bullet and says nothing about the outbox; the sentences the comment is reaching for are 041 §4.1's side-effect rule and §8.2's ordering rule, **both of which the same comment already quotes correctly**. It is a pointer defect in a code comment, not a decision defect, and under 029 §9's rule it is repairable in place by whoever next touches that file. Filed here so it is not rediscovered as a contradiction.
+
+### 9.5 What this record does not hand over, because it is not owed
+
+**No patch to 040, 041 or 042 is filed.** Every citation in this record was checked against the current file; §1 found no mis-cite of the class 042 §1 E23 found in 040, and the two obligations 042 §9.4 placed on this bead (A2's catalogue, A7's drain order) are **discharged in §3.3 and §3.2** rather than amended into 042.
+
+## 10. Alternatives considered
+
+**A1 — Keep the direct call and add a retry loop in the handler.** *Rejected*, §2.1. It is the cheapest change and it fixes the visible symptom (E6) while leaving the actual defect untouched: with no record of intent, a crash between the call and the insert is still an orphan (E4), and a retry inside a handler makes the operator wait on a third party's backoff. **A retry without a durable record of what is being retried is a louder version of the same bug.**
+
+**A2 — Split this record: decide the outbox now, defer the catalogue again.** *Considered seriously, and it is the alternative a reader of 042 A2 will reach for first.* The case for it is real: 042 struck the catalogue for being unfalsifiable against zero running code, and this record still has zero running code. It loses on two grounds. **First, the deferral has nowhere left to go** — 042 assigned the catalogue here explicitly (§7.4, §9.4), and deferring it again means deferring it to the *implementation* bead, where a naming scheme would be chosen by whoever types first and no cannon would ever see it. **Second, the objection's substance is answered rather than dodged**: 042's draft derived names from a table list with no producer, no drain and no consumer; §3.3 derives them from a producer specified in §2, a drain in §7 and a consumer in §4, and every exclusion cites the rule that excludes it. That is falsifiable in the only sense available before code. **§13 Q1 asks whether that is enough.**
+
+**A3 — A mutable `status` column on `outbox`, as a declared exemption on 041 §9.2's list.** *Rejected*, §2.4, and it is the closest call in the record because the precedent is right there: 042 §5.2 does exactly this for `request_idempotency`, with three stated reasons and a `kind: permanent` row. It loses because the exemption **buys nothing here**: the attempt log already holds everything the column would, in more detail and without a second copy, and §2.4's derived-lease predicate removes the only mechanical argument for it. **An exemption is for a table that is correct and looks wrong. A status column beside a complete attempt log is not correct — it is 040's `scan_session.status` with a different name.**
+
+**A4 — `LISTEN`/`NOTIFY` instead of polling.** *Rejected for v0.* It is genuinely better on latency and it is Postgres-native, so it costs no dependency. Two things sink it at this scale. **A notification is not durable**: a listener that is down when `NOTIFY` fires never learns, so a poller is required anyway as the backstop — and then there are two mechanisms where one would do (§7.1's drift argument). And the latency it buys is invisible here: the operator does not wait on the draft (§4.2), so a poll interval measured in seconds is indistinguishable from instant for the only person involved. **It becomes worth it under §2.2's condition 2, and E13-B03 owns that call.**
+
+**A5 — Compensate an orphan by deleting the Shopify product.** *Rejected*, §4.4. Automatic deletion of the shop's data on the strength of Longbox's own belief, with no way to distinguish a product it created from one the owner has since edited, is a worse act than the clutter it repairs — and a DRAFT harms nobody (T19 = 0). **Longbox creates drafts and never destroys the shop's data.**
+
+**A6 — A separate `dead_letter` table.** *Rejected*, §5.4. It would hold a copy of rows that already exist; a view over the attempt log loses nothing and cannot drift (041 §6.4).
+
+**A7 — Exactly-once via two-phase commit between Postgres and Shopify.** *Rejected, and it is worth one line because someone will ask.* Shopify exposes no prepare/commit protocol and no idempotency token (§4.3), so there is nothing to enrol in a 2PC. **Exactly-once across an HTTP boundary is not available at any price**; at-least-once plus an idempotent key is the strongest thing that exists, and §4.3 buys it.
+
+**A8 — A queue library (pg-boss, graphile-worker).** *Rejected for v0*, §2.2(c), on the narrow ground that its schema is mutable by design and lives outside `migrations/` and outside 041 §9.2's declared trigger set — a permanent hole in the one invariant locked decision 4 makes non-negotiable, in exchange for a few hundred lines. **§13 Q2 puts it to the cannon**, because this is the kind of rejection that reads as confidence and is sometimes just preference.
+
+**A9 — Events carry the referenced row's values.** *Rejected*, §2.5, on 042 §7.1's three grounds unchanged: a copy is a second source of truth, a copy is un-purgeable, and a copy ages while the row it copied is corrected.
+
+## 11. Acceptance criteria and invariants
+
+Each is falsifiable and names the test that will decide it. **None of these tests exists** (018: nothing here is TESTED). Unit tests flat in `tests/`, DB tests in `tests/integration/`, contract tests in `tests/contract/`, per the tree's convention.
+
+**None is blocked.** The draft marked six ⛔ UNWRITABLE until E02-D04 shipped `withTransaction`; **it shipped at `17b98ab` during drafting** (§0, §1 E2), so **I1, I9, I13, I17, I18 and I19 are writable today** — I17 keeps a narrower dependency, on `app_user`, which 034 §4.1's migration is still unwritten. **Two are ⚠ conditional on E02-B10 installing the architecture gate**, which does not exist (042 §1 E22). **Two are ⚠ conditional on E10-B05's watcher**, which does not exist (§1 E8). **Four are written to FAIL on the tree as it stands** — that is the point: they name a defect rather than a design.
+
+| # | Invariant | Test file |
+|---|---|---|
+| **I1** | **An effect is never performed by the transaction that decides it, and the intent commits with the fact.** Assert (a) no file under `src/routes/` calls a provider client — **fails on the current tree**: `routes:407` calls `createDraft`; (b) the `outbox` INSERT and the `human_confirmation`/`pricing_snapshot`/`condition_assessment` read that justifies it run on the same `tx`; (c) a request that throws after the outbox INSERT leaves **no** outbox row and **no** effect. ✅ **unblocked** — E02-D04 shipped at `17b98ab` (§1 E2). | `tests/integration/outbox-enqueue.test.ts` |
+| **I2** | **Both outbox tables are append-only, declared, and declared-excluded from the replay drill.** Assert `outbox` and `outbox_attempt` carry `ENABLE ALWAYS` `%_append_only` triggers and appear in `src/db/appendOnlyTables.ts`'s declared list; assert **neither appears on the exemption list**; assert the replay-drill exclusion list contains a row for each with a **non-empty reason naming §2.6's two grounds**. An absence is indistinguishable from an oversight (041 §9.2 item 4). | `tests/integration/append-only-trigger-set.test.ts` (extended) + `tests/contract/replay-drill-exclusions.test.ts` |
+| **I3** | **Every event in the catalogue references a committed witness row, except exactly one.** Walk §3.3's declared catalogue; assert every entry's `ref_table` is a table in the append-only set **except** `draft_requested`, whose `ref_table` is `outbox`; assert the count of command-shaped entries is **exactly 1**. A second one is a design change and must fail the build (§3.4). | `tests/contract/event-catalogue.test.ts` |
+| **I4** | **No event carries a version of its own, and none carries a value** (042 §7.3 I17, §7.1 I18 — inherited acceptance lines). Assert no emitted payload declares `event_version`; assert the key set is exactly §3.1's envelope plus `ref`; assert no key holds a column value from the referenced row. Then the purge case: purge a photo (041 §8) and assert no emitted event ever carried its `storage_key`, its bytes or its hash. | `tests/contract/event-contract.test.ts` |
+| **I5** | **A consumer stays correct under CONCURRENT duplicate delivery, not merely repeated delivery** (042 A7). Deliver one event to one consumer **twice simultaneously**, from two claim transactions, and assert exactly one effect and exactly one row — and assert the mechanism is a **constraint violation**, not a read-then-write check, by asserting the losing path raises a unique violation. **A test that delivers twice in sequence would pass against a broken consumer**, which is why the concurrency is the test. | `tests/integration/consumer-idempotency.test.ts` |
+| **I6** | **An outbox row and an attempt row carry no values and no operator prose.** Assert `outbox`'s column set is exactly §2.3's; assert `outbox_attempt.detail`'s keys are drawn from a declared allowlist of codes and references; assert no row in either table contains a provider exception message, a response body, a percentage, a model name or a provider name (022 P6, P8; 021 B16/B19; 019 T35). | `tests/contract/outbox-carries-no-values.test.ts` |
+| **I7** | **`productSet` always carries the identifier and always carries `status: DRAFT`.** Assert the mutation document declares `$identifier: ProductSetIdentifiers` and the variables carry `customId` with namespace `longbox`; assert `input.status === "DRAFT"` unconditionally (locked decision 3; 019 T19 non-waivable; 033 B3). **Fails on the current tree**: `src/services/shopify.ts:12-17` declares one variable and `:23-40` sends no identifier. | `tests/shopify-idempotency.test.ts` |
+| **I8** | **A job never un-publishes a listing a human published.** Seed a `listing_status_observation` with a status other than `draft`; run the `draft_requested` job; assert **no `productSet` call is made**, an `outbox_attempt` of kind `dead_lettered` is appended with `detail.reason_code='listing_left_draft'`, and no automatic retry follows. **This is the mirror of 040 I4 and it maps to the same principle** (022 P1, 033 B3). ⚠ **conditional on E10-B05** for the observation's producer. | `tests/integration/draft-job-listing-guard.test.ts` |
+| **I9** | **A crash between the Shopify call and the recording transaction adopts the orphan rather than duplicating it.** Kill the worker after `createDraft` returns and before the recording commit; let the visibility timeout expire; assert the retry produces **one** Shopify product (the upsert matched) and **one** `shopify_draft` row. **This is the bead's own E02-D04 obligation, constructed.** ✅ **unblocked** — E02-D04 shipped at `17b98ab` (§1 E2). | `tests/integration/draft-job-orphan-recovery.test.ts` |
+| **I10** | **A Shopify DRAFT with no `shopify_draft` row is reported, and the report names no operator.** Seed a product carrying the `longbox` `customId` with no matching row; run the reconciliation; assert an `orphan_listing` observation is appended, and assert the surface that renders it carries **no operator identifier** (019 T35 non-waivable, 022 P3) and **no unregistered shop-facing string** (021). ⚠ **conditional on E10-B05.** | `tests/integration/orphan-listing-reconciliation.test.ts` |
+| **I11** | **There is no mutable state anywhere in the drain.** Static: neither table has an `UPDATE` path in `src/`; no column named `status`, `claimed_at`, `locked_at`, `lease_until` or `next_attempt_at` exists on either table; the eligibility predicate reads only `outbox_attempt`. **This is the invariant that fails first if someone adds the column under load** (§2.4). | `tests/contract/outbox-has-no-status-column.test.ts` |
+| **I12** | **A stale claim needs no reaper.** Append a `started` attempt with no terminal partner; assert the row is **not** eligible before `attempt_visibility` and **is** eligible after, with **no sweeper, cron or repair job running in between**. Assert no code path writes a "recovery" row. | `tests/integration/outbox-visibility.test.ts` |
+| **I13** | **Two pollers never take one row.** Run two claim transactions concurrently over a seeded queue; assert every row is claimed exactly once, that the second claimer **skips rather than blocks**, and that the union of claims is the full eligible set. ✅ **unblocked** — the claim needs one held connection, which `withTransaction` now gives it (§1 E2). | `tests/integration/outbox-skip-locked.test.ts` |
+| **I14** | **A worker takes the outbox row before any other lock** (042 I22's rule, this record's subject). Static lint over every job handler: the `FOR UPDATE … SKIP LOCKED` on `outbox` precedes any `scan_session … FOR UPDATE`, with no exceptions and no opt-out comment; plus a **deliberately reversed-order fixture handler that makes the lint fail** — 029 §5 move 8's *"prove the gate can fail"*. ⚠ **E02-B10 owns the lint's CI wiring.** | `tests/contract/job-lock-order.test.ts` |
+| **I15** | **Within a session, delivery follows `session_seq`; across sessions nothing is promised.** Construct 041 I6(e)'s dual-offline replay — two writes queued against the same witness, replayed in each of the two possible orders — and assert the per-session event order is identical under both. Then assert **the contract declares no cross-session guarantee**: a consumer that could rely on one would pass a weaker test. | `tests/contract/event-ordering.test.ts` |
+| **I16** | **A permanent failure is never retried and a transient one is, with jitter.** Assert a Shopify `userErrors` response produces `dead_lettered` at `attempt_no = 1` with no backoff; assert a 429/502/transport failure produces `failed` and a due time inside §5.2's window; assert two jobs failing in the same instant get **different** due times. | `tests/outbox-backoff.test.ts` |
+| **I17** | **Nothing re-drives a dead letter, and a replay names a person and a reason.** Assert no scheduled path re-enqueues a `dead_lettered` row; assert `replay_requested` is refused by a **CHECK** when `operator_id` is null or `reason` is empty — not by a handler (041 §2.3). ⛔ **blocked on `app_user`** (034 §4.1's unwritten migration). | `tests/integration/outbox-replay.test.ts` |
+| **I18** | **A replay appends and never edits.** After a replay, assert every prior `outbox_attempt` row is byte-identical to before, the outbox row is untouched, and the new attempts carry the next `attempt_no` (022 P2; 041 §3.6). ✅ **unblocked** — E02-D04 shipped at `17b98ab` (§1 E2). | `tests/integration/outbox-replay.test.ts` |
+| **I19** | **A job's cost row commits with the fact and is never replayed.** Assert `appendCostLog` takes a `Tx` as its first parameter — **fails on the current tree**: `src/services/costLog.ts:5-7` takes a `pg.Pool`; assert a job that spends appends `cost_log` with `outbox_id` set inside the recording transaction; assert a replayed job that spends again appends a **second** row rather than reusing the first (§6.1). ✅ **unblocked** — E02-D04 shipped at `17b98ab` (§1 E2). | `tests/integration/job-cost-log.test.ts` |
+| **I20** | **The drain emits a heartbeat and the dead-letter view is derived.** Assert the poller emits a liveness signal on every cycle; assert the dead-letter surface is a **view** and that dropping and recreating it is byte-identical (041 §6.4's drill, applied to the one derivation here). ⚠ **the 019 T34 row itself is E00-B03's** (§5.4) — this asserts the signal exists, not that 019 lists it. | `tests/integration/outbox-drain-heartbeat.test.ts` |
+
+**I2, I6, I7, I8, I10 and I14 map to a non-waivable line** (locked decision 4 for I2; T35 for I6 and I10; T19 for I7 and I8; T19 via 040 I4's gate for I14). **I1, I7, I11 and I19 fail on the tree as it stands.** **I17 is ⛔ blocked on `app_user`** (034 §4.1's unwritten tenancy migration) and nothing else is blocked, E02-D04 having shipped; **I8 and I10 are ⚠ conditional on E10-B05**; **I14 and I20's CI wiring is ⚠ E02-B10's.** The rest are structural.
+
+## 12. Consequences, and what this record does not decide
+
+### 12.1 What gets better
+
+- **The orphaned Shopify draft stops being a permanent, invisible divergence.** It becomes a job with a record of intent (§2), a retry that *adopts* the orphan instead of duplicating it (§4.3), and a reconciliation that finds the ones no retry covers (§4.5). **That is the E02-D04 obligation this bead was handed, and it is closed by three mechanisms rather than one, because no single one covers a restore.**
+- **029 §12's temporary consistency mechanism finally has its replacement designed**, and §9.2 Entry C records the condition — running code — rather than pretending ratification is landing.
+- **042 A2's struck catalogue is written, with its exclusions argued.** Nine names, five source tables, and every omission citing the rule that omits it.
+- **A retry stops being an operator pressing a button twice.** §1 E6 is that there is no retry at all; §5 gives one with a ceiling, a backoff and a terminal state that a human has to touch.
+- **Two pollers, two processes and a restore are all safe by construction rather than by care** — `SKIP LOCKED`, the derived lease and the upsert key each remove a class of coordination rather than managing it.
+- **The append-only model gains two tables and loses no ground.** No status column, no exemption, no mutable operational table sitting inside the trigger set with a note attached.
+
+### 12.2 What gets worse, stated plainly
+
+- **The operator no longer learns the draft's outcome at the moment they tap.** §4.2 argues this is right for the person holding the book, and it is still a real loss: a failure now surfaces later, somewhere else, to someone else. **The mitigation is entirely on E05 and E11**, which is a sentence here and a flow, a registered string and a report column there.
+- **The system gains a second execution context.** Everything that was request-scoped — the correlation id, the tenant, the lock order, the error envelope — now has to hold in a worker too, and a worker has no request to inherit them from. §9.3 hands three of those to E13-B04 and the record does not pretend they are free.
+- **`outbox` and `outbox_attempt` grow forever and their retention is not decided here.** This is the third record to write that sentence about an operational-ish table (040 A9 and 042 §12.2 wrote it about `request_idempotency`), and it is worse here because these tables are **append-only**, so a retention answer cannot be a `DELETE` — it has to be 041 §8's purge path or nothing. **E13-B01 owns it, and "an unowned table that grows forever is how a retention commitment quietly stops being true" applies with more force to a table that cannot be swept.**
+- **§4.3's guard is specified and unenforceable today.** The not-left-`draft` check reads `listing_status_observation`, which has no producer (§1 E8). **A guard reading an empty table always passes**, so between E02-D07 shipping and E10-B05 shipping the un-publish hazard is real. §9.3 says the two must not ship apart; **that is an instruction, and an instruction is the weakest guard this record uses.**
+- **The catalogue is still fixed against zero running consumers.** §0 and §10 A2 argue it is nonetheless falsifiable. **A cannon may disagree, and if it does, §3.3 should be struck the way 042 §7 was** — the reversal would be more instructive than the adoption.
+- **Four numbers are now configured that nobody has measured** (§5.3). Deliberately generous, explicitly non-evidentiary, and still numbers in a config file that someone will one day quote as a reliability figure. 021 B16 forbids it and §5.3 forbids it; **the guard is a sentence**.
+- **`payload_hash` is a new correctness surface with a small job.** A canonicalisation bug makes it useless rather than dangerous — it detects a producer bug and nothing else — but it is one more thing that has to be exactly right to be worth its column. **§13 Q6 asks whether it earns its place at all.**
+
+### 12.3 What this record does NOT decide
+
+- **It does not write the tables, the poller, the job, the migration or any test.** §9.1 is a sequence; **E02-D07** executes rows 3 and 4, **E02-B10** owns row 1's index, expand/contract order and rollback.
+- **It does not supersede 029 §12 today.** §12 is superseded when the outbox is **running**, not when this record ratifies — §9.2 Entry C, and §13 Q7 puts the reading to the cannon rather than assuming it.
+- **It does not decide the reconciliation cadence.** 036 §13.2 (`036:779`) reserves it to E10-B05/B08; §4.5 adds one constraint (shorter than the retention anchor it feeds) and no number.
+- **It does not decide the dead-letter review window's N, nor `outbox` retention.** **E13-B01.**
+- **It does not build the watcher.** §4.5 gives it two obligations; **E10-B05** builds it and puts its heartbeat on T34's list (040 `:694`).
+- **It does not amend 019.** §5.4's heartbeat is an **E00-B03 amend-by-row candidate**, text supplied, not applied — 041 §9.3's precedent. **And it does not create a K1**; the K1 list is closed and non-waivable.
+- **It does not decide the API shape of `POST …/draft`'s `202`.** That is **042's contract and E02-B08's execution**; §4.2 fixes only that the effect is asynchronous.
+- **It does not decide media handling.** Shopify staged uploads and their retry are **E10-B04**; §8.1's cost seam exists for that job and stays empty until it arrives.
+- **It does not decide worker deployment, fairness across shops, or backpressure.** **E13-B03**, which is blocked on this bead; §7.2's `shop_id` filter is the seam it will need and not the policy.
+- **It does not reverse or amend a locked decision.** Locked decisions 3, 4, 5 and 7 constrain this record; where anything here conflicts with one, the locked decision wins.
+
+## 13. The questions this record puts to the cannon
+
+Eight, and the first is the one that could strike a section.
+
+1. **Is §3.3's catalogue falsifiable, or is it 042 §7 again?** 042 A2 struck a catalogue for being fixed against zero running code and assigned it here, *"written against a running outbox with at least one real consumer."* **There is still no running outbox.** §0 and §10 A2 argue that specifying the producer, the drain and the first consumer in one document is the falsifiability available before code, and that deferring again means deferring to whoever types first. **Is that enough, or should §3.3 be struck and handed to E02-D07 with the implementation?**
+2. **Is rejecting a queue library (§2.2c, §10 A8) a decision or a preference?** The stated ground is narrow and real — a library's mutable job schema sits outside `migrations/` and outside 041 §9.2's declared trigger set — but "we hand-rolled a queue" has aged badly in many projects. **Is the append-only argument decisive, or is it a reason found for a conclusion already reached?**
+3. **Is §2.6's first reason real?** The outbox is *nearly* derivable from the witness tables. Reason 2 (append-only children FK to it) settles it alone. Reason 1 (it records intent as-of, and a rebuild would answer today's question) is the kind of argument that sounds better than it is. **Should reason 1 be struck, leaving the decision resting on the child rows?**
+4. **Is the derived lease (§2.4) simple or clever?** It removes a column, a reaper and an exemption, and it replaces an index scan with a `NOT EXISTS` over a child table. **At what volume does it stop being the simple choice, and is 041 §6.2's materialized index really the right escape hatch, or is that just the status column with more ceremony?**
+5. **Is `draft_requested` (§3.4) an acceptable command in an event catalogue, or should the job queue be a separate table from the event outbox?** The record chose one table with one declared command over two tables with clean semantics. **Two tables would keep events pure and cost a second drain, a second index and a second set of invariants. Which is the smaller lie?**
+6. **Does `payload_hash` (§2.5) earn its column?** Its only job is detecting that one event was enqueued twice with different envelopes — a producer bug that `UNIQUE (shop_id, event, ref_table, ref_id)` may already make unconstructible. **If the constraint covers it, the column is ceremony.**
+7. **Does §9.2 Entry C read 029 §12.3 correctly?** 029 says *"When E02-B09 lands, §12 is superseded."* This record reads "lands" as *running*, not *ratified*, and records the condition rather than the event — following 042 §13 Q7's narrow reading of the same question. **Is the narrow reading right a second time?**
+8. **Is §5.4 right to refuse the K1?** The bead's own framing invites *"a dead letter unseen for N hours is K1."* This record files a T34 heartbeat candidate instead and routes the dead letter to T17, on the ground that 019's K1 list is closed and non-waivable and that a stale *detector* is not the same thing as a stale *letter*. **Is that discipline, or is it a safety line dodged on a technicality?**
+
+## 14. Ratification
+
+| Field | Value |
+|---|---|
+| Decision | **Adopt §2–§9** — the transactional outbox as two append-only tables written inside the request transaction, with no mutable status column and a lease derived from the attempt log (§2); the draining order that confers nothing, the at-least-once guarantee with consumers idempotent by constraint, and the nine-name event catalogue 042 A2 assigned here (§3); the Shopify draft as a job made replay-safe by `productSet`'s `customId` upsert and guarded against un-publishing a human's listing, with orphan reconciliation through the E10-B05 watcher (§4); append-only attempts, exponential backoff with jitter, PROVISIONAL circuit-breaker floors, and dead-lettering as a terminal attempt kind with a T34 heartbeat filed as an E00-B03 candidate (§5); the three replay classes and the outbox's declared exclusion from 041 §6.4's drill (§6); one poller per process on `FOR UPDATE … SKIP LOCKED` with a fixed lock order (§7); and per-job cost logging plus the T22 story, in which today's ≤24 h RPO with no PITR is itself the argument for the idempotent key (§8) — as the canonical delivery, job, retry, dead-letter and replay contracts for intent-longbox, together with §11's twenty invariants and §10's nine rejected alternatives. Apply §9.2's four amend-by-a-row entries to 029 under its §9 clause. Binding on E02-B08, E02-B10, E02-D04, E02-D07, E05-B04, E05-B08, E10-B03, E10-B04, E10-B05, E10-B08, E10-B09, E13-B01, E13-B03, E13-B04, E13-B07 and E14-B04. |
+| Status | **PROPOSED — NOT RATIFIED. This block is unsigned.** |
+| Acting head of board | *(unsigned)* |
+| Date | *(pending)* |
+| Cannon | *(pending)* — two lenses proposed: **`martin-kleppmann-reviewer`** for the delivery guarantees, the derived lease, the concurrent-duplicate case and the restore-versus-external-effect argument in §8.2; and **`rich-hickey-reviewer`** for §2.4 (is the derived lease simple or clever), §2.6 (witness versus derivation), §3.4 (a command in an event catalogue) and §5.4 (state as a terminal fact rather than a column). |
+| Amendments at ratification | *(none — unratified)* |
+| Dissent preserved | *(none — unratified)* |
+| Gate audit | *(pending)* — `longbox-gate-auditor` before the bead closes. |
+| Jeremy's revision right | **Standing.** Jeremy may revise any line by a 006 decision-log row naming date, old text, new text and reason (018 §5). Locked decisions 3, 4, 5 and 7 outrank this record, as do 019's signed thresholds and every ratified record it cites. Per `019:202`, a 022/019 conflict halts and escalates to the acting head by a 006 row; **no build agent reconciles the two by interpretation.** |
+| Recorded in | 006 decision-log row dated 2026-09-04 (**PROPOSED**, to be flipped in place on ratification per 018 §4 C2); 016 §1 row 043; 000-INDEX row 043; the change log above; bead `longbox-e5b.2.9`'s close reason will quote this block once signed. |
+
+Not binding until §14 is signed. When it is, changing any **decision** above — the outbox's location or its transactional coupling, the absence of a status column, the catalogue's names or its one command, the provider-idempotency key or the not-left-`draft` guard, the retry classification, the dead-letter semantics, the replay boundaries, or the claim mechanism — will require a new decision record naming this one as superseded (018 §4 rule S4), never an in-place edit. Four things are explicitly **not** decisions and may be amended in place by a patch bump plus a change-log row, following 029 §9's precedent: **statements of fact about the existing tree** (a `file:line` that turns out wrong is a defect in the description, not the decision); **the catalogue's membership**, which is *designed* to grow — adding an event name is additive under 042 §2.3 and is the rule working, while a rename or removal is not; **`job_max_attempts`, `job_backoff_base`, `job_backoff_ceiling` and `attempt_visibility` (§5.3)**, which are PROVISIONAL floors that close by measurement and may be **raised** freely; and **`outbox_attempt.detail`'s allowlisted keys**, which grow as codes are added and never as prose.
+
+**Ratification will not be evidence** (018 §2 A3). When this block is signed it will record that a design was argued and adopted. It will **not** make any claim in §2–§9 true of any running system: **nothing here is built, nothing is TESTED**, every invariant in §11 names a test file that does not exist, **one is ⛔ blocked** on `app_user` (034 §4.1's unwritten tenancy migration), two are **⚠ conditional** on an architecture gate that is not installed, two are **⚠ conditional** on a watcher that does not exist, and four are written to **fail on the current tree**. §1 stays REPRODUCED and everything else stays ASSERTED. **In particular, ratification will not close the orphaned-draft window §1 E4 establishes — it is live at `17b98ab`, the merged code names it and assigns it here, and it stays live until E02-D07 ships.**

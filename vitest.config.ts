@@ -16,7 +16,23 @@ export default defineConfig({
       // are pure decisions a unit test can reach. Leaving the directory outside
       // the include would have meant the one function whose POLARITY is the most
       // costly amendment in 043 contributed nothing to the floor.
-      include: ["src/services/**/*.ts", "src/providers/**/*.ts", "src/consumers/**/*.ts"],
+      //
+      // `src/catalog/**` joined with E04-D06, on the same test and for the same
+      // reason. It is the least glue-like directory in the tree: `certify()` is
+      // ~790 lines of refusals standing between a mistaken manifest and an
+      // IMMUTABLE `vertical_pack_version` row that every later definition and
+      // edition cites; `resolve()` is total over five outcomes and never throws;
+      // the mint reconciles two retry policies on one SQLSTATE; the projection
+      // rebuild decides what to do with a chain the write-time trigger says
+      // cannot exist. Those are decisions, not queries — the Postgres lane
+      // (`tests/integration/lcid-*.test.ts`, `catalog-edition-write.test.ts`)
+      // asserts what the DATABASE guarantees, and it cannot reach any of them.
+      include: [
+        "src/services/**/*.ts",
+        "src/providers/**/*.ts",
+        "src/consumers/**/*.ts",
+        "src/catalog/**/*.ts",
+      ],
       thresholds: {
         lines: 80,
       },

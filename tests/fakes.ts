@@ -1,6 +1,7 @@
 // Shared unit-test fakes. The pg.Pool seam is the only thing faked — the
 // function under test is always the real implementation.
 import type pg from "pg";
+import type { Queryable } from "../src/db.js";
 import type { DraftProductInput, ShopifyClient, ShopifyDraftResult } from "../src/services/shopify.js";
 
 export interface QueryCall {
@@ -159,4 +160,67 @@ export function fakeResponse(status: number, body: unknown): Response {
     status,
     json: async () => body,
   } as unknown as Response;
+}
+
+export interface FakeTx {
+  /** The same recorder, typed as the two seams `src/catalog/` takes. */
+  tx: pg.PoolClient;
+  db: Queryable;
+  /** Every statement, in order. */
+  calls: QueryCall[];
+  /** The statements whose text contains `fragment`, in order. */
+  matching(fragment: string): QueryCall[];
+  /** The single statement containing `fragment`; fails loudly on 0 or 2+. */
+  only(fragment: string): QueryCall;
+}
+
+/**
+ * A recording `pg.PoolClient` / `Queryable` that answers by statement text.
+ *
+ * ⚠ WHY THE CATALOG UNIT LANE FAKES THIS SEAM RATHER THAN USING POSTGRES.
+ * `src/catalog/` splits cleanly in two, and the split is the reason both lanes
+ * exist. The DATABASE's guarantees — the no-cycle trigger, the certification-class
+ * trigger, the append-only refusal, the index-only plan on the projection, the
+ * absence of a UNIQUE on `edition_signature` — are properties of Postgres and are
+ * asserted against Postgres in `tests/integration/lcid-*.test.ts`,
+ * `catalog-edition-write.test.ts` and `crosswalk-catalog-authority.test.ts`. What
+ * is left over is the MODULE's own decisions: which of `resolve`'s five outcomes
+ * a given read produces, that a split of one product is refused before any SQL is
+ * issued, that a certification carries `decided_by_role` and a proposal carries
+ * none, that a mint retries a payload collision on a savepoint and lets `40001`
+ * propagate, that a rebuild leaves an anomalous chain OUT of the projection. Each
+ * of those is a branch a database cannot be asked about, so a fake at this seam
+ * is not a weaker version of the integration test — it is the only lane that
+ * reaches them.
+ *
+ * The handler sees the real SQL, so a test asserts on the real statement and on
+ * the real parameter list; nothing about the query is invented by the fake.
+ */
+export function fakeTx(
+  handler: (text: string, values: unknown[] | undefined) => { rows: unknown[] } | undefined = () => undefined
+): FakeTx {
+  const calls: QueryCall[] = [];
+  const client = {
+    async query(text: string, values?: unknown[]) {
+      calls.push({ text, values });
+      return handler(text, values) ?? { rows: [] };
+    },
+    release() {},
+  };
+  const matching = (fragment: string) => calls.filter((c) => c.text.includes(fragment));
+  return {
+    tx: client as unknown as pg.PoolClient,
+    db: client as unknown as Queryable,
+    calls,
+    matching,
+    only(fragment: string) {
+      const hits = matching(fragment);
+      if (hits.length !== 1) {
+        throw new Error(
+          `expected exactly one statement containing ${JSON.stringify(fragment)}, saw ${hits.length}`
+        );
+      }
+      return hits[0]!;
+    },
+  };
 }

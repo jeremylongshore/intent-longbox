@@ -17,7 +17,7 @@ Compliance overlay: none
 <!-- DEFAULTS set by implement-tests 2026-09-01 — engineer review requested.
      coverage.line 80 is the handoff-specified floor; re-pin after any edit. -->
 
-coverage.line: 80 # scoped to src/services + src/providers (routes/db glue → L4 lane)
+coverage.line: 80 # scoped to src/services + src/providers + src/consumers + src/catalog (routes/db glue → L4 lane)
 flaky.tolerance: 0/3runs
 <!-- mutation testing not installed in v0 (no mutation.kill_rate threshold); revisit post-pilot -->
 
@@ -26,7 +26,7 @@ flaky.tolerance: 0/3runs
 L0: @intentsolutions/audit-harness@1.3.1 (devDep, hash manifest initialized)
 L1: husky@9 + lint-staged (pre-commit: conflict-marker refusal → lint-staged → typecheck → unit tests → escape-scan → verify; beads hooks chained). The conflict-marker step is the REPO'S OWN (`scripts/conflictMarkers.ts`, first lint-staged entry, refusing `<<<<<<< / ||||||| / ======= / >>>>>>>` at line start in staged .ts/.md/.sql/.json/.js) rather than a pattern added to the harness's escape-scan, because the harness's policy files are hash-pinned and this repository does not edit them. It exists because the class already escaped once: a three-way rebase left all four diff3 markers inside `000-docs/000-INDEX.md` and the commit was made — prettier reformats markdown without parsing it, eslint and tsc do not read `.md`, and no test asserted about a file nobody had changed. `tests/conflict-markers.test.ts` proves the refusal against a fixture and proves the near-misses (`=====`, `---`, `>>>`) are not flagged.
 L2: eslint@10 flat config (typescript-eslint) + prettier@3 (pnpm lint / pnpm format:check, CI-enforced)
-L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers + src/consumers (pnpm test:coverage, CI-enforced)
+L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers + src/consumers + src/catalog (pnpm test:coverage, CI-enforced)
 L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, role separation, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
 L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price (dual sources: stub PriceCharting + stub eBay, one snapshot per source) → draft → drafted, stub Shopify client
 L6-bdd: features/scan-session.feature (engineer-owned template; no runner wired yet)
@@ -137,12 +137,78 @@ the number anyone looks at.
 
 Measured after the change: **91.46% lines**, against the 80 floor.
 
-⚠ ONE STALE PHRASE IS DELIBERATELY NOT EDITED HERE. The policy line above still
-reads `coverage.line: 80 # scoped to src/services + src/providers`, and that
-comment is now one directory short. The value is the policy and it did not
-change; the scope phrase is a statement of fact that belongs to whoever owns the
-hash-pinned policy block, so it is flagged rather than quietly corrected by a
-build agent. Next `audit-tests` rebuild should pick it up.
+⚠ ONE STALE PHRASE WAS DELIBERATELY NOT EDITED HERE, AND E04-D06 HAS SINCE
+EDITED IT. The policy line then named two directories where four were floored.
+It was flagged rather than quietly corrected by a build agent, because the block
+is hash-pinned and engineer-owned; the correction was made by the next bead with
+a mandate to change that block — see the note below, which brings the phrase up
+to all four directories and re-pins the manifest.
+
+### The coverage include gained `src/catalog/**` (E04-D06, 2026-09-04)
+
+The floor is unchanged at 80 — again. What changed is the SCOPE, for the second
+time and on the same test the E02-D07 note applies: does the directory hold
+DECISIONS, or does it hold glue the Postgres lane already exercises?
+
+`src/catalog/` is the least glue-like directory in the tree.
+
+- `certify()` is ~790 lines of refusals (27 distinct finding codes) standing
+  between a mistaken pack manifest and an IMMUTABLE `vertical_pack_version` row
+  that every later `collectible_definition` and `edition` in that vertical cites.
+  There is no repair path for such a row — the append-only trigger refuses the
+  UPDATE — so certification is the only place those mistakes can be caught at all.
+- `resolve()` is TOTAL over five outcomes and never throws past its caller. A
+  sixth shape, or a throw on an anomalous chain, turns a catalog anomaly into a
+  500 on a pricing lookup.
+- `mint()` reconciles two retry policies on one INSERT: `23505` is absorbed on a
+  savepoint with a fresh payload, `40001`/`40P01` propagate to the caller's
+  `withTransaction`. Getting that backwards is silent in both directions.
+- `rebuildSurvivorProjection()` decides what to do with a merge chain the
+  write-time trigger says cannot exist, which is the only condition it was
+  written for.
+
+None of those is reachable from the integration lane, and that is the argument
+rather than a convenience. `tests/integration/lcid-lifecycle.test.ts`,
+`lcid-registry.test.ts`, `catalog-edition-write.test.ts` and
+`crosswalk-catalog-authority.test.ts` assert what the DATABASE guarantees — the
+triggers, the CHECKs, the index-only plan, the deliberately-absent UNIQUE. No
+trigger has an opinion about a READ, and a cycle cannot be inserted into a
+database whose no-cycle trigger is the thing under test, so the rebuild's own
+anomaly path can only be reached with the merge edges supplied directly.
+
+Seven unit files were added (`tests/catalog-{resolve,lifecycle,projection,mint,write,dedupe,manifest-registry}.test.ts`,
++88 cases) and they are asserted as CONTRACTS — which outcome, which refusal,
+which columns a statement carries, in what order — not as line-hitting. The pg
+seam is faked by `fakeTx` in `tests/fakes.ts`, which passes the module the REAL
+SQL and records the REAL parameter list, so nothing about a query is invented by
+the fake.
+
+Measured: `src/catalog` went **70.68% → 98.76% lines** (1085/1535 → 1516/1535).
+The whole floored set is **90.14% lines**, against the 80 floor. Nothing was
+excluded, no threshold moved, and no ignore pragma was added.
+
+⚠ TWO OBSERVATIONS RECORDED RATHER THAN FIXED, because a coverage bead does not
+edit shipped modules:
+
+1. `projection.ts`'s `if (survivor === loser) continue` guard is UNREACHABLE. A
+   self-pointing merge edge is a one-node cycle, so the bounded walk exhausts
+   `READ_CHAIN_BOUND` and reports the LCID as an ANOMALY before the guard is
+   consulted. The outcome where it matters is the same (no row written, no
+   survivor guessed), and `migrations/017`'s `lcid_merge_not_self` CHECK refuses
+   the edge at write time anyway. Asserted as it behaves; filed as **E04-D08**
+   (`longbox-e5b.4.20`).
+2. `manifestFor("toString")` returns `Object.prototype.toString` — a bare index
+   into an object literal, from a signature promising
+   `VerticalPackManifest | undefined`. The only caller,
+   `scripts/register-pack.ts`, passes its `=== undefined` guard and is then
+   stopped by `certify()`/`assertCertified()`, so the blast radius is a confusing
+   error message and not a bad row. The test says so, and says that fixing the
+   lookup with `Object.hasOwn` should delete the case — filed as **E04-D07**
+   (`longbox-e5b.4.19`).
+
+`.harness-hash` was re-pinned with `pnpm exec audit-harness init` AFTER this
+edit, per the L0 rule that the manifest follows a reviewed policy change and is
+never hand-edited.
 
 ### Running the integration lane locally with two database roles (E02-D06)
 

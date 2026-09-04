@@ -59,7 +59,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - name: Vitest with coverage (line 80 floor on src/services + src/providers)
+      - name: "Vitest with coverage (line 80 floor on src/services + src/providers + src/consumers + src/catalog)"
         run: pnpm test:coverage
 
   architecture:

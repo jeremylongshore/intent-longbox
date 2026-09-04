@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
@@ -27,11 +27,23 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     delete process.env.SHOPIFY_ADMIN_TOKEN;
     delete process.env.SHOPIFY_STORE_DOMAIN;
 
-    const url = await createFreshDb("longbox_smoke_test");
-    await runMigrations(url);
-    pool = new pg.Pool({ connectionString: url });
+    const migrateUrl = await createFreshDb("longbox_smoke_test");
+    await runMigrations(migrateUrl);
+    // E02-D06: the app runs on the LEAST-PRIVILEGED role, exactly as the server
+    // does, so this smoke pass is also the proof that the grant plan is
+    // sufficient — a route needing a privilege the plan does not give fails here
+    // rather than in production. Seeding stays on the owner connection because
+    // `pnpm register-shop` is an operator act on the owner role too.
+    const url = appUrl(migrateUrl);
+    const ownerPool = new pg.Pool({ connectionString: migrateUrl });
     // "Register shop": shop row + pricing policy (what pnpm register-shop seeds).
-    shopId = await seedShop(pool, { name: "Gotham City Limit", compPercent: 90, floorCents: 300 });
+    shopId = await seedShop(ownerPool, {
+      name: "Gotham City Limit",
+      compPercent: 90,
+      floorCents: 300,
+    });
+    await ownerPool.end();
+    pool = new pg.Pool({ connectionString: url });
 
     mkdirSync(UPLOADS_DIR, { recursive: true });
     app = await buildApp(pool, {

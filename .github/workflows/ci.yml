@@ -86,6 +86,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Provision the two database roles (E02-D06 role separation)
+        # A service container cannot mount /docker-entrypoint-initdb.d — the repo
+        # is not checked out when it starts — so the SAME file docker-compose.test.yml
+        # mounts is piped through psql here. Every statement in it is guarded, so
+        # running it against an already-initialised cluster is a no-op.
+        run: psql "$TEST_DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -f docker/postgres-init/00-roles.sql
+        env:
+          TEST_DATABASE_ADMIN_URL: postgres://longbox:longbox@localhost:54329/postgres
       - name: Integration lane (migrations, append-only triggers, scan-session flow, HTTP smoke)
         # CI=true makes probeDb() throw instead of skip when Postgres is unreachable,
         # so this job cannot go green with zero tests executed.

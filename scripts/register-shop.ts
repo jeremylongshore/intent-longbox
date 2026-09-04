@@ -9,6 +9,7 @@ import "dotenv/config";
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { DEFAULT_RETENTION } from "./retention-defaults.js";
+import { resolveMigrateUrl } from "./migrateUrl.js";
 
 const { values } = parseArgs({
   options: {
@@ -30,8 +31,11 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+  // Onboarding is an operator act, not an application request: it seeds config
+  // rows and (once E03-B04's RLS lands) writes rows no tenant context covers. It
+  // connects as the schema owner for the same reason `migrate.ts` does — see
+  // scripts/migrateUrl.ts (E02-D06).
+  const url = resolveMigrateUrl();
 
   const envSlug = slug.toUpperCase().replace(/-/g, "_");
   const refs = {

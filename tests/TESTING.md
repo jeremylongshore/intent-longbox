@@ -27,7 +27,7 @@ L0: @intentsolutions/audit-harness@1.3.1 (devDep, hash manifest initialized)
 L1: husky@9 + lint-staged (pre-commit: lint-staged → typecheck → unit tests → escape-scan → verify; beads hooks chained)
 L2: eslint@10 flat config (typescript-eslint) + prettier@3 (pnpm lint / pnpm format:check, CI-enforced)
 L3: vitest@3 + @vitest/coverage-v8, line-80 floor on src/services + src/providers (pnpm test:coverage, CI-enforced)
-L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
+L4-integration: docker-compose.test.yml (postgres:16) + vitest.integration.config.ts — migration runner, append-only triggers, role separation, scan-session event flow (pnpm test:integration; skips cleanly without a DB; CI runs a postgres service container)
 L6-smoke: fastify-inject HTTP smoke (tests/integration/smoke.http.test.ts): register shop → session → confirm → condition → price (dual sources: stub PriceCharting + stub eBay, one snapshot per source) → draft → drafted, stub Shopify client
 L6-bdd: features/scan-session.feature (engineer-owned template; no runner wired yet)
 CI harness gates: verify + escape-scan BLOCKING (`harness-verify` job, promoted 2026-09-02 PR #9); conform advisory (`harness-conform`, continue-on-error, per gate-promotion policy)
@@ -65,6 +65,42 @@ personas.under_threshold: 1 (owner 1/3 — draft review is Shopify-side; weekly 
 journeys.declared: 3
 journeys.fully_covered: 0
 journeys.partial: 3 (scanning 6/7, reviewing-drafts 2/3, correcting 3/4; only build-closable P0 is R19)
+
+## Operational notes (observational)
+
+### Running the integration lane locally with two database roles (E02-D06)
+
+The lane now needs the two roles the server and the migration runner use in
+production, because the properties it asserts are properties OF those roles: an
+app role that could disable a trigger would pass every append-only test and still
+leave locked decision 4 unenforced.
+
+```bash
+docker compose -f docker-compose.test.yml up -d   # provisions longbox_migrate + longbox_app
+pnpm test:integration
+docker compose -f docker-compose.test.yml down -v  # -v matters: roles are created on FIRST init only
+```
+
+`docker/postgres-init/00-roles.sql` creates both roles; the compose file mounts it
+into `/docker-entrypoint-initdb.d`, and CI pipes the same file through `psql`
+(a service container cannot mount it). **If the lane fails with `role
+"longbox_migrate" does not exist`, the volume predates this change — `down -v`
+and bring it back up.** The passwords in that file are throwaway values for a
+loopback-bound container and are not secrets; production roles come from the
+deploy contract with values in SOPS.
+
+Which role each suite uses, and why:
+
+| Connection              | Used by                                                       | Why                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| superuser (`ADMIN_URL`) | `createFreshDb`, the `session_replication_role` bypass probes | only a superuser can reach replica role now, so the ENABLE ALWAYS proof runs against the strongest attacker             |
+| `longbox_migrate`       | `runMigrations`, seeding, owner-side trigger assertions       | owns the schema; the trigger's own refusal is only observable here                                                      |
+| `longbox_app`           | `role-separation.test.ts`, the HTTP smoke pass                | the least-privileged connection the server actually uses — the smoke pass doubles as proof the grant plan is sufficient |
+
+Two properties `longbox_app` must hold in **every** environment, local and production, because the boot assertion enforces exactly these:
+
+- it must be **NOSUPERUSER** — a superuser can `SET session_replication_role` and bypass even an `ENABLE ALWAYS` trigger;
+- it must hold **no membership in `longbox_migrate` in any form — inheriting or not.** `GRANT longbox_migrate TO longbox_app WITH INHERIT FALSE` leaves the app able to `SET ROLE longbox_migrate` and then `DISABLE TRIGGER`; the check uses `pg_has_role(..., 'MEMBER')` rather than `'USAGE'` precisely so a non-inheriting grant cannot hide, and `role-separation.test.ts` reproduces that grant against a real cluster.
 
 ## Hash manifest
 

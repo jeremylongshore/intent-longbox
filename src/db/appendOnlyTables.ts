@@ -172,6 +172,24 @@ export interface AppendOnlyExemption {
    * be flipped deliberately when the table lands rather than quietly going stale.
    */
   readonly pending?: boolean;
+  /**
+   * What the application role may do with this table (E02-D06).
+   *
+   * `"full"` (the default) — the table is deliberately mutable BY THE APPLICATION,
+   * so the app role gets SELECT/INSERT/UPDATE/DELETE.
+   * `"none"` — exempt from the append-only trigger AND from the application
+   * entirely: the app never reads or writes it, so it gets no privilege at all.
+   *
+   * THE FIELD LIVES HERE RATHER THAN IN A THIRD LIST IN `appRoleGrants.ts`, and
+   * the invariant review asked for one or the other explicitly. One list wins for
+   * the same reason this file exists at all: a property spelled in two places is a
+   * property that can disagree with itself, and a reader asking "what is this
+   * table's status?" should not have to know that the answer is split across two
+   * modules. Exemption is already a row with a reason; the app's access to that
+   * table is one more column on the same row, and it stays visible next to the
+   * reason it was exempted.
+   */
+  readonly appGrant?: "full" | "none";
 }
 
 /**
@@ -233,7 +251,16 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
   {
     table: "schema_migrations",
     kind: "permanent",
-    reason: "The migration runner's own ledger; it is infrastructure, not domain data.",
+    appGrant: "none",
+    reason:
+      "The migration runner's own ledger; it is infrastructure, not domain data — and the " +
+      "application role gets NO privilege on it at all (E02-D06). The app never reads or writes " +
+      "it: the only reference to the name anywhere outside `scripts/migrate.ts` is this row. " +
+      "Granting it the uniform exempt-table DML would be actively unsafe, not merely generous: " +
+      "a DELETE on this ledger makes the next `pnpm migrate` re-apply `003`, whose trigger loop " +
+      "is DROP-then-CREATE, and `CREATE TRIGGER` always lands at the bypassable `tgenabled='O'` " +
+      "default — so a row deleted here silently downgrades the append-only guarantee that " +
+      "migration `006` exists to hold at 'A'.",
   },
 ];
 

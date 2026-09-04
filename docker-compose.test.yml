@@ -10,6 +10,11 @@ services:
       POSTGRES_USER: longbox
       POSTGRES_PASSWORD: longbox
       POSTGRES_DB: postgres
+    # Provisions longbox_migrate (owns the schema) and longbox_app (DML only) on
+    # first start, so the integration lane runs migrations as one role and the
+    # app tests as the other (E02-D06). The same file is applied in CI.
+    volumes:
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:54329:5432"
     healthcheck:

@@ -48,27 +48,82 @@ export async function probeDb(): Promise<boolean> {
   }
 }
 
-/** Drop-and-recreate a throwaway database; returns its connection URL. */
+/**
+ * The two non-admin roles the lane uses (E02-D06). Provisioned by
+ * `docker/postgres-init/00-roles.sql` — mounted by docker-compose.test.yml
+ * locally, piped through psql by CI. Passwords are throwaway, never secrets.
+ */
+export const MIGRATE_ROLE = process.env.TEST_MIGRATE_ROLE ?? "longbox_migrate";
+export const APP_ROLE = process.env.TEST_APP_ROLE ?? "longbox_app";
+
+/** Rewrite a connection URL to authenticate as `role` (password === role name). */
+function asRole(databaseUrl: string, role: string): string {
+  const url = new URL(databaseUrl);
+  url.username = role;
+  url.password = process.env[`TEST_${role.toUpperCase()}_PASSWORD`] ?? role;
+  return url.toString();
+}
+
+/**
+ * Drop-and-recreate a throwaway database; returns the MIGRATE-role URL.
+ *
+ * The database is owned by `longbox_migrate` so the migration runner has CREATE
+ * on its `public` schema (PG15+ grants CREATE there to the database owner only)
+ * and so the tables it creates are owned by the migrate role rather than by the
+ * cluster superuser. Existing suites keep using the returned URL for both
+ * migrations and their pool; the ones that need the least-privileged connection
+ * ask for it explicitly with `appUrl()`.
+ */
 export async function createFreshDb(name: string): Promise<string> {
   if (!/^[a-z0-9_]+$/.test(name)) throw new Error(`unsafe test database name: ${name}`);
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   await admin.connect();
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
-    await admin.query(`CREATE DATABASE ${name}`);
+    await admin.query(`CREATE DATABASE ${name} OWNER ${MIGRATE_ROLE}`);
   } finally {
     await admin.end();
   }
   const url = new URL(ADMIN_URL);
   url.pathname = `/${name}`;
+  return asRole(url.toString(), MIGRATE_ROLE);
+}
+
+/** The same database as `dbUrl`, connected as the least-privileged app role. */
+export function appUrl(dbUrl: string): string {
+  return asRole(dbUrl, APP_ROLE);
+}
+
+/**
+ * The same database as `dbUrl`, connected as the cluster SUPERUSER.
+ *
+ * Needed by exactly one class of test: the `session_replication_role='replica'`
+ * bypass probes. After E02-D06 neither the app role nor the migrate role can set
+ * that parameter — which is the control working — so a test that wants to prove
+ * `ENABLE ALWAYS` still refuses the UPDATE *in* replica role has to escalate to
+ * the one principal who can get there. That makes the assertion stronger than it
+ * was, not weaker: it is now proved against the strongest attacker in the
+ * cluster rather than against the role the server happens to use.
+ */
+export function superuserUrl(dbUrl: string): string {
+  const admin = new URL(ADMIN_URL);
+  const url = new URL(dbUrl);
+  url.username = admin.username;
+  url.password = admin.password;
   return url.toString();
 }
 
-/** Run the real migration runner (scripts/migrate.ts) against a database. */
+/**
+ * Run the real migration runner (scripts/migrate.ts) against a database.
+ *
+ * Passes the URL as MIGRATE_DATABASE_URL — the variable the runner now reads —
+ * and blanks DATABASE_URL so a stray value in the developer's shell cannot make
+ * this silently migrate the wrong database.
+ */
 export async function runMigrations(databaseUrl: string): Promise<string> {
   const { stdout } = await execFileAsync("pnpm", ["exec", "tsx", "scripts/migrate.ts"], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: databaseUrl },
+    env: { ...process.env, MIGRATE_DATABASE_URL: databaseUrl, DATABASE_URL: "" },
   });
   return stdout;
 }

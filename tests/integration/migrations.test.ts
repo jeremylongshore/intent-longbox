@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { createFreshDb, probeDb, runMigrations } from "./helpers.js";
+import { createFreshDb, probeDb, runMigrations, superuserUrl } from "./helpers.js";
 import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
 import {
   assertAppendOnlyTriggersOrThrow,
@@ -18,8 +18,11 @@ const silentLogger = { error: () => undefined, info: () => undefined };
 
 describe.skipIf(!dbUp)("migration runner", () => {
   let pool: pg.Pool | undefined;
+  /** E02-D06: only a superuser can reach `session_replication_role` — see the probe below. */
+  let superuserPool: pg.Pool | undefined;
 
   afterAll(async () => {
+    await superuserPool?.end();
     await pool?.end();
   });
 
@@ -31,6 +34,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(firstRun).toContain("migrations up to date");
 
     pool = new pg.Pool({ connectionString: url });
+    superuserPool = new pg.Pool({ connectionString: superuserUrl(url) });
     const applied = await pool.query(`SELECT filename FROM schema_migrations ORDER BY filename`);
     expect(applied.rows.map((r: { filename: string }) => r.filename)).toEqual([
       "001_init.sql",
@@ -180,8 +184,12 @@ describe.skipIf(!dbUp)("migration runner", () => {
   // session_replication_role happened to be inert.
   describe("session_replication_role='replica' bypasses an 'O' trigger and not an 'A' one", () => {
     it("succeeds on a scratch table whose identical trigger is left at the 'O' default", async () => {
-      expect(pool).toBeDefined();
-      const client = await pool!.connect();
+      // E02-D06: `SET session_replication_role` is now denied to the migrate role
+      // (it is not a superuser), so this probe — whose whole purpose is to reach
+      // replica role and show what happens there — runs as the superuser. The
+      // denial to the ordinary roles is asserted in role-separation.test.ts.
+      expect(superuserPool).toBeDefined();
+      const client = await superuserPool!.connect();
       try {
         // The probe's trigger is named `_guard`, NOT `_append_only`, deliberately: the
         // detector and the gate-test scan by that name pattern, so a probe matching it

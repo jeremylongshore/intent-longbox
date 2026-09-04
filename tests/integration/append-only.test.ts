@@ -5,13 +5,14 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { createScanSession } from "../../src/services/scanSession.js";
-import { createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { createFreshDb, probeDb, runMigrations, seedShop, superuserUrl } from "./helpers.js";
 import { APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
 
 const dbUp = await probeDb();
 
 describe.skipIf(!dbUp)("append-only triggers", () => {
   let pool: pg.Pool;
+  let superuserPool: pg.Pool;
   let shopId: string;
   let sessionId: string;
 
@@ -19,11 +20,13 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     const url = await createFreshDb("longbox_append_only_e02d05");
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
+    superuserPool = new pg.Pool({ connectionString: superuserUrl(url) });
     shopId = await seedShop(pool);
     sessionId = (await createScanSession(pool, shopId, "tester")).id;
   });
 
   afterAll(async () => {
+    await superuserPool?.end();
     await pool?.end();
   });
 
@@ -192,7 +195,13 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
   for (const table of eventTables) {
     it(`refuses UPDATE and DELETE on ${table} even in session_replication_role='replica'`, async () => {
       const id = await insertRow(table);
-      const client = await pool.connect();
+      // E02-D06: the pool above now connects as the MIGRATE role, which is not a
+      // superuser and therefore gets `permission denied to set parameter` here —
+      // that refusal is itself asserted in role-separation.test.ts. To keep
+      // proving the ENABLE ALWAYS property rather than silently proving the
+      // permission check twice, this probe escalates to the superuser, the only
+      // principal in the cluster who can reach replica role at all.
+      const client = await superuserPool.connect();
       try {
         await client.query(`SET session_replication_role = 'replica'`);
         await expect(client.query(`UPDATE ${table} SET id = id WHERE id = $1`, [id])).rejects.toThrow(

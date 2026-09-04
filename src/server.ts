@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { getPool } from "./db.js";
 import { buildApp } from "./app.js";
 import { assertAppendOnlyTriggersOrThrow, scheduleAppendOnlyCheck } from "./services/appendOnlyDetector.js";
+import { assertRoleSeparationOrThrow } from "./services/roleSeparation.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -13,6 +14,13 @@ async function main(): Promise<void> {
   // locked decision 4 is not enforced in the database, this process must not accept
   // writes it cannot promise are immutable. Then re-check every five minutes, which
   // is the only instrument that catches a trigger disabled after boot.
+  // Role separation FIRST (E02-D06, 041 §9.2 item 2). It is the stronger of the
+  // two controls and it is the reason the trigger check below can be trusted: a
+  // connection that could turn the triggers off would pass the trigger check at
+  // boot and still be able to fail it a second later. Ordered first so the error
+  // a misconfigured deployment sees names the actual defect — the wrong role in
+  // DATABASE_URL — rather than a downstream symptom.
+  await assertRoleSeparationOrThrow(db);
   await assertAppendOnlyTriggersOrThrow(db);
   const app = await buildApp(db, config);
   scheduleAppendOnlyCheck(db, app.log);

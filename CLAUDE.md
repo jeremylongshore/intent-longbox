@@ -54,8 +54,13 @@ Phase 2 core is in. Node 22 + pnpm, TypeScript strict ESM, Fastify + pg + Zod.
 
 ```bash
 pnpm install
-pnpm migrate            # applies migrations/*.sql (needs DATABASE_URL)
-pnpm register-shop --name "Gotham City Limit" --slug gotham   # one-command shop onboarding
+# TWO roles, two URLs (E02-D06): MIGRATE_DATABASE_URL owns the schema and runs
+# migrations; DATABASE_URL is the app role, which owns nothing and therefore
+# cannot disable an append-only trigger. The server refuses to boot on a
+# connection whose role owns any append-only table or is a superuser.
+pnpm migrate            # applies migrations/*.sql, then re-applies the app-role grants (MIGRATE_DATABASE_URL)
+pnpm grant-app-role     # re-apply those grants alone (idempotent, corrective)
+pnpm register-shop --name "Gotham City Limit" --slug gotham   # one-command shop onboarding (also MIGRATE_DATABASE_URL — it seeds config rows as the schema owner)
 pnpm dev                # tsx watch src/server.ts
 pnpm typecheck          # tsc --noEmit over src/scripts/tests (tsconfig.check.json)
 pnpm build              # tsc → dist/

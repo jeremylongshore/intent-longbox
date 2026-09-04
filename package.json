@@ -22,6 +22,7 @@
     "test:integration": "INTEGRATION=1 vitest run -c vitest.integration.config.ts",
     "prepare": "husky",
     "migrate": "tsx scripts/migrate.ts",
+    "grant-app-role": "tsx scripts/grant-app-role.ts",
     "register-shop": "tsx scripts/register-shop.ts"
   },
   "lint-staged": {

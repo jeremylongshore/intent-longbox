@@ -18,6 +18,7 @@ import {
 } from "../services/scanSession.js";
 import { runIdentify } from "../services/identify.js";
 import { GRADE_LABELS, validGradeRange } from "../services/condition.js";
+import { decideOutcome, topCandidateOf } from "../services/confirmationOutcome.js";
 import { resolveVisionProvider, resolveShopToken, resolveEbayCredentials } from "../providers/registry.js";
 import {
   createPriceChartingProvider,
@@ -205,10 +206,55 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       })
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: body.error.flatten() });
+
+    // outcome (019 §3.0, T3, T20): did the operator accept the identity that was
+    // already there, or change it? Computed here because this is the only place
+    // the baseline and the pick are both in hand, and written on the INSERT
+    // because the row is immutable afterwards — an outcome not recorded now can
+    // never be recovered (030 A1: no append-only row is backfilled).
+    //
+    // Two baselines, prior confirmation first (see decideOutcome): T20 measures
+    // owner edits to the identity the owner INHERITED, so an owner_review that
+    // agrees with an employee's correction is 'confirm' even though it disagrees
+    // with the model, and one that reverts to the model's top candidate is
+    // 'correct' even though it agrees with it.
+    const priorConfirmation = await db.query(
+      `SELECT confirmed_issue FROM human_confirmation
+       WHERE scan_session_id = $1 AND shop_id = $2
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [session.id, session.shop_id]
+    );
+    // `method <> 'barcode'` is load-bearing: identify.ts inserts the barcode set
+    // BEFORE the vision call and returns early when that call fails, so on a
+    // failed identify the barcode parse is the latest set. A BarcodeParse carries
+    // no title or issue at top level, so without this filter every non-one_tap
+    // confirmation on such a session would score 'correct' — an identification
+    // failure would be logged as an operator correction and inflate T3.
+    const latestSet = await db.query(
+      `SELECT candidates FROM candidate_set
+       WHERE scan_session_id = $1 AND shop_id = $2 AND method <> 'barcode'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [session.id, session.shop_id]
+    );
+    const outcome = decideOutcome({
+      source: body.data.source,
+      confirmed: body.data.issue,
+      topProposal: topCandidateOf((latestSet.rows[0] as { candidates: unknown } | undefined)?.candidates),
+      priorConfirmation: (priorConfirmation.rows[0] as { confirmed_issue: unknown } | undefined)
+        ?.confirmed_issue,
+    });
+
     const res = await db.query(
-      `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, confirmed_by)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`,
-      [session.id, session.shop_id, JSON.stringify(body.data.issue), body.data.source, body.data.confirmed_by]
+      `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, outcome)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at, outcome`,
+      [
+        session.id,
+        session.shop_id,
+        JSON.stringify(body.data.issue),
+        body.data.source,
+        body.data.confirmed_by,
+        outcome,
+      ]
     );
     await setSessionStatus(db, session.shop_id, session.id, "confirmed");
     return reply.code(201).send({ confirmation: res.rows[0] });

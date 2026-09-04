@@ -27,6 +27,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "001_init.sql",
       "002_ebay_credential_kind.sql",
       "003_reserve_principle_slots.sql",
+      "004_human_confirmation_outcome.sql",
     ]);
 
     const tables = await pool.query(
@@ -62,8 +63,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  001_init.sql");
     expect(secondRun).toContain("skip  002_ebay_credential_kind.sql");
     expect(secondRun).toContain("skip  003_reserve_principle_slots.sql");
+    expect(secondRun).toContain("skip  004_human_confirmation_outcome.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(3);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(4);
   });
 
   // 003 is written to survive a hand re-run (IF NOT EXISTS / DROP-then-ADD),

@@ -23,7 +23,13 @@ import {
 import { DRAFT_REQUESTED } from "../events/catalogue.js";
 import { enqueue } from "../services/outbox.js";
 import { runIdentify } from "../services/identify.js";
-import { GRADE_LABELS, validGradeRange } from "../services/condition.js";
+import {
+  GRADE_LABELS,
+  insertConditionAssessment,
+  readCurrentConditionAssessment,
+  validGradeRange,
+} from "../services/condition.js";
+import { supersede } from "../services/supersession.js";
 import { decideOutcome, topCandidateOf } from "../services/confirmationOutcome.js";
 import { resolveVisionProvider, resolveShopToken, resolveEbayCredentials } from "../providers/registry.js";
 import {
@@ -263,10 +269,6 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
       async (tx) => {
         const locked = await lockScanSession(tx, session.shop_id, session.id);
         if (!locked) return undefined;
-        // 041 §5.3: the per-session commit counter, assigned under the anchor lock
-        // taken one line above and at no additional cost. It is COMMIT order, never
-        // act order — see `assignSessionSeq`.
-        const sessionSeq = await assignSessionSeq(tx, session.shop_id, session.id);
 
         // outcome (019 §3.0, T3, T20): did the operator accept the identity that
         // was already there, or change it? Computed here because this is the only
@@ -287,17 +289,55 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
           priorConfirmation: baseline.priorConfirmation,
         });
 
-        const row = await insertHumanConfirmation(tx, {
-          sessionId: session.id,
-          shopId: session.shop_id,
-          confirmedIssue: body.data.issue,
-          source: body.data.source,
-          confirmedBy: body.data.confirmed_by,
-          outcome,
-          sessionSeq,
-        });
+        // A confirmation that follows another one is a CORRECTION, and 041 §3.1
+        // says a correction "names its predecessor through `supersedes_id`". The
+        // owner_review path (037 §4.4, 040 A9) and a second employee confirmation
+        // are the same shape, so the branch is on whether a current row exists,
+        // not on `source`: an owner who reviews a session nobody confirmed is
+        // making the first record, and a second employee tap on a session the
+        // owner already corrected is still a correction.
+        //
+        // Until this bead nothing wrote `supersedes_id` at all (041 §1 E5/E22):
+        // a second confirmation was appended beside the first, both rows were
+        // unsuperseded, and `human_confirmation_current` picked between them by
+        // `id DESC` — a coin flip over which answer was current.
+        const row = baseline.priorConfirmationId
+          ? await supersede(tx, {
+              shopId: session.shop_id,
+              sessionId: session.id,
+              priorId: baseline.priorConfirmationId,
+              row: {
+                table: "human_confirmation",
+                values: {
+                  confirmedIssue: body.data.issue,
+                  source: body.data.source,
+                  confirmedBy: body.data.confirmed_by,
+                  outcome,
+                },
+              },
+            })
+          : await insertHumanConfirmation(tx, {
+              sessionId: session.id,
+              shopId: session.shop_id,
+              confirmedIssue: body.data.issue,
+              source: body.data.source,
+              confirmedBy: body.data.confirmed_by,
+              outcome,
+              // 041 §5.3: the per-session commit counter, assigned under the
+              // anchor lock taken above and at no additional cost. It is COMMIT
+              // order, never act order — see `assignSessionSeq`. On the
+              // superseding branch `supersede()` assigns it instead, because a
+              // counter handed to the single writer from outside would be a
+              // second place the assignment could be got wrong.
+              sessionSeq: await assignSessionSeq(tx, session.shop_id, session.id),
+            });
         await setSessionStatus(tx, session.shop_id, session.id, "confirmed");
-        return row;
+        // The response shape is stated here rather than passed through from the
+        // row, because the two branches RETURN different column sets (a superseded
+        // row carries `session_seq`, a first append carries `outcome`) and the wire
+        // contract must not depend on which branch ran. `outcome` is the value that
+        // was just written, one line above.
+        return { id: row.id, created_at: row.created_at, outcome };
       },
       { label: "confirm" }
     );
@@ -322,19 +362,60 @@ export function registerScanSessionRoutes(app: FastifyInstance, db: pg.Pool, con
     if (!validGradeRange(body.data.grade_range_low, body.data.grade_range_high)) {
       return reply.code(400).send({ error: "grade_range_low must not exceed grade_range_high" });
     }
-    const res = await db.query(
-      `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at`,
-      [
-        session.id,
-        session.shop_id,
-        body.data.grade_range_low,
-        body.data.grade_range_high,
-        body.data.defects,
-        body.data.notes ?? null,
-      ]
+    // 041 §4.4 order 4, brought forward by E02-D09 because the supersession
+    // writer needs it: `supersede()` reads the predecessor, assigns `session_seq`
+    // and inserts the successor, and all three are atomic only under the anchor
+    // lock inside one transaction (041 §3.3, §5.3). Wrapping this handler is
+    // therefore not scope creep — it is the precondition for 037 §4.4's
+    // correction path existing at all. `POST …/price`, the other half of order 4,
+    // is deliberately still unwrapped: its provider fan-out writes one row per
+    // source and has no supersession caller, so it stays E02-B08's.
+    //
+    // The INSERT itself is gone from this file (029 §5 move 2): the condition
+    // module owns `condition_assessment`, and the route now validates and calls
+    // one function.
+    const assessment = await withTransaction(
+      db,
+      async (tx) => {
+        const locked = await lockScanSession(tx, session.shop_id, session.id);
+        if (!locked) return undefined;
+
+        // A second assessment on a session is a CORRECTION, not a second opinion
+        // (037 §4.4: the owner's review replaces the employee's call). Before this
+        // bead both rows sat unsuperseded and `condition_assessment_current` chose
+        // between them by `id DESC` — so an owner's correction had a coin flip's
+        // chance of composing the listing (041 I8, the same defect one table over).
+        const prior = await readCurrentConditionAssessment(tx, session.shop_id, session.id);
+        if (prior) {
+          return supersede(tx, {
+            shopId: session.shop_id,
+            sessionId: session.id,
+            priorId: prior.id,
+            row: {
+              table: "condition_assessment",
+              values: {
+                gradeRangeLow: body.data.grade_range_low,
+                gradeRangeHigh: body.data.grade_range_high,
+                defects: body.data.defects,
+                notes: body.data.notes ?? null,
+              },
+            },
+          });
+        }
+        return insertConditionAssessment(tx, {
+          sessionId: session.id,
+          shopId: session.shop_id,
+          gradeRangeLow: body.data.grade_range_low,
+          gradeRangeHigh: body.data.grade_range_high,
+          defects: body.data.defects,
+          notes: body.data.notes ?? null,
+          sessionSeq: await assignSessionSeq(tx, session.shop_id, session.id),
+        });
+      },
+      { label: "condition" }
     );
-    return reply.code(201).send({ assessment: res.rows[0] });
+    if (!assessment) return reply.code(404).send({ error: "scan session not found" });
+    return reply.code(201).send({ assessment: { id: assessment.id, created_at: assessment.created_at } });
   });
 
   app.post(`${base}/:id/price`, async (req, reply) => {

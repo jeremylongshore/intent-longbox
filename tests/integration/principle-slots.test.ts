@@ -93,8 +93,13 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
     );
     const firstId = (first.rows[0] as { id: string }).id;
     const second = await pool.query(
-      `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high, supersedes_id)
-       VALUES ($1,$2,'FN','VF',$3) RETURNING id`,
+      // `session_seq` is set because `migrations/013` refuses a superseding row
+      // without one (041 §3.3's single writer, stated in the database).
+      `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high,
+                                         supersedes_id, session_seq)
+       VALUES ($1,$2,'FN','VF',$3,
+               (SELECT coalesce(max(session_seq), 0) + 1 FROM condition_assessment WHERE scan_session_id = $1))
+       RETURNING id`,
       [session, shopId, firstId]
     );
     const secondId = (second.rows[0] as { id: string }).id;
@@ -126,14 +131,16 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
     );
     const firstId = (first.rows[0] as { id: string }).id;
     await pool.query(
-      `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents, supersedes_id)
-       VALUES ($1,$2,'q',200,$3)`,
+      `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents, supersedes_id, session_seq)
+       VALUES ($1,$2,'q',200,$3,
+               (SELECT coalesce(max(session_seq), 0) + 1 FROM pricing_snapshot WHERE scan_session_id = $1))`,
       [session, shopId, firstId]
     );
     await expect(
       pool.query(
-        `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents, supersedes_id)
-         VALUES ($1,$2,'q',300,$3)`,
+        `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents, supersedes_id, session_seq)
+         VALUES ($1,$2,'q',300,$3,
+                 (SELECT coalesce(max(session_seq), 0) + 1 FROM pricing_snapshot WHERE scan_session_id = $1))`,
         [session, shopId, firstId]
       )
     ).rejects.toThrow(/pricing_snapshot_supersedes_once_idx/);
@@ -150,8 +157,10 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
     const session = (await createScanSession(pool, shopId, "tester")).id;
     const insert = async (source: string, supersedes: string | null): Promise<string> => {
       const r = await pool.query(
-        `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, supersedes_id)
-         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, supersedes_id, session_seq)
+         VALUES ($1,$2,$3,$4,$5,
+                 (SELECT coalesce(max(session_seq), 0) + 1 FROM human_confirmation WHERE scan_session_id = $1))
+         RETURNING id`,
         [session, shopId, JSON.stringify({ pick: source }), source, supersedes]
       );
       return (r.rows[0] as { id: string }).id;

@@ -162,24 +162,28 @@ export interface RouteDbRow {
 export const ROUTE_DB_ROWS: readonly RouteDbRow[] = [
   {
     path: "src/routes/scanSessions.ts",
-    dbQuery: 4,
-    insertInto: 1,
+    dbQuery: 3,
+    insertInto: 0,
     providerImports: 1,
     pgImports: 1,
     kind: "defect",
     closingBead:
-      "E02-D08 `longbox-e5b.2.18` (029 §5 move 6) and E02-D09 `longbox-e5b.2.19` (move 2's draft INSERT)",
+      "E02-D08 `longbox-e5b.2.18` (029 §5 move 6 — the three remaining reads). E02-D09 " +
+      "`longbox-e5b.2.19` closed move 2's half: `insertInto` reached 0.",
     reason:
       "V1 and the `db.query` calls 029 §5 move 8 note N2 names. THE CLOSING BEADS ARE E02-D08 AND " +
       "E02-D09, NOT E02-B07/E02-B08: those two are CLOSED decision beads (they produced 041 and 042); a " +
       "closed bead cannot close a defect row, and naming one would make this row unclosable by construction. " +
-      "The gate audit of this bead caught that, and 015 carries the two new rows.  The counts are 4 and 1, not the " +
-      "six and three N2 recorded at `fb3f706`, because E02-D04 has since moved the confirmation " +
-      "and draft INSERTs into `scanSession.ts` behind the request transaction — the inventory " +
-      "is measured, not quoted. What remains: the two `shop` SELECTs (`:65`, `:73`), the shop " +
-      "list (`:128`), the `shop_pricing_policy` SELECT, and the `condition_assessment` INSERT. " +
-      "Move 2 relocates that INSERT into the condition module; move 6 removes the SELECTs and " +
-      "puts the provider registry behind workflow's public API.",
+      "The gate audit of this bead caught that, and 015 carries the two new rows.  The counts are 3 and 0, not the " +
+      "six and three N2 recorded at `fb3f706`: E02-D04 moved the confirmation and draft INSERTs into " +
+      "`scanSession.ts` behind the request transaction, and E02-D09 moved the last one — the " +
+      "`condition_assessment` INSERT — into the condition module that owns the table (029 §5 move 2), " +
+      "wrapping `POST …/condition` in the request transaction on the way, because 041 §3.3's " +
+      "supersession writer needs the anchor lock. **`insertInto` is now 0 and stays 0**; the row " +
+      "survives for the three `db.query` reads that remain — `requireShop`'s `shop` SELECT (one " +
+      "call site, two callers), `latestPolicy`'s `shop_pricing_policy` SELECT, and the shop list " +
+      "at `/api/shops`. Move 6 removes those and puts the provider registry behind workflow's " +
+      "public API, which is E02-D08's.",
   },
 ];
 
@@ -373,6 +377,80 @@ export function checkScanSessionStatusWriters(files: readonly SourceFile[]): Fin
   return findings;
 }
 
+// ---------------------------------------------------------------------------
+// Rule 6 — 041 §3.3: `supersedes_id` has exactly one writer.
+// ---------------------------------------------------------------------------
+
+/**
+ * The one module allowed to name `supersedes_id` in an INSERT (041 §3.3: "One
+ * helper writes `supersedes_id`, for every table, and no route or service writes
+ * it directly").
+ *
+ * Same shape as rule 3 and for a stronger reason. `cost_log`'s second writer is a
+ * second definition of what a call costs; a second `supersedes_id` writer is a
+ * second definition of what a CORRECTION is — and 041 §3.3's three properties
+ * (the refusal translated into a product answer, the outcome baseline being the
+ * superseded row, one idempotent path) are properties of a single writer, not of
+ * the column. None of them survives a second one, and none of them is visible in
+ * the import graph, which is why this is a text rule.
+ */
+export const SUPERSEDES_WRITER = "src/services/supersession.ts";
+
+/**
+ * `supersedes_id` named within an INSERT's column list.
+ *
+ * Deliberately NOT a bare `/supersedes_id/`: the column is discussed in comments
+ * across `src/` and in this file, and a rule that fires on prose teaches authors
+ * to stop writing prose. The window is the INSERT statement, which is the only
+ * place naming the column is a WRITE.
+ *
+ * TWO WIDENINGS, both from the invariant review of this rule's first version, and
+ * both closing a way a real writer could slip past a rule that LOOKED strict:
+ *   - **The window is 1200 characters, not 400.** A column list broken over several
+ *     lines with a comment between them — the house style everywhere in this repo —
+ *     easily exceeds 400, and `supersedes_id` conventionally sits LAST. A writer
+ *     that documented itself would have been invisible to a 400-character window,
+ *     which is the worst possible failure mode: the rule stays green and the
+ *     property stops holding.
+ *   - **The table name may be quoted.** `INSERT INTO "human_confirmation"` is the
+ *     same write, and `\w+` alone does not match it.
+ * The cost of both is a wider net over comments that happen to follow an INSERT,
+ * and the negative fixtures below pin that the rule still does not fire on prose.
+ */
+const SUPERSEDES_INSERT = /INSERT\s+INTO\s+"?\w+"?[\s\S]{0,1200}?supersedes_id/gi;
+
+/**
+ * Every file under `src/` that writes `supersedes_id`, sorted.
+ *
+ * Exported so the gate-test can assert the REAL tree against it without restating
+ * the pattern beside it — a second copy of a regex is a second rule that drifts,
+ * which is the same defect `src/db/appendOnlyTables.ts` exists to prevent for the
+ * trigger set.
+ */
+export function findSupersedesWriters(files: readonly SourceFile[]): string[] {
+  return files
+    .filter((f) => f.path.startsWith("src/") && (f.text.match(SUPERSEDES_INSERT) ?? []).length > 0)
+    .map((f) => f.path)
+    .sort();
+}
+
+export function checkSupersedesWriters(files: readonly SourceFile[]): Finding[] {
+  const writers = findSupersedesWriters(files);
+
+  if (writers.length === 1 && writers[0] === SUPERSEDES_WRITER) return [];
+  return [
+    {
+      rule: "supersedes-id-has-one-writer",
+      message:
+        `supersedes_id is written from [${writers.join(", ") || "nothing"}]; the only writer may be ` +
+        `${SUPERSEDES_WRITER} (041 §3.3). A correction is not an INSERT with an extra column: it is ` +
+        `a read of the predecessor, a scope check, a \`session_seq\` assignment under the anchor ` +
+        `lock and an insert, in that order, with one place that turns a refusal into an answer a ` +
+        `person can act on (022 P6). A second writer is a second, unreviewed definition of all four.`,
+    },
+  ];
+}
+
 /**
  * Every `.ts` file under `dir`, repo-relative with forward slashes.
  *
@@ -405,5 +483,6 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkCostLogWriters(files),
     ...checkLockOrder(files),
     ...checkScanSessionStatusWriters(files),
+    ...checkSupersedesWriters(files),
   ];
 }

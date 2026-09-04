@@ -51,11 +51,22 @@ describe.skipIf(!dbUp)("the observation envelope and supersession integrity", ()
     await pool?.end();
   });
 
-  /** Insert a confirmation, optionally superseding another. Returns its id. */
+  /**
+   * Insert a confirmation, optionally superseding another. Returns its id.
+   *
+   * `session_seq` is assigned by the subquery rather than left NULL because
+   * `migrations/013` clause 2 REFUSES a superseding row that carries no counter —
+   * the database half of 041 §3.3's single writer, which assigns one under the
+   * anchor lock before it inserts. The subquery is the same `max + 1` the helper
+   * computes, and it is safe here for the same reason it is safe there: one
+   * statement, no concurrent writer in this suite.
+   */
   async function confirm(shop: string, session: string, supersedes?: string, id?: string): Promise<string> {
     const res = await pool.query(
-      `INSERT INTO human_confirmation (id, scan_session_id, shop_id, confirmed_issue, source, confirmed_by, supersedes_id)
-       VALUES (coalesce($1, gen_random_uuid()), $2, $3, '{"t":"x"}'::jsonb, 'one_tap', 'op', $4)
+      `INSERT INTO human_confirmation (id, scan_session_id, shop_id, confirmed_issue, source, confirmed_by,
+                                       supersedes_id, session_seq)
+       VALUES (coalesce($1, gen_random_uuid()), $2, $3, '{"t":"x"}'::jsonb, 'one_tap', 'op', $4,
+               (SELECT coalesce(max(session_seq), 0) + 1 FROM human_confirmation WHERE scan_session_id = $2))
        RETURNING id`,
       [id ?? null, session, shop, supersedes ?? null]
     );
@@ -173,8 +184,9 @@ describe.skipIf(!dbUp)("the observation envelope and supersession integrity", ()
       const condId = (cond.rows[0] as { id: string }).id;
       await expect(
         pool.query(
-          `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, supersedes_id)
-           VALUES ($1,$2,'FN','VF',ARRAY[]::text[],$3)`,
+          `INSERT INTO condition_assessment (scan_session_id, shop_id, grade_range_low, grade_range_high,
+                                             defects, supersedes_id, session_seq)
+           VALUES ($1,$2,'FN','VF',ARRAY[]::text[],$3,1)`,
           [sessionB, shopB, condId]
         )
       ).rejects.toThrow(/condition_assessment_supersedes_same_scope/);
@@ -186,8 +198,9 @@ describe.skipIf(!dbUp)("the observation envelope and supersession integrity", ()
       );
       await expect(
         pool.query(
-          `INSERT INTO pricing_snapshot (scan_session_id, shop_id, source, query, suggested_cents, supersedes_id)
-           VALUES ($1,$2,'ebay','x',200,$3)`,
+          `INSERT INTO pricing_snapshot (scan_session_id, shop_id, source, query, suggested_cents,
+                                         supersedes_id, session_seq)
+           VALUES ($1,$2,'ebay','x',200,$3,1)`,
           [sessionB, shopB, (price.rows[0] as { id: string }).id]
         )
       ).rejects.toThrow(/pricing_snapshot_supersedes_same_scope/);
@@ -292,7 +305,17 @@ describe.skipIf(!dbUp)("the observation envelope and supersession integrity", ()
     });
 
     it("stays NULLABLE, because a legacy row is never backfilled (041 §5.3's stated limit)", async () => {
-      const id = await confirm(shopA, sessionA2);
+      // Written raw rather than through `confirm()`, which now assigns a counter:
+      // the claim here is about the COLUMN, and a row that supersedes nothing may
+      // still be written without one. (`migrations/013` clause 2 requires the
+      // counter only on a SUPERSEDING row — that is the single-writer rule, not a
+      // NOT NULL constraint by another name.)
+      const res = await pool.query(
+        `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, confirmed_by)
+         VALUES ($1,$2,'{"t":"x"}'::jsonb,'one_tap','op') RETURNING id`,
+        [sessionA2, shopA]
+      );
+      const id = (res.rows[0] as { id: string }).id;
       const row = await pool.query(`SELECT session_seq FROM human_confirmation WHERE id = $1`, [id]);
       expect(row.rows[0]).toEqual({ session_seq: null });
     });

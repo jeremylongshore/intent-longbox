@@ -21,6 +21,9 @@ import {
   checkRouteDbAccess,
   checkScanSessionStatusWriters,
   checkSelectStar,
+  checkSupersedesWriters,
+  findSupersedesWriters,
+  SUPERSEDES_WRITER,
   COST_LOG_WRITER,
   ROUTE_DB_ROWS,
   SELECT_STAR_ROWS,
@@ -114,12 +117,20 @@ describe("the non-graph rules, against the real tree", () => {
     expect(files.map((f) => f.path)).toContain("src/routes/scanSessions.ts");
   });
 
-  it("finds no violation of any of the five rules", () => {
+  it("finds no violation of any of the six rules", () => {
     expect(checkSelectStar(files)).toEqual([]);
     expect(checkRouteDbAccess(files)).toEqual([]);
     expect(checkCostLogWriters(files)).toEqual([]);
     expect(checkLockOrder(files)).toEqual([]);
     expect(checkScanSessionStatusWriters(files)).toEqual([]);
+    expect(checkSupersedesWriters(files)).toEqual([]);
+  });
+
+  // 041 §3.3, the rule E02-D09 added: the single writer is a property of the tree,
+  // not of a comment. Asserted against the REAL tree, so a route or service that
+  // starts writing the column fails here rather than in a review.
+  it("041 §3.3: supersession.ts is the only file that writes supersedes_id", () => {
+    expect(findSupersedesWriters(files)).toEqual([SUPERSEDES_WRITER]);
   });
 
   // 044 §6's THIRD defect row — the `scanSessions.ts` exemptions inside
@@ -228,6 +239,59 @@ describe("the non-graph rules, against fixtures that violate them", () => {
 
   it("029 §2.8: cost_log with NO writer is also a violation — the rule is an equality", () => {
     expect(checkCostLogWriters([{ path: "src/services/costLog.ts", text: "nothing" }])).toHaveLength(1);
+  });
+
+  it("041 §3.3: a second writer of supersedes_id is a violation", () => {
+    const findings = checkSupersedesWriters([
+      { path: SUPERSEDES_WRITER, text: "INSERT INTO human_confirmation (a, supersedes_id)" },
+      { path: "src/routes/scanSessions.ts", text: "INSERT INTO condition_assessment (a, supersedes_id)" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/routes/scanSessions.ts");
+  });
+
+  // The equality bites in both directions, exactly like cost_log's: if the helper
+  // ever stops writing the column, the rule has stopped describing anything.
+  it("041 §3.3: supersedes_id with NO writer is also a violation", () => {
+    expect(checkSupersedesWriters([{ path: SUPERSEDES_WRITER, text: "nothing" }])).toHaveLength(1);
+  });
+
+  // The 1200-character window, from the invariant review: a real writer breaks its
+  // column list over several lines with comments between them, and `supersedes_id`
+  // conventionally comes LAST. At 400 characters such a writer was invisible — the
+  // rule green, the property gone.
+  it("041 §3.3: sees a writer whose column list runs past 400 characters", () => {
+    const padded =
+      "INSERT INTO condition_assessment\n" +
+      "  -- the condition module owns this table (029 §2.10)\n".repeat(12) +
+      "  (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq, supersedes_id)";
+    expect(padded.length).toBeGreaterThan(400);
+    const findings = checkSupersedesWriters([
+      { path: SUPERSEDES_WRITER, text: "INSERT INTO human_confirmation (a, supersedes_id)" },
+      { path: "src/services/condition.ts", text: padded },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/condition.ts");
+  });
+
+  it("041 §3.3: a quoted table name is the same write", () => {
+    const findings = checkSupersedesWriters([
+      { path: SUPERSEDES_WRITER, text: "INSERT INTO human_confirmation (a, supersedes_id)" },
+      { path: "src/services/other.ts", text: 'INSERT INTO "pricing_snapshot" (a, supersedes_id)' },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/other.ts");
+  });
+
+  // And it does NOT fire on prose. Every service and record here discusses
+  // `supersedes_id`; a rule that counted mentions would make the column unmentionable.
+  it("041 §3.3: naming the column in a comment is not writing it", () => {
+    expect(
+      checkSupersedesWriters([
+        { path: SUPERSEDES_WRITER, text: "INSERT INTO human_confirmation (a, supersedes_id)" },
+        { path: "src/services/condition.ts", text: "// a correction goes through the supersedes_id writer" },
+      ])
+    ).toEqual([]);
   });
 
   it("040 §8.2 step 1: a new `UPDATE scan_session` writer is a violation", () => {

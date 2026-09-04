@@ -61,6 +61,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "010_scan_session_transition.sql",
       "011_outbox.sql",
       "012_cost_log_outbox_id.sql",
+      "013_supersession_forward_ordering.sql",
     ]);
 
     const tables = await pool.query(
@@ -114,8 +115,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  010_scan_session_transition.sql");
     expect(secondRun).toContain("skip  011_outbox.sql");
     expect(secondRun).toContain("skip  012_cost_log_outbox_id.sql");
+    expect(secondRun).toContain("skip  013_supersession_forward_ordering.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(12);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(13);
 
     // E02-B10: the ledger records a checksum for every file it applied, and a
     // second run skips WITHOUT adopting anything — an adoption on a database this
@@ -134,10 +136,19 @@ describe.skipIf(!dbUp)("migration runner", () => {
   // the two a red build rather than a silent hole, in BOTH directions.
   it("gives session_seq to exactly the declared session-scoped tables, and to nothing else", async () => {
     expect(pool).toBeDefined();
+    // BASE TABLEs only. `migrations/013` re-created the three `_current` views on
+    // 041 §5's canonical order, which refreshed their frozen column lists — so the
+    // views now expose `session_seq` too, as a projection of the table's column
+    // rather than as a column of their own. Including them here would make the
+    // declared list a list of relations rather than of tables, which is not what
+    // 041 §5.3 or `SESSION_SEQ_TABLE_NAMES` mean.
     const res = await pool!.query(
-      `SELECT table_name FROM information_schema.columns
-        WHERE table_schema = 'public' AND column_name = 'session_seq'
-        ORDER BY table_name`
+      `SELECT c.table_name FROM information_schema.columns c
+         JOIN information_schema.tables t
+           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = 'public' AND c.column_name = 'session_seq'
+          AND t.table_type = 'BASE TABLE'
+        ORDER BY c.table_name`
     );
     const live = (res.rows as Array<{ table_name: string }>).map((r) => r.table_name);
     expect(live).toEqual([...SESSION_SEQ_TABLE_NAMES].sort());

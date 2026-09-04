@@ -171,11 +171,23 @@ export async function readConfirmationBaseline(
   tx: Tx,
   shopId: string,
   sessionId: string
-): Promise<{ priorConfirmation: unknown; topProposalSource: unknown }> {
+): Promise<{
+  priorConfirmationId: string | undefined;
+  priorConfirmation: unknown;
+  topProposalSource: unknown;
+}> {
+  // 041 §3.4: "every read that drives a decision goes through `_current`". This
+  // one drives two — the outcome baseline, and WHICH row a correction supersedes
+  // — and 041 §3.3 point 2 rules that when a write supersedes, "the outcome
+  // baseline IS the superseded row". Reading the raw table by insertion order
+  // (what this did until E02-D09) makes those two rows the same only by
+  // coincidence: after one correction the newest inserted row and the current row
+  // are different rows, and the outcome would be scored against a record the
+  // operator was never shown. `id` comes back too, because the caller needs the
+  // predecessor's identity and re-reading for it would be a second snapshot.
   const prior = await tx.query(
-    `SELECT confirmed_issue FROM human_confirmation
-     WHERE scan_session_id = $1 AND shop_id = $2
-     ORDER BY created_at DESC, id DESC LIMIT 1`,
+    `SELECT id, confirmed_issue FROM human_confirmation_current
+     WHERE scan_session_id = $1 AND shop_id = $2`,
     [sessionId, shopId]
   );
   // `method <> 'barcode'` is load-bearing: identify.ts inserts the barcode set
@@ -190,8 +202,10 @@ export async function readConfirmationBaseline(
      ORDER BY created_at DESC, id DESC LIMIT 1`,
     [sessionId, shopId]
   );
+  const priorRow = prior.rows[0] as { id: string; confirmed_issue: unknown } | undefined;
   return {
-    priorConfirmation: (prior.rows[0] as { confirmed_issue: unknown } | undefined)?.confirmed_issue,
+    priorConfirmationId: priorRow?.id,
+    priorConfirmation: priorRow?.confirmed_issue,
     topProposalSource: (latestSet.rows[0] as { candidates: unknown } | undefined)?.candidates,
   };
 }

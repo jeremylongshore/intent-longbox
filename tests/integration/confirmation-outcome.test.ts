@@ -122,8 +122,10 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
     );
     // A correction supersedes rather than edits (022 P2) — and the view follows.
     await pool.query(
-      `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, outcome, supersedes_id)
-       VALUES ($1,$2,$3,'manual_search','correct',$4)`,
+      `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source, outcome,
+                                       supersedes_id, session_seq)
+       VALUES ($1,$2,$3,'manual_search','correct',$4,
+               (SELECT coalesce(max(session_seq), 0) + 1 FROM human_confirmation WHERE scan_session_id = $1))`,
       [
         sessionId,
         shopId,

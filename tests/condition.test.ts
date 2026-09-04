@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { Tx } from "../src/db.js";
 import {
   DEFECT_OPTIONS,
   GRADE_LABELS,
   gradeIndex,
   gradeRangeLabel,
+  insertConditionAssessment,
+  readCurrentConditionAssessment,
   validGradeRange,
 } from "../src/services/condition.js";
 
@@ -41,5 +44,62 @@ describe("defect vocabulary", () => {
     expect(DEFECT_OPTIONS).toContain("spine_ticks");
     expect(DEFECT_OPTIONS).toContain("water_damage");
     expect(new Set(DEFECT_OPTIONS).size).toBe(DEFECT_OPTIONS.length);
+  });
+});
+
+// The condition module's two persistence halves (E02-D09; 029 §5 move 2 moved the
+// INSERT out of the route). The statements are asserted rather than the database:
+// what the route can get wrong is WHICH relation it reads and whether it names its
+// columns, and both are visible in the text. The behaviour against a real cluster
+// is `tests/integration/supersession-forward-ordering.test.ts`.
+describe("the condition module's reads and writes", () => {
+  function fakeTx(rows: unknown[] = []): {
+    tx: Tx;
+    calls: Array<{ text: string; values: unknown[] | undefined }>;
+  } {
+    const calls: Array<{ text: string; values: unknown[] | undefined }> = [];
+    const tx = {
+      async query(text: string, values?: unknown[]) {
+        calls.push({ text, values });
+        return { rows };
+      },
+    };
+    return { tx: tx as unknown as Tx, calls };
+  }
+
+  // 041 §3.4: "every read that drives a decision goes through `_current`". This
+  // read decides whether the incoming call is a correction, so reading the raw
+  // table would pick a superseded row as the predecessor.
+  it("reads the CURRENT assessment from the view, scoped by shop (T24)", async () => {
+    const { tx, calls } = fakeTx([{ id: "a1" }]);
+    const row = await readCurrentConditionAssessment(tx, "shop-1", "session-1");
+    expect(row).toEqual({ id: "a1" });
+    expect(calls[0]!.text).toContain("FROM condition_assessment_current");
+    expect(calls[0]!.text).not.toMatch(/FROM condition_assessment\s/);
+    expect(calls[0]!.text).toContain("shop_id = $2");
+    expect(calls[0]!.values).toEqual(["session-1", "shop-1"]);
+  });
+
+  it("returns undefined when the session has no assessment yet", async () => {
+    const { tx } = fakeTx([]);
+    await expect(readCurrentConditionAssessment(tx, "shop-1", "session-1")).resolves.toBeUndefined();
+  });
+
+  // The first append carries no `supersedes_id`, and cannot: a correction is the
+  // single writer's (041 §3.3), which `pnpm arch` rule 6 asserts.
+  it("appends a first assessment with its session_seq and no supersedes_id", async () => {
+    const { tx, calls } = fakeTx([{ id: "a1", created_at: "t", session_seq: "1" }]);
+    await insertConditionAssessment(tx, {
+      sessionId: "session-1",
+      shopId: "shop-1",
+      gradeRangeLow: "VG",
+      gradeRangeHigh: "FN",
+      defects: ["spine_ticks"],
+      notes: null,
+      sessionSeq: 1,
+    });
+    expect(calls[0]!.text).toContain("INSERT INTO condition_assessment");
+    expect(calls[0]!.text).not.toContain("supersedes_id");
+    expect(calls[0]!.values).toEqual(["session-1", "shop-1", "VG", "FN", ["spine_ticks"], null, 1]);
   });
 });

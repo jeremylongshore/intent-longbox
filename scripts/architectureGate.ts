@@ -12,7 +12,7 @@ const files = collectSources(join(REPO_ROOT, "src"));
 const findings = runArchitectureRules(files);
 
 if (findings.length === 0) {
-  console.log(`architecture gate: ok (${files.length} files, 5 rules)`);
+  console.log(`architecture gate: ok (${files.length} files, 6 rules)`);
   process.exit(0);
 }
 console.error(`architecture gate: ${findings.length} violation(s)\n`);

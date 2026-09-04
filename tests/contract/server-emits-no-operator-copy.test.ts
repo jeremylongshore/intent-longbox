@@ -125,6 +125,26 @@ describe("every message the server can emit (021 B19, 022 P6, 022 P8, 019 §2)",
     }
   });
 
+  // -------------------------------------------------------------------------
+  // E03-B05 (050 §9 I8, first half): NO WIRE SURFACE DECLARES A CREDENTIAL OR A
+  // SPEND FACT.
+  //
+  // The `MESSAGES` half is here because a message is the one string a client
+  // could render by accident; the DTO/parameter half is in
+  // `tests/contract/route-table-scoping.test.ts`, over the GENERATED OpenAPI
+  // document. Both are needed: a message could name a `key_ref` without any
+  // schema declaring one, and a schema could declare `spend_owner` without any
+  // message mentioning it.
+  // -------------------------------------------------------------------------
+  it("I8: no message names a credential, a key_ref, a version or a spend owner", () => {
+    for (const [code, message] of messages) {
+      expect(message, code).not.toMatch(/key_ref|LONGBOX_[A-Z0-9]|spend_owner|credential_version/i);
+      // "credential" as a WORD is permitted — an operator may need to be told a
+      // credential is misconfigured — but never with a name, a value or an owner
+      // attached, which is what the patterns above forbid.
+    }
+  });
+
   it("keeps registry copy pointers as POINTERS, never as the copy itself", () => {
     for (const code of ERROR_CODE_NAMES) {
       const row = ERROR_CODES[code].copyRow;

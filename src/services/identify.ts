@@ -70,6 +70,17 @@ export interface IdentifyArgs {
   uploadsDir: string;
   /** decoded barcode digits from the client, when the scanner read one */
   barcodeDigits?: string;
+  /**
+   * The credential VERSION that pays for this call, or null when Longbox's own
+   * account does (E03-B05, 050 §6).
+   *
+   * It rides on the args rather than being re-derived inside `recordIdentify`
+   * because the resolution has already happened — `resolveVisionProvider`
+   * returned it beside the provider — and re-deriving it here would be a SECOND
+   * answer to "who paid", computed after the call, from a database that may have
+   * changed. One resolution, one attribution.
+   */
+  credentialVersionId?: string | null;
 }
 
 /** Everything decided before anything is written. No INSERT reaches this half. */
@@ -203,6 +214,7 @@ export async function recordIdentify(
     model: args.provider.model,
     tokensIn: plan.vision.tokensIn,
     tokensOut: plan.vision.tokensOut,
+    credentialVersionId: args.credentialVersionId ?? null,
   });
 
   // `RETURNING id` — 042 §6.3. One clause, and without it 040 A1's causal

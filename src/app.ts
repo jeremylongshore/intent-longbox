@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type pg from "pg";
-import type { AppConfig } from "./config.js";
+import { spendCeilings, type AppConfig } from "./config.js";
 import { LongboxError } from "./contracts/v1/errors.js";
 import { API_PREFIX, TENANT_PREFIX } from "./contracts/v1/schemas.js";
 import { DEPRECATION_HEADERS } from "./contracts/v1/routes.js";
@@ -50,7 +50,17 @@ export async function buildApp(
     },
   });
 
-  const deps: ApiDeps = { pool: db, config, limiter: opts.limiter ?? new ShopRateLimiter() };
+  // The metered ceilings come from the CONFIG, which has already refused an
+  // unusable pair at boot (`assertSpendCeilingsOrThrow`, 050 §2 Q4(c)) — so a
+  // limiter built here can never carry a number the config layer would reject.
+  const ceilings = spendCeilings(config);
+  const deps: ApiDeps = {
+    pool: db,
+    config,
+    limiter:
+      opts.limiter ??
+      new ShopRateLimiter({ meteredPerDay: ceilings.shop, serviceAccountPerDay: ceilings.longbox }),
+  };
 
   app.decorate("registeredRoutes", [] as RegisteredRoute[]);
   app.addHook("onRoute", (route) => {

@@ -48,7 +48,12 @@ import {
 } from "../contracts/v1/schemas.js";
 import type { z } from "zod";
 import { DRAFT_REQUESTED } from "../events/catalogue.js";
-import { resolveEbayCredentials, resolveShopToken, resolveVisionProvider } from "../providers/registry.js";
+import {
+  resolveEbayCredentials,
+  resolveShopToken,
+  resolveVisionProvider,
+  spendOwnerFor,
+} from "../providers/registry.js";
 import type { VisionProvider } from "../providers/types.js";
 import { createImageSanitizer, MediaRejected, quotaBreach, type MediaVerdict } from "./media.js";
 import { enqueue } from "./outbox.js";
@@ -512,12 +517,22 @@ export async function identify(
   // The budget is taken BEFORE the provider is resolved, deliberately: a shop
   // that has spent its budget needs no credential, and resolving one first would
   // answer 503 to a call that was never going to reach a provider.
-  const budget = deps.limiter.takeMetered(ctx.shopId);
+  //
+  // THE CEILING IS PER OWNER (050 §2 Q4(c)), so the owner has to be known here —
+  // and `spendOwnerFor` is a PREDICATE that never refuses, which is why it is a
+  // separate function from `resolveVisionProvider`. Asking the resolver instead
+  // would make a shop with a broken credential AND a spent budget answer 503
+  // where 050 §2 Q4(d) requires the manual path.
+  const owner = await spendOwnerFor(deps.pool, ctx.shopId);
+  const budget = deps.limiter.takeMetered(ctx.shopId, owner);
 
   let provider = MANUAL_PATH_PROVIDER;
+  let credentialVersionId: string | null = null;
   if (budget.allowed) {
     try {
-      provider = await resolveVisionProvider(deps.pool, ctx.shopId);
+      const resolved = await resolveVisionProvider(deps.pool, ctx.shopId);
+      provider = resolved.provider;
+      credentialVersionId = resolved.credentialVersionId;
     } catch {
       // The adapter's exception message STOPS being the body (042 E10): a
       // provider library's throw is not a sentence a caller may branch on, and
@@ -532,6 +547,8 @@ export async function identify(
     provider,
     bands: deps.config.bands,
     uploadsDir: deps.config.uploadsDir,
+    // Carried from the resolution, never re-derived after the call (050 §6.2).
+    credentialVersionId,
     ...(body.barcode_digits !== undefined ? { barcodeDigits: body.barcode_digits } : {}),
   };
 

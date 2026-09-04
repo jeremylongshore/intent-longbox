@@ -33,13 +33,31 @@ export async function appendCostLog(
      * this table). The seam exists for E10-B04's staged media upload.
      */
     outboxId?: string | null;
+    /**
+     * The credential VERSION that paid, or null/absent when Longbox's own
+     * account did — the global environment or the gateway override.
+     *
+     * ⚠ IT IS A REFERENCE, AND THE OWNER IS DERIVED FROM IT (050 §6.2). There is
+     * deliberately NO `spendOwner` parameter: a caller that can pass an owner in
+     * is a caller that can attribute a Longbox call to a shop, and 019 T13a
+     * (cost per verified draft) and T15 (the variable-cost line) are both
+     * measured from this table. `resolveVisionProvider` returns this id beside
+     * the provider precisely so the attribution follows the resolution rather
+     * than a caller's belief about it.
+     *
+     * 041 §8.4's move, applied here: **the log holds references, not values.**
+     * There is no `key_ref` on this row and there is certainly no key.
+     */
+    credentialVersionId?: string | null;
   }
 ): Promise<number> {
   const usd = estimateUsd(args.model, args.tokensIn, args.tokensOut);
+  const credentialVersionId = args.credentialVersionId ?? null;
   await db.query(
     `INSERT INTO cost_log
-       (shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd, outbox_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       (shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd, outbox_id,
+        credential_version_id, spend_owner)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       args.shopId,
       args.scanSessionId ?? null,
@@ -49,7 +67,27 @@ export async function appendCostLog(
       args.tokensOut,
       usd,
       args.outboxId ?? null,
+      credentialVersionId,
+      deriveSpendOwner(credentialVersionId),
     ]
   );
   return usd;
+}
+
+/**
+ * **Who paid, derived and never declared** (050 §2 Q4(a), §6.2).
+ *
+ * Two values and no third. `shop` when a live per-shop credential version
+ * resolved the call; `longbox` when the global environment or the gateway
+ * override did. There is no `unknown`, because a call whose owner cannot be
+ * determined is a call that should not have been made — and there is nothing to
+ * be unsure about here: either a version id came back from the resolver or one
+ * did not.
+ *
+ * Exported so the rule is testable on its own and so `pnpm arch`'s single-writer
+ * check (029 §2.8 / §5 move 7 (V5)) keeps guarding the one INSERT above rather
+ * than a rule spread across callers.
+ */
+export function deriveSpendOwner(credentialVersionId: string | null): "shop" | "longbox" {
+  return credentialVersionId === null ? "longbox" : "shop";
 }

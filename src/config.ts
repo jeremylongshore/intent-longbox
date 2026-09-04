@@ -3,6 +3,10 @@
 import "dotenv/config";
 import { requirePinPepper } from "./services/auth/secrets.js";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./services/media.js";
+import {
+  PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET,
+  PROVISIONAL_SHOP_METERED_BUDGET,
+} from "./services/rateLimit.js";
 
 export interface BandThresholds {
   high: number;
@@ -43,6 +47,23 @@ export interface AppConfig {
    * rather than open.
    */
   publicOrigins: readonly string[];
+  /**
+   * The two per-owner metered ceilings (E03-B05, 050 §2 Q4(c), §6.4).
+   *
+   * OPTIONAL in the type and always set by `loadConfig`, on
+   * `AppConfig.media`'s reasoning: a test that builds a config literal gets the
+   * PROVISIONAL defaults rather than an `undefined` that would read as "no
+   * limit". The default is the safe value, so an omission tightens.
+   */
+  spendCeilings?: SpendCeilings;
+}
+
+/** Paid identify calls per shop per day, by whose money pays (050 §6.4). */
+export interface SpendCeilings {
+  /** `shop`-owned spend: the shop's own credential. PROVISIONAL 500. */
+  shop: number;
+  /** `longbox`-owned spend: the service account. PROVISIONAL 150. */
+  longbox: number;
 }
 
 /** The env var naming the deployment's public origin(s), comma-separated. */
@@ -112,6 +133,73 @@ export function assertMediaPolicyOrThrow(policy: MediaPolicy): MediaPolicy {
   return policy;
 }
 
+// ---------------------------------------------------------------------------
+// The two per-owner spend ceilings, checked at boot (E03-B05, 050 §2 Q4(c))
+// ---------------------------------------------------------------------------
+
+/** The env vars that set each ceiling. Named per owner, never one shared number. */
+export const SPEND_CEILING_ENV = {
+  shop: "LONGBOX_METERED_BUDGET_SHOP",
+  longbox: "LONGBOX_METERED_BUDGET_SERVICE_ACCOUNT",
+} as const;
+
+/** Thrown at boot when a spend ceiling is set past the point where it protects. */
+export class SpendCeilingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpendCeilingError";
+  }
+}
+
+/**
+ * How far above the PROVISIONAL default a ceiling may be raised.
+ *
+ * The same shape and the same argument as `MEDIA_CEILING_HEADROOM`: **the check
+ * REFUSES; it does not clamp**, because a silent clamp leaves an operator
+ * believing a ceiling they set is the one in force. Four is not a measurement —
+ * it is the point past which "circuit breaker" stops describing the number.
+ * Lowering is always allowed and always safe: it fails toward the manual path,
+ * which is a route an operator already has (050 §2 Q4(d)).
+ */
+export const SPEND_CEILING_HEADROOM = 4;
+
+/**
+ * Refuse an unusable pair of ceilings at boot, on `assertMediaPolicyOrThrow`'s
+ * pattern and for its reason: a check that only bites in production is a check
+ * no developer ever sees fail.
+ *
+ * ⚠ ZERO IS LEGAL HERE AND IS NOT LEGAL FOR A MEDIA CEILING, and the difference
+ * is which way each fails. A media ceiling of zero would refuse every upload —
+ * it breaks the pilot. A metered budget of zero puts every identify call on the
+ * MANUAL PATH, which is a supported route the low band already uses (042 §8.3,
+ * 050 §2 Q4(d)), so it is a legitimate operator act: "this deployment spends no
+ * model money today". `ShopRateLimiter.take` already refuses a limit below 1
+ * including the first call of a window, so a zeroed budget really is zero rather
+ * than one-per-window.
+ */
+export function assertSpendCeilingsOrThrow(ceilings: SpendCeilings, defaults: SpendCeilings): SpendCeilings {
+  for (const owner of ["shop", "longbox"] as const) {
+    const value = ceilings[owner];
+    const ceiling = defaults[owner] * SPEND_CEILING_HEADROOM;
+    if (!Number.isInteger(value) || value < 0) {
+      throw new SpendCeilingError(
+        `${SPEND_CEILING_ENV[owner]} must be a non-negative whole number of calls (got ${value}). ` +
+          `Zero is legal and means every identify call takes the manual path.`
+      );
+    }
+    if (value > ceiling) {
+      throw new SpendCeilingError(
+        `${SPEND_CEILING_ENV[owner]} is ${value}, which is more than ${SPEND_CEILING_HEADROOM}x the ` +
+          `PROVISIONAL default (${defaults[owner]}). These are circuit-breaker floors, not capacity ` +
+          `settings: a value this far above the default disables the control rather than tuning it. ` +
+          `Lower it, or change the default in src/services/rateLimit.ts with the derivation written ` +
+          `down and a 000-docs/006 row.`
+      );
+    }
+  }
+  return ceilings;
+}
+
 export function loadConfig(): AppConfig {
   return {
     port: num("PORT", 3000),
@@ -135,7 +223,25 @@ export function loadConfig(): AppConfig {
     // sees fail.
     pinPepper: requirePinPepper(),
     publicOrigins: publicOrigins(),
+    spendCeilings: assertSpendCeilingsOrThrow(
+      {
+        shop: num(SPEND_CEILING_ENV.shop, PROVISIONAL_SHOP_METERED_BUDGET),
+        longbox: num(SPEND_CEILING_ENV.longbox, PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET),
+      },
+      DEFAULT_SPEND_CEILINGS
+    ),
   };
+}
+
+/** The PROVISIONAL pair, as one object the checker and the limiter both read. */
+export const DEFAULT_SPEND_CEILINGS: SpendCeilings = {
+  shop: PROVISIONAL_SHOP_METERED_BUDGET,
+  longbox: PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET,
+};
+
+/** The ceilings in force for a deployment: the configured pair, or the safe default. */
+export function spendCeilings(config: Pick<AppConfig, "spendCeilings">): SpendCeilings {
+  return config.spendCeilings ?? DEFAULT_SPEND_CEILINGS;
 }
 
 // ---------------------------------------------------------------------------

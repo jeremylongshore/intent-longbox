@@ -34,9 +34,11 @@ import {
   isRegisteredProviderUrl,
   keyRefNamespace,
   legalKeyRefs,
+  reportCredentialRefusal,
   resolveKeyRef,
   setCredentialRefusalSink,
   type CredentialRefusalEvent,
+  type KeyRefRefusal,
 } from "../../src/providers/credentialPolicy.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -238,6 +240,44 @@ describe("resolveKeyRef refuses before it reads the environment (the control, 04
     ]);
     expect(JSON.stringify(seen)).not.toContain("sk-the-estate-key");
   });
+
+  // -------------------------------------------------------------------------
+  // E03-B05 (050 §9 I11): the refusal event covers EVERY refusal reason,
+  // including the new `retired` one.
+  // -------------------------------------------------------------------------
+  it("I11: the `retired` reason emits the SAME event shape, with a name and no value", () => {
+    // `retired` is decided from two TABLES rather than from a name, so it cannot
+    // be produced inside `resolveKeyRef` — but it must be the same event, or an
+    // operator watching `credential.key_ref_refused` sees every refusal kind
+    // except the one a rotation produces.
+    vi.stubEnv("LONGBOX_GOTHAM_ANTHROPIC_KEY", "test-planted-canary-key");
+    reportCredentialRefusal("retired", "gotham", "LONGBOX_GOTHAM_ANTHROPIC_KEY");
+    expect(seen).toEqual([
+      {
+        event: "credential.key_ref_refused",
+        reason: "retired",
+        shop_slug: "gotham",
+        key_ref: "LONGBOX_GOTHAM_ANTHROPIC_KEY",
+        expected_prefix: "LONGBOX_GOTHAM_",
+      },
+    ]);
+    // The variable IS set, and the event still carries only its name.
+    expect(JSON.stringify(seen)).not.toContain("test-planted-canary-key");
+  });
+
+  it("I11: every refusal reason produces an event, and the set is closed", () => {
+    // The both-directions half. A reason added without a sink emission would be
+    // a refusal an operator never hears about; a reason emitted without being in
+    // the type would not compile.
+    const reasons: KeyRefRefusal[] = ["malformed", "out_of_namespace", "retired"];
+    for (const reason of reasons) reportCredentialRefusal(reason, "gotham", "LONGBOX_GOTHAM_ANTHROPIC_KEY");
+    expect(seen.map((e) => e.reason)).toEqual(reasons);
+    for (const event of seen) {
+      expect(Object.keys(event).sort()).toEqual(
+        ["event", "expected_prefix", "key_ref", "reason", "shop_slug"].sort()
+      );
+    }
+  });
 });
 
 describe("base_url is refused unless it is a registered provider host (046 §5 A15)", () => {
@@ -332,6 +372,62 @@ describe("the database rule and the application rule are ONE rule", () => {
     expect(migration).not.toMatch(/\bDROP\s+TABLE\b/i);
     expect(migration).not.toMatch(/\bDROP\s+COLUMN\b/i);
     expect(migration).not.toMatch(/ALTER\s+COLUMN[\s\S]{0,40}\bTYPE\b/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-B05: the VERSION table restates the same rule, so make it the same rule.
+  // -------------------------------------------------------------------------
+  const version021 = readFileSync(
+    path.join(repoRoot, "migrations", "021_shop_credential_version.sql"),
+    "utf8"
+  );
+
+  it("migration 021 carries the SAME key_ref pattern, character for character", () => {
+    // A CHECK cannot be shared between two tables, so the expression is written
+    // twice — which is exactly the condition under which two copies drift. The
+    // assertion is what keeps `shop_credential_version` from accepting a name
+    // `shop_credentials` refuses, which would be the sibling-slug defect
+    // re-entering through the table that replaced it.
+    expect(version021).toContain(KEY_REF_PATTERN.source);
+  });
+
+  it("migration 021 stores a NAME and never a value (locked decision 2)", () => {
+    // The negative that matters most in this whole bead. A column of any of
+    // these shapes on a credential table is a raw key in the database.
+    //
+    // COMMENTS ARE STRIPPED FIRST, and for the reason the neighbouring scanners
+    // give: the header explains WHY the encrypted column was rejected and names
+    // the shapes it rejected. A scanner that fired on that would teach the next
+    // author to stop writing the explanation down.
+    const code = version021
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    for (const forbidden of [/\bsecret\s+text/i, /\bciphertext\b/i, /\benvelope_key/i, /\bkey_value\b/i]) {
+      expect(code).not.toMatch(forbidden);
+    }
+  });
+
+  it("migrations 021–023 are expand-only and declare no contract step", () => {
+    for (const name of [
+      "021_shop_credential_version.sql",
+      "022_shop_credential_retirement.sql",
+      "023_cost_log_spend_owner.sql",
+    ]) {
+      const sql = readFileSync(path.join(repoRoot, "migrations", name), "utf8");
+      const code = sql
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("--"))
+        .join("\n");
+      expect(code, name).not.toMatch(/\bDROP\s+TABLE\b/i);
+      expect(code, name).not.toMatch(/\bDROP\s+COLUMN\b/i);
+      expect(code, name).not.toMatch(/ALTER\s+COLUMN[\s\S]{0,40}\bTYPE\b/i);
+      // 044 §2: `SET NOT NULL` is a CONTRACTING shape. `023` needs the NOT NULL
+      // property and gets it from a `NOT VALID` CHECK instead, which enforces on
+      // every INSERT while leaving rows that predate attribution alone.
+      expect(code, name).not.toMatch(/SET\s+NOT\s+NULL/i);
+      expect(sql, name).not.toMatch(/^--\s*contract:/im);
+    }
   });
 });
 

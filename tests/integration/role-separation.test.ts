@@ -145,8 +145,11 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
 
   it("INSERT is allowed on an append-only table; UPDATE and DELETE never reach the trigger", async () => {
     const inserted = await appPool.query(
-      `INSERT INTO cost_log (shop_id, provider, model, tokens_in, tokens_out, estimated_usd)
-       VALUES ($1, 'anthropic', 'claude-sonnet-5', 1, 1, 0) RETURNING id`,
+      // `spend_owner` is NOT NULL for every row written after `023` (E03-B05,
+      // 050 §6.1) — enforced by a `NOT VALID` CHECK, which still binds every
+      // INSERT, so a fixture names an owner like any other writer.
+      `INSERT INTO cost_log (shop_id, provider, model, tokens_in, tokens_out, estimated_usd, spend_owner)
+       VALUES ($1, 'anthropic', 'claude-sonnet-5', 1, 1, 0, 'longbox') RETURNING id`,
       [shopId]
     );
     const id = (inserted.rows[0] as { id: string }).id;

@@ -8,6 +8,9 @@
 // 042 §3.4's allowlist with a kind, a reason and (for a defect) a closing bead.
 //
 // It needs no database: `buildApp` registers its routes before it touches one.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { buildApp } from "../../src/app.js";
@@ -22,6 +25,7 @@ import { TENANT_PREFIX } from "../../src/contracts/v1/schemas.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const UPLOADS_DIR = "tests/.tmp-routewalk-uploads";
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** A pool that is never queried: registration reaches no statement. */
 const inertPool = new pg.Pool({ connectionString: "postgres://unused:unused@127.0.0.1:1/none" });
@@ -179,6 +183,66 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
         "/api/v1/operators",
       ].sort()
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-B05 (050 §9 I8, second half): NO WIRE SURFACE DECLARES A CREDENTIAL OR A
+  // SPEND FACT — and no route accepts an OPERATOR IDENTIFIER as a filter, a sort
+  // or a grouping parameter on one.
+  //
+  // Asserted over the GENERATED document rather than over the Zod modules, on
+  // 042 §2.5's reasoning: `contracts/openapi.v1.json` is what a client compiles
+  // against, and a field that reaches it has reached the wire whatever the
+  // source module intended. The document is emitted from the contract, and a
+  // separate contract test already fails when the committed file and the
+  // emitter disagree — so scanning the committed bytes is scanning the truth.
+  //
+  // **Why the negative is worth a test at all.** 019 T35 is NON-WAIVABLE and
+  // 022 P3 forbids the SURFACE rather than the signal: `cost_log` gains a
+  // credential dimension (050 §6) and must never gain an operator one, because a
+  // per-operator cost figure is per-operator telemetry with a dollar sign on it
+  // (050 §6.6). The way that arrives is not a schema somebody writes on purpose
+  // — it is a reporting parameter added later to a route nobody thought of as a
+  // reporting route.
+  // -------------------------------------------------------------------------
+  describe("I8 — the wire declares no credential and no spend fact", () => {
+    const doc = readFileSync(join(repoRoot, "contracts", "openapi.v1.json"), "utf8");
+
+    it("declares no key_ref, credential value, credential_version_id or spend_owner", () => {
+      for (const forbidden of [
+        "key_ref",
+        "keyRef",
+        "credential_version_id",
+        "credentialVersionId",
+        "spend_owner",
+        "spendOwner",
+        "api_key",
+        "apiKey",
+      ]) {
+        expect(doc, `${forbidden} reached contracts/openapi.v1.json`).not.toContain(forbidden);
+      }
+    });
+
+    it("declares no dollar figure anywhere on the wire (022 P8, extending 042 I7)", () => {
+      for (const forbidden of ["estimated_usd", "estimatedUsd", "costUsd", "cost_usd"]) {
+        expect(doc, `${forbidden} reached contracts/openapi.v1.json`).not.toContain(forbidden);
+      }
+    });
+
+    it("accepts no operator identifier as a parameter on any route (019 T35)", () => {
+      // Every declared parameter name in the document, whatever its `in`.
+      const parameterNames = [...doc.matchAll(/"name"\s*:\s*"([^"]+)"/g)].map((m) => m[1]!);
+      for (const name of parameterNames) {
+        expect(name, `parameter '${name}'`).not.toMatch(
+          /operator|app_user|appUser|employee|person_id|personId|device_id|deviceId/i
+        );
+        // …and no filter/sort/group-by parameter at all, which is the SHAPE a
+        // per-operator report would arrive in even under an innocent name.
+        expect(name, `parameter '${name}'`).not.toMatch(/^(group_by|groupBy|sort|sort_by|filter)$/i);
+      }
+      // The walk really had something to walk.
+      expect(parameterNames).toContain("shopId");
+    });
   });
 
   afterAll(async () => {

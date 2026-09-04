@@ -454,6 +454,32 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: true,
   },
   {
+    table: "shop_credential_retirement",
+    trigger: "shop_credential_retirement_append_only",
+    since: "022_shop_credential_retirement.sql",
+    // 050 §2 Q2/Q3: the RETIREMENT half of rotation. Its existence is the whole
+    // of "not live" — there is no status column and there is no un-retire, so
+    // the row can only ever be appended. Nothing external observes a retirement:
+    // it is a Longbox act, and the one third-party-shaped column on it
+    // (`provider_revocation_instructed_at`) records when we INSTRUCTED, which is
+    // also our own act.
+    ordersByObservedAt: false,
+    // No `scan_session_id`: a credential rotation outlives, precedes and spans
+    // every scan. 041 I1's criterion is the column, not the tenancy.
+    sessionSeq: false,
+  },
+  {
+    table: "shop_credential_version",
+    trigger: "shop_credential_version_append_only",
+    since: "021_shop_credential_version.sql",
+    // 050 §4: an INTRODUCTION is a thing that HAPPENED. `retired_at` as a
+    // nullable column here was considered and rejected (050 A3) precisely
+    // because setting it is an UPDATE this trigger refuses — which is the
+    // enforcement mechanism of locked decision 4, not an obstacle to it.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "shopify_draft",
     trigger: "shopify_draft_append_only",
     since: "001_init.sql",
@@ -634,7 +660,16 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
   {
     table: "shop_credentials",
     kind: "permanent",
-    reason: "Configuration: a key_ref is rotated in place; the secret it names never lives here.",
+    reason:
+      "Configuration, and DEPRECATED for key_ref and liveness by 050 §4 (E03-B05). It is NOT " +
+      "append-only and must not become so: `021` retains it because these rows record what the " +
+      "pre-rotation system was configured with (034 §2.13), and `base_url` is STILL READ from " +
+      "here because `shop_credential_version` has no host column and 050 §10 lists no migration " +
+      "that would give it one. WHAT ROTATION MEANS MOVED: a key_ref is no longer edited in place " +
+      "— an introduction is a `shop_credential_version` row and a retirement is a " +
+      "`shop_credential_retirement` row, both append-only, with liveness a predicate over the " +
+      "two. The secret this table names never lived here and never will (locked decision 2). " +
+      "Dropping it is a later CONTRACT step (044 §2) with its own 000-docs/006 row.",
   },
   {
     table: "shop_pricing_policy",

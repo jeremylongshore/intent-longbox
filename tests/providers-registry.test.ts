@@ -59,11 +59,44 @@ afterEach(() => {
  *  from the caller, because a caller-supplied namespace is one the caller picks. */
 const SLUG = "testshop";
 
-function credPool(
-  rows: Array<{ kind: string; key_ref: string; base_url: string | null }>,
-  slug: string | undefined = SLUG
-) {
+/**
+ * One declared credential, as the two tables hold it after E03-B05.
+ *
+ * `retired` models a `shop_credential_retirement` row naming this version;
+ * `legacyOnly` models the case migration `021`'s backfill exists to prevent — a
+ * `shop_credentials` row with NO version row.
+ */
+interface Declared {
+  kind: string;
+  key_ref: string;
+  base_url: string | null;
+  version_no?: number;
+  retired?: boolean;
+  legacyOnly?: boolean;
+}
+
+function credPool(rows: Declared[], slug: string | undefined = SLUG) {
   return fakePool((text, values) => {
+    // The version resolver's LEFT JOIN (050 §4). Every row with a version is
+    // returned, live or retired, because liveness is the caller's predicate.
+    if (text.includes("FROM shop_credential_version v")) {
+      const kind = values?.[1];
+      return {
+        rows: rows
+          .filter((r) => r.kind === kind && r.legacyOnly !== true)
+          .map((r, i) => ({
+            id: `ver-${r.kind}-${r.version_no ?? i + 1}`,
+            kind: r.kind,
+            key_ref: r.key_ref,
+            version_no: r.version_no ?? 1,
+            introduced_at: new Date("2026-09-01T00:00:00Z"),
+            retired: r.retired === true,
+          }))
+          .sort((a, b) => b.version_no - a.version_no),
+      };
+    }
+    // `shop_credentials` survives as the source of `base_url` and as the
+    // declaration the fail-closed guard reads (migration `021`'s comment).
     if (text.includes("FROM shop_credentials")) {
       const kind = values?.[1];
       return { rows: rows.filter((r) => r.kind === kind).slice(0, 1) };
@@ -106,7 +139,7 @@ describe("resolveVisionProvider precedence", () => {
     vi.stubEnv("LLM_API_KEY", "gw-key");
     vi.stubEnv("ANTHROPIC_API_KEY", "should-lose");
     const { pool, calls } = credPool([]);
-    const provider = await resolveVisionProvider(pool, "shop-1");
+    const { provider } = await resolveVisionProvider(pool, "shop-1");
     expect(provider.id).toBe("openai-compat"); // gateways speak the OpenAI dialect
     expect(provider.model).toBe("claude-sonnet-5"); // default model
     expect(calls).toHaveLength(0); // never even asks the database
@@ -117,7 +150,7 @@ describe("resolveVisionProvider precedence", () => {
     const { pool } = credPool([
       { kind: "anthropic", key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY", base_url: null },
     ]);
-    const provider = await resolveVisionProvider(pool, "shop-1");
+    const { provider } = await resolveVisionProvider(pool, "shop-1");
     expect(provider.id).toBe("anthropic");
   });
 
@@ -131,7 +164,7 @@ describe("resolveVisionProvider precedence", () => {
         base_url: "https://api.openai.com/v1",
       },
     ]);
-    const provider = await resolveVisionProvider(pool, "shop-1");
+    const { provider } = await resolveVisionProvider(pool, "shop-1");
     expect(provider.id).toBe("openai-compat");
     expect(provider.model).toBe("gpt-4o");
   });
@@ -180,7 +213,7 @@ describe("resolveVisionProvider precedence", () => {
   it("3: uses the global ANTHROPIC_API_KEY for a shop with NO credential row", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-global");
     const { pool } = credPool([]);
-    const provider = await resolveVisionProvider(pool, "shop-1");
+    const { provider } = await resolveVisionProvider(pool, "shop-1");
     expect(provider.id).toBe("anthropic");
   });
 
@@ -188,7 +221,7 @@ describe("resolveVisionProvider precedence", () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-oai");
     vi.stubEnv("OPENAI_MODEL", "gpt-4o-mini");
     const { pool } = credPool([]);
-    const provider = await resolveVisionProvider(pool, "shop-1");
+    const { provider } = await resolveVisionProvider(pool, "shop-1");
     expect(provider.id).toBe("openai-compat");
     expect(provider.model).toBe("gpt-4o-mini");
   });
@@ -258,5 +291,79 @@ describe("resolveEbayCredentials", () => {
   it("undefined when neither shop nor global creds exist (stub provider engages)", async () => {
     const { pool } = credPool([]);
     expect(await resolveEbayCredentials(pool, "shop-1")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E03-B05 (050 §4, §9 I3/I7/I11): the version tables are the authority for every
+// kind, not only for the vision pair.
+// ---------------------------------------------------------------------------
+
+describe("a retirement makes a credential unreachable to EVERY resolver (050 §9 I7)", () => {
+  it("the plain-token path refuses a retired credential rather than borrowing the global one", async () => {
+    // This is the half that makes a deletion real for a token the pipeline
+    // otherwise degrades on. The old behaviour for a broken row was `undefined`
+    // (the stub); for a RETIRED one it must be a refusal, because "the shop
+    // retired its key" and "the shop never set one" are different facts and only
+    // the second is a supported deployment.
+    vi.stubEnv("PRICECHARTING_TOKEN", "test-estate-global-token-key");
+    const { pool } = credPool([
+      {
+        kind: "pricecharting",
+        key_ref: "LONGBOX_TESTSHOP_PRICECHARTING_KEY",
+        base_url: null,
+        retired: true,
+      },
+    ]);
+    await expect(resolveShopToken(pool, "shop-1", "pricecharting", "PRICECHARTING_TOKEN")).rejects.toThrow(
+      /every\s+one of them is retired/
+    );
+  });
+
+  it("the eBay pair refuses a retired credential too", async () => {
+    vi.stubEnv("EBAY_CLIENT_ID", "test-global-id-key");
+    vi.stubEnv("EBAY_CLIENT_SECRET", "test-global-secret-key");
+    const { pool } = credPool([
+      { kind: "ebay", key_ref: "LONGBOX_TESTSHOP_EBAY_KEY", base_url: null, retired: true },
+    ]);
+    await expect(resolveEbayCredentials(pool, "shop-1")).rejects.toThrow(/every\s+one of them is retired/);
+  });
+
+  it("a NEWER live version beside a retired one resolves, and names the newer version", async () => {
+    vi.stubEnv("LONGBOX_TESTSHOP_ANTHROPIC_KEY", "test-shop-canary-key");
+    const { pool } = credPool([
+      {
+        kind: "anthropic",
+        key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY",
+        base_url: null,
+        version_no: 1,
+        retired: true,
+      },
+      { kind: "anthropic", key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY", base_url: null, version_no: 2 },
+    ]);
+    const resolved = await resolveVisionProvider(pool, "shop-1");
+    expect(resolved.credentialVersionId).toBe("ver-anthropic-2");
+  });
+
+  it("I11: the refusal emits the `retired` event, carrying a name and never a value", async () => {
+    const seen: unknown[] = [];
+    const restore = setCredentialRefusalSink((e) => seen.push(e));
+    try {
+      vi.stubEnv("LONGBOX_TESTSHOP_ANTHROPIC_KEY", "test-shop-canary-key");
+      const { pool } = credPool([
+        { kind: "anthropic", key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY", base_url: null, retired: true },
+      ]);
+      await expect(resolveVisionProvider(pool, "shop-1")).rejects.toThrow();
+      expect(seen).toContainEqual({
+        event: "credential.key_ref_refused",
+        reason: "retired",
+        shop_slug: SLUG,
+        key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY",
+        expected_prefix: "LONGBOX_TESTSHOP_",
+      });
+      expect(JSON.stringify(seen)).not.toContain("test-shop-canary-key");
+    } finally {
+      setCredentialRefusalSink(restore);
+    }
   });
 });

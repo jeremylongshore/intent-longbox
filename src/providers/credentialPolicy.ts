@@ -134,8 +134,19 @@ export function deriveKeyRef(slug: string, kind: keyof typeof KIND_SUFFIX): stri
   return `${keyRefNamespace(slug)}${KIND_SUFFIX[kind]}`;
 }
 
-/** Why a key_ref did not produce a value. `unset` is ordinary; the other two are refusals. */
-export type KeyRefRefusal = "malformed" | "out_of_namespace";
+/**
+ * Why a key_ref did not produce a value. `unset` is ordinary; the rest refuse.
+ *
+ * `retired` joined the set at E03-B05 (050 §4, §9 I11) and is a DIFFERENT KIND
+ * of refusal from the other two, which is why it is a third reason rather than
+ * an out-of-namespace with a new message: `malformed` and `out_of_namespace` are
+ * facts about a NAME, decided without touching the database, while `retired` is
+ * a fact about the credential's LIFE — the name is perfectly legal and the
+ * variable may well be set. What the operator has to do about it differs
+ * accordingly (fix the row versus introduce a new version), and 042 §4.1's
+ * argument for codes over prose applies inside this seam too.
+ */
+export type KeyRefRefusal = "malformed" | "out_of_namespace" | "retired";
 export type KeyRefResolution =
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly reason: KeyRefRefusal | "unset" };
@@ -172,7 +183,16 @@ export function setCredentialRefusalSink(
   return prev;
 }
 
-function refuse(reason: KeyRefRefusal, slug: string, keyRef: string): KeyRefResolution {
+/**
+ * Emit a refusal without producing a resolution.
+ *
+ * Exported for the `retired` reason, which is decided in
+ * `./credentialVersions.ts` from two TABLES rather than from a name — the check
+ * cannot live inside `resolveKeyRef`, but the EVENT must be the same event, or
+ * an operator watching for `credential.key_ref_refused` would see four of the
+ * five refusal kinds and silently miss the one a rotation produces.
+ */
+export function reportCredentialRefusal(reason: KeyRefRefusal, slug: string, keyRef: string): void {
   refusalSink({
     event: "credential.key_ref_refused",
     reason,
@@ -180,6 +200,10 @@ function refuse(reason: KeyRefRefusal, slug: string, keyRef: string): KeyRefReso
     key_ref: keyRef,
     expected_prefix: keyRefNamespace(slug),
   });
+}
+
+function refuse(reason: KeyRefRefusal, slug: string, keyRef: string): KeyRefResolution {
+  reportCredentialRefusal(reason, slug, keyRef);
   return { ok: false, reason };
 }
 

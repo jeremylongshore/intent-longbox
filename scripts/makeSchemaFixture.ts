@@ -36,8 +36,35 @@ const execFileAsync = promisify(execFile);
 
 /** Rows every fixture carries: one shop, one session, one row in each session-scoped table. */
 export const FIXTURE_SEED = `
-INSERT INTO shop (id, name, slug) VALUES
-  ('11111111-1111-4111-8111-111111111111', 'Fixture Comics', 'fixture-comics');
+-- THE SEED IS SNAPSHOT-AWARE WHERE A CONSTRAINT MADE IT HAVE TO BE, and nowhere
+-- else. It is applied to a database migrated to an ARBITRARY point, so a column
+-- introduced later cannot be named unconditionally — and two constraints landed
+-- after this file was written that a fixed INSERT can no longer satisfy:
+--
+--   * \`019\` (E03-D09) gives \`shop\` a validated CHECK that it names a legal
+--     party (034 §4.3 A4), so from 019 onward a shop row must carry an
+--     \`organization_id\`;
+--   * \`023\` (E03-B05) requires every new \`cost_log\` row to name a
+--     \`spend_owner\` (050 §6.1).
+--
+-- Both are handled by \`to_regclass\`/\`information_schema\` probes rather than by
+-- forking the whole seed per snapshot: one seed, two branches, and the fixed
+-- uuids are unchanged so a regenerated fixture still diffs as a schema change
+-- rather than as noise.
+DO $seed$
+BEGIN
+  IF to_regclass('public.organization') IS NULL THEN
+    INSERT INTO shop (id, name, slug) VALUES
+      ('11111111-1111-4111-8111-111111111111', 'Fixture Comics', 'fixture-comics');
+  ELSE
+    INSERT INTO organization (id, name) VALUES
+      ('88888888-8888-4888-8888-888888888881', 'Fixture Comics');
+    INSERT INTO shop (id, name, slug, organization_id) VALUES
+      ('11111111-1111-4111-8111-111111111111', 'Fixture Comics', 'fixture-comics',
+       '88888888-8888-4888-8888-888888888881');
+  END IF;
+END
+$seed$;
 INSERT INTO shop_pricing_policy (id, shop_id, comp_percent, floor_cents, rounding_rule) VALUES
   ('11111111-1111-4111-8111-111111111112', '11111111-1111-4111-8111-111111111111', 90, 300, 'nearest_99');
 INSERT INTO scan_session (id, shop_id, created_by) VALUES
@@ -59,9 +86,30 @@ INSERT INTO human_confirmation (id, scan_session_id, shop_id, confirmed_issue, s
 INSERT INTO condition_assessment (id, scan_session_id, shop_id, grade_range_low, grade_range_high, defects) VALUES
   ('66666666-6666-4666-8666-666666666661', '22222222-2222-4222-8222-222222222221',
    '11111111-1111-4111-8111-111111111111', 'VG', 'FN', ARRAY[]::text[]);
-INSERT INTO cost_log (id, shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd) VALUES
-  ('77777777-7777-4777-8777-777777777771', '11111111-1111-4111-8111-111111111111',
-   '22222222-2222-4222-8222-222222222221', 'anthropic', 'claude-sonnet-5', 100, 20, 0.0012);
+-- From \`023\` the row must name whose money paid (050 §6.1), and \`cost_log\` is
+-- append-only — so the value goes in the INSERT rather than in a follow-up
+-- UPDATE the \`ENABLE ALWAYS\` trigger would refuse. \`longbox\` is the TRUE
+-- answer for a row no per-shop credential version resolved, and this fixture
+-- declares none.
+DO $seed$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'cost_log' AND column_name = 'spend_owner'
+  ) THEN
+    INSERT INTO cost_log
+      (id, shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd, spend_owner)
+    VALUES ('77777777-7777-4777-8777-777777777771', '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222221', 'anthropic', 'claude-sonnet-5', 100, 20, 0.0012,
+            'longbox');
+  ELSE
+    INSERT INTO cost_log
+      (id, shop_id, scan_session_id, provider, model, tokens_in, tokens_out, estimated_usd)
+    VALUES ('77777777-7777-4777-8777-777777777771', '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222221', 'anthropic', 'claude-sonnet-5', 100, 20, 0.0012);
+  END IF;
+END
+$seed$;
 `;
 
 function arg(name: string): string | undefined {

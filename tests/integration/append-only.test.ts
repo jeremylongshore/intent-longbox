@@ -137,6 +137,16 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     return (r.rows[0] as { id: string }).id;
   }
 
+  /**
+   * A fresh `version_no` per credential recipe (E03-B05).
+   *
+   * `UNIQUE (shop_id, kind, version_no)` is a real constraint and the two
+   * credential recipes both insert an introduction for the same shop and kind —
+   * so the counter keeps them from colliding without the test working around the
+   * constraint it is here to leave intact.
+   */
+  let credentialVersionCounter = 0;
+
   /** A fresh three-letter vertical code, for the `vertical_pack` recipe. */
   let verticalCodeCounter = 0;
   function freshVerticalCode(): string {
@@ -209,9 +219,36 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         return (r.rows[0] as { id: string }).id;
       }
       case "cost_log": {
+        // E03-B05: `spend_owner` is NOT NULL for every row written after `023`
+        // (050 §6.1), enforced by a `NOT VALID` CHECK so that rows predating
+        // attribution are left alone rather than backfilled with an invented
+        // owner. A fixture INSERT has to name one like any other writer.
         const r = await pool.query(
-          `INSERT INTO cost_log (shop_id, scan_session_id, provider, model) VALUES ($1,$2,'anthropic','claude-sonnet-5') RETURNING id`,
+          `INSERT INTO cost_log (shop_id, scan_session_id, provider, model, spend_owner)
+           VALUES ($1,$2,'anthropic','claude-sonnet-5','longbox') RETURNING id`,
           [shopId, sessionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      // E03-B05 (050 §4): rotation is two append-only facts.
+      case "shop_credential_version": {
+        const r = await pool.query(
+          `INSERT INTO shop_credential_version (shop_id, kind, key_ref, version_no)
+           VALUES ($1,'anthropic',$2,$3) RETURNING id`,
+          [shopId, "LONGBOX_APPENDONLY_ANTHROPIC_KEY", ++credentialVersionCounter]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "shop_credential_retirement": {
+        const version = await pool.query(
+          `INSERT INTO shop_credential_version (shop_id, kind, key_ref, version_no)
+           VALUES ($1,'anthropic',$2,$3) RETURNING id`,
+          [shopId, "LONGBOX_APPENDONLY_ANTHROPIC_KEY", ++credentialVersionCounter]
+        );
+        const r = await pool.query(
+          `INSERT INTO shop_credential_retirement (shop_id, credential_version_id, reason_code)
+           VALUES ($1,$2,'rotation') RETURNING id`,
+          [shopId, (version.rows[0] as { id: string }).id]
         );
         return (r.rows[0] as { id: string }).id;
       }

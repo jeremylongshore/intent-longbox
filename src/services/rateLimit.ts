@@ -44,10 +44,38 @@
 export const PROVISIONAL_SHOP_ORDINARY_RATE = 120;
 
 /**
- * PROVISIONAL 500 paid identify calls/shop/day. Identify is one call per item,
- * so this is more than 1.5× the ENTIRE Pilot C batch in a single day.
+ * PROVISIONAL 500 paid identify calls/shop/day, for a shop spending ITS OWN
+ * money. Identify is one call per item, so this is more than 1.5× the ENTIRE
+ * Pilot C batch in a single day.
  */
 export const PROVISIONAL_SHOP_METERED_BUDGET = 500;
+
+/**
+ * PROVISIONAL 150 paid identify calls/shop/day for a shop on the SERVICE
+ * ACCOUNT — Longbox's own key (E03-B05, 050 §2 Q4(c), §6.4).
+ *
+ * WHY A SECOND, LOWER NUMBER AT ALL. Locked decision 2's "no global fallback for
+ * a shop with a credential" closes the CONFUSION case; it does not close the
+ * ABUSE case for a shop with none. A shop that can reach the service account can
+ * spend an unbounded amount of somebody else's money by looping, which 042 §8.4
+ * already recognised as a circuit-breaker case — and the money in that loop is
+ * not the shop's.
+ *
+ * THE DERIVATION, so a reader can check it is a CEILING and not an estimate:
+ * 150 is six times Pilot A's entire 25-item batch (`019:148`) in a single day.
+ * **It cannot bind on work; it fires on a loop in minutes.**
+ *
+ * ⚠ NEITHER NUMBER IS A MEASUREMENT. Both are PROVISIONAL floors in 042 §8.4's
+ * class, explicitly non-evidentiary, never quoted as capacity, cost, throughput
+ * or reliability in any artifact at any class (021 B16). 018 C3's red line
+ * applies unchanged: a floor may be RAISED freely; lowering one after seeing a
+ * result it would change requires a `000-docs/006` row saying so in those words.
+ * A throttle that fires during normal pilot work is itself a 006 finding.
+ */
+export const PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET = 150;
+
+/** Whose money a paid call spends (050 §2 Q4(a)). Two values, no `unknown`. */
+export type SpendOwner = "shop" | "longbox";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,7 +93,10 @@ interface Bucket {
 
 export interface RateLimiterOptions {
   ordinaryPerMinute?: number;
+  /** The `shop`-owned metered budget: a shop spending its own money. */
   meteredPerDay?: number;
+  /** The `longbox`-owned metered budget: a shop on the service account. */
+  serviceAccountPerDay?: number;
   /** Injected so the counting is unit-testable without sleeping. */
   now?: () => number;
 }
@@ -83,6 +114,7 @@ export class ShopRateLimiter {
   private readonly now: () => number;
   readonly ordinaryPerMinute: number;
   readonly meteredPerDay: number;
+  readonly serviceAccountPerDay: number;
 
   /**
    * §8.4's guard: **every throttle event is counted from day one**, and a
@@ -95,6 +127,7 @@ export class ShopRateLimiter {
   constructor(opts: RateLimiterOptions = {}) {
     this.ordinaryPerMinute = opts.ordinaryPerMinute ?? PROVISIONAL_SHOP_ORDINARY_RATE;
     this.meteredPerDay = opts.meteredPerDay ?? PROVISIONAL_SHOP_METERED_BUDGET;
+    this.serviceAccountPerDay = opts.serviceAccountPerDay ?? PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET;
     this.now = opts.now ?? (() => Date.now());
   }
 
@@ -182,8 +215,14 @@ export class ShopRateLimiter {
    * the manual-search path, which is "not a failure; a different route to the
    * same rung" (040 §4.6).
    */
-  takeMetered(shopId: string): RateDecision {
-    const decision = this.take(this.metered, shopId, this.meteredPerDay, DAY_MS);
+  takeMetered(shopId: string, owner: SpendOwner = "shop"): RateDecision {
+    // ONE BUCKET PER SHOP, TWO POSSIBLE LIMITS (050 §2 Q4(c)). The key stays the
+    // shop, not `owner:shop`, on purpose: a shop that gains a credential
+    // mid-window must not get a fresh 500 calls on top of the 150 it already
+    // spent of Longbox's money. The owner selects the CEILING; it never resets
+    // the counter.
+    const limit = owner === "shop" ? this.meteredPerDay : this.serviceAccountPerDay;
+    const decision = this.take(this.metered, shopId, limit, DAY_MS);
     if (!decision.allowed) this.events.meteredExhausted += 1;
     return decision;
   }

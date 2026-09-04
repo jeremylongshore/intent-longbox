@@ -69,6 +69,24 @@ const SNAPSHOTS = [
   // PROVED rather than asserted — on a fixture whose `shop` row predates the
   // column entirely.
   { name: "018", file: "tests/fixtures/schema/after-018.sql", applied: 18 },
+  // E03-B05: added because `021`–`023` pushed head FIVE past `018`, one more
+  // than the assertion at the foot of this file allows — the fourth time that
+  // reminder has fired on schedule. `020` rather than `023`, for the same reason
+  // every row above gives: a snapshot is a schema somebody could be RUNNING, and
+  // `021`–`023` are the ones this PR is adding. `020` is E03-D09's, merged ahead
+  // of this branch.
+  //
+  // ⚠ CUTTING IT REQUIRED A CHANGE TO THE GENERATOR, and the change is a finding
+  // rather than a convenience. `FIXTURE_SEED` inserted a `shop` row naming no
+  // organization, which `019`'s validated `shop_has_a_legal_party` CHECK refuses
+  // — so the seed could not be applied to any database migrated past `018` and
+  // no fixture at or beyond `019` was cuttable at all. The seed is now
+  // snapshot-aware at the two points a constraint forced it to be (the
+  // organization, and `023`'s `spend_owner`), by probing the catalog rather than
+  // by forking per snapshot. Nothing else about it moved, and the fixed uuids are
+  // unchanged, so an older fixture regenerated today still diffs as a schema
+  // change rather than as noise.
+  { name: "020", file: "tests/fixtures/schema/after-020.sql", applied: 20 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -232,7 +250,9 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // this assertion with `006` as the newest and said in so many words that
     // shipping `011` was the moment to add `010`; E02-D07 shipped `011`/`012` and
     // added it; E06-D01 shipped `015`, which put head five past `010`, and added
-    // `014`. The next bead to push head past `022` adds the next one.
+    // `014`; E03-D09 shipped `019`/`020` and added `018`; E03-B05 shipped
+    // `021`–`023` and added `020`. The next bead to push head past `024` adds
+    // the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

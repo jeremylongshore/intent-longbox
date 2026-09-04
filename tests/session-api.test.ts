@@ -352,6 +352,13 @@ describe("identify — the metered fallback (042 §8.3)", () => {
     let providerLookups = 0;
     const stored = { candidate_set_ids: ["cs-1"], llm_rerank_id: "rr-1", band: "high" };
     const p = apiPool((text) => {
+      // BOTH halves of the credential read are counted: after E03-B05 the
+      // resolver asks the version table first, so counting only the legacy table
+      // would let a lookup slip past this assertion.
+      if (text.includes("FROM shop_credential_version v")) {
+        providerLookups += 1;
+        return { rows: [] };
+      }
       if (text.includes("shop_credentials")) {
         providerLookups += 1;
         return { rows: [{ kind: "anthropic", key_ref: "X", base_url: null }] };
@@ -406,6 +413,23 @@ describe("identify — the metered fallback (042 §8.3)", () => {
     vi.stubGlobal("fetch", fetchSpy);
     try {
       const p = apiPool((text) => {
+        // E03-B05 (050 §4): the resolver reads the VERSION table, and a version
+        // with no retirement is what "live" means. `shop_credentials` stays in
+        // the fixture because `base_url` is still read from it.
+        if (text.includes("FROM shop_credential_version v")) {
+          return {
+            rows: [
+              {
+                id: "ver-1",
+                kind: "anthropic",
+                key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY",
+                version_no: 1,
+                introduced_at: new Date("2026-09-01T00:00:00Z"),
+                retired: false,
+              },
+            ],
+          };
+        }
         if (text.includes("shop_credentials")) {
           return { rows: [{ kind: "anthropic", key_ref: "LONGBOX_TESTSHOP_ANTHROPIC_KEY", base_url: null }] };
         }

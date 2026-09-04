@@ -216,6 +216,42 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   },
 
   // ---------------------------------------------------------------------------
+  // E03-B05 — THE CREDENTIAL LIFECYCLE (050 §4), landed by migrations 021/022.
+  // Two tables, ONE rule:
+  //
+  //   A CREDENTIAL'S LIFE IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // A rotation carries no `scan_session_id`, happens between sessions rather than
+  // during one, and changes state that the resolver reads DIRECTLY at every call
+  // (050 §12: the per-process cache is deliberately not taken, because a cached
+  // credential is a retired credential still working). So there is nothing an
+  // event could usefully tell a consumer: by the time a poller saw it, the
+  // resolver would already have acted on the row itself.
+  //
+  // **And the strong form.** An event about a retirement would carry a
+  // `key_ref` — an environment variable NAME — out of the credential module and
+  // into every consumer in the registry, widening the surface 019 T31's six
+  // uncovered surfaces are already the problem on. The one place a retirement is
+  // announced is the OFFBOARDING RECEIPT (050 §5,
+  // `src/providers/credentialOffboarding.ts`), which is addressed to a person and
+  // is not a bus message.
+  // ---------------------------------------------------------------------------
+  {
+    table: "shop_credential_version",
+    rule:
+      "050 §4: an introduction is configuration state with no session in scope, read directly by " +
+      "the resolver on every call rather than cached — so an event could only tell a consumer " +
+      "something the resolver has already acted on. Its only reader is the credential seam.",
+  },
+  {
+    table: "shop_credential_retirement",
+    rule:
+      "As `shop_credential_version`. A retirement takes effect by DERIVATION at the next " +
+      "resolution (050 §5(a), §9 I7) — there is no sweep to trigger and therefore no event to " +
+      "trigger it — and an event about one would carry a key_ref past the credential seam.",
+  },
+
+  // ---------------------------------------------------------------------------
   // E04-D01 — THE CATALOG CLUSTER (030 §7, 047 §4–§9), landed by migrations
   // 014/015. Twelve tables, ONE rule, stated once and cited by each row so that a
   // reader does not have to reconstruct it twelve times:

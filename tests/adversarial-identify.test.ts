@@ -55,6 +55,22 @@ function identifyPool(): FakeTxPool {
       return { rows: [{ id: SHOP, name: "Gotham", slug: SLUG, shopify_domain: null }] };
     if (text.includes("FROM scan_session WHERE id"))
       return { rows: [{ id: SESSION, shop_id: SHOP, created_at: "t" }] };
+    // E03-B05: the resolver's authority is the VERSION table (050 §4);
+    // `shop_credentials` survives as the source of `base_url`.
+    if (text.includes("FROM shop_credential_version v")) {
+      return {
+        rows: [
+          {
+            id: "ver-1",
+            kind: "anthropic",
+            key_ref: KEY_REF,
+            version_no: 1,
+            introduced_at: new Date("2026-09-01T00:00:00Z"),
+            retired: false,
+          },
+        ],
+      };
+    }
     if (text.includes("shop_credentials")) {
       return { rows: [{ kind: "anthropic", key_ref: KEY_REF, base_url: null }] };
     }

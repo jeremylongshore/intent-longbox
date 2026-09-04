@@ -151,6 +151,13 @@ describe("runIdentify", () => {
       out.costUsd,
       // outbox_id: null — a REQUEST spent this, not a job (043 §8.1, 030 A1).
       null,
+      // credential_version_id: null — this fixture's caller passed none, so no
+      // live per-shop version resolved the call (050 §6.2).
+      null,
+      // …and `spend_owner` is DERIVED from exactly that (050 §2 Q4(a)). It is
+      // present on EVERY row: 050 §1 E12's ledger that mixed two people's money
+      // is what this column ends.
+      "longbox",
     ]);
 
     const rerankInsert = calls.find((c) => c.text.includes("INSERT INTO llm_rerank"));

@@ -144,12 +144,28 @@ async function main(): Promise<void> {
        VALUES ($1,$2,'organization',$3,'owner',NULL)`,
       [ownerId, shopId, organizationId]
     );
+    // TWO ROWS PER CREDENTIAL, AND THE SECOND ONE IS THE AUTHORITY (E03-B05,
+    // 050 §4). `shop_credentials` is still written because it is where
+    // `base_url` lives and because migration 021 keeps it as the record of what
+    // the shop was configured with; `shop_credential_version` is what the
+    // resolver READS. Writing only the first would produce a shop that
+    // `declaredCredential` refuses — deliberately, because the alternative is a
+    // shop silently spending the estate's key (050 §1 E4).
+    //
+    // `authored_by` is 'system': this seed is authored by the onboarding script,
+    // not by a person, and 048 §3.5's RULE means the column would be an
+    // attribution of record either way.
     for (const [kind, keyRef] of Object.entries(refs)) {
       await client.query(`INSERT INTO shop_credentials (shop_id, kind, key_ref) VALUES ($1, $2, $3)`, [
         shopId,
         kind,
         keyRef,
       ]);
+      await client.query(
+        `INSERT INTO shop_credential_version (shop_id, kind, key_ref, version_no, authored_by)
+         VALUES ($1, $2, $3, 1, 'system')`,
+        [shopId, kind, keyRef]
+      );
     }
     await client.query(
       `INSERT INTO shop_pricing_policy (shop_id, comp_percent, floor_cents, rounding_rule)
@@ -195,9 +211,16 @@ async function main(): Promise<void> {
     }
     console.log("\nSet these env vars (via SOPS/.env, never committed) to give this shop its own keys.");
     console.log(
-      "There is NO global fallback for a shop that has credential rows (E03-D01): leaving one unset\n" +
-        "means the vision provider REFUSES for this shop and the Shopify/PriceCharting clients STUB —\n" +
-        "the estate's global key is never silently substituted for a shop's own."
+      // E03-B05 (050 §4) MOVED THE CONDITION. The rule used to key on "has
+      // credential rows" (E03-D01); it now keys on "has a LIVE credential
+      // version", which is the same rule one step stronger: retiring a shop's
+      // last version also stops the estate's key being substituted, so a
+      // deletion makes the shop refuse rather than quietly spend somebody
+      // else's money. This run wrote version 1 of each name below.
+      "There is NO global fallback for a shop that has a LIVE credential version (050 §4, extending\n" +
+        "E03-D01's rule from 'has a row'): leaving one unset means the vision provider REFUSES for this\n" +
+        "shop and the Shopify/PriceCharting clients STUB — the estate's global key is never silently\n" +
+        "substituted for a shop's own. Retiring every version refuses too, and never falls back."
     );
     for (const ref of Object.values(refs)) console.log(`  ${ref}=`);
   } catch (err) {

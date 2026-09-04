@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.3.11] - 2026-09-04
+
+- docs(status): record that MiniMax advisory review is live on the repo (#25) (bd07321)
+
+
 ## [v0.3.10] - 2026-09-04
 
 - chore(beads): export the E00 closes (B08 + epic) into the tracked JSONL mirror (#24) (5bc7741)

@@ -156,6 +156,30 @@ export const ERROR_CODES = {
     copyRow: "021 C3 — the contradiction sentence",
     implements: "042 §4.6 / 040 F3 / locked decision 7",
   },
+  /**
+   * E06-D01, under 040 v1.3.0 F3.
+   *
+   * F3 keyed the one-tap refusal on `llm_rerank.contradiction`, which was right
+   * while the contradiction verdict was the only thing that could take a band
+   * off `high`. It is now one of five ceilings, so a payload with NO evidence and
+   * NO contradiction derives `low` and would still have passed a
+   * contradiction-only check. The refusal now keys on the BAND — the server's
+   * own conclusion — and this code names the causes that are not a contradiction:
+   * absent evidence, a disagreeing barcode, an ambiguous candidate set, an
+   * unsure model, or no re-rank at all.
+   *
+   * It is a SIBLING rather than a widening of `CONTRADICTION_BLOCKS_ONE_TAP`
+   * because 021 C3's registered copy is specifically the contradiction sentence —
+   * "something on the cover disagrees" is the wrong thing to tell an operator
+   * when the truth is "we could not read enough of the cover to be sure".
+   */
+  ONE_TAP_NOT_CORROBORATED: {
+    status: 409,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string (NOT C3: this is not a contradiction)",
+    implements: "042 §4.6 / 040 v1.3.0 F3 / locked decision 7",
+  },
   STALE_WORLD_VIEW: {
     status: 409,
     retryable: false,
@@ -250,6 +274,8 @@ export const MESSAGES: Record<ErrorCode, string> = {
   SESSION_HAS_NO_CONDITION: "this session has no current condition_assessment",
   CONTRADICTION_BLOCKS_ONE_TAP:
     "the driving re-rank carries a contradiction; a one-tap confirmation is refused",
+  ONE_TAP_NOT_CORROBORATED:
+    "the driving re-rank did not reach the high band; a one-tap confirmation is refused",
   STALE_WORLD_VIEW: "the referenced record is no longer this session's current world",
   SESSION_IS_TERMINAL: "this session is terminal and takes no further records",
   BLOCKED_BY_RETENTION_HOLD: "an open retention hold blocks this write",

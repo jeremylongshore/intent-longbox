@@ -65,6 +65,12 @@ const ERROR_COPY = {
   SESSION_IS_TERMINAL: "This scan is closed. Start a new one for this book.",
   WRITE_CONFLICT_RETRY_EXHAUSTED: "The shop was busy. Try that again.",
   CONTRADICTION_BLOCKS_ONE_TAP: "The barcode and the cover don't agree. Pick the book from the list.",
+  // E06-D01 / 040 v1.3.0 F3. A DIFFERENT sentence from the one above, because a
+  // different thing happened: nothing on the cover disagreed — we could not read
+  // enough of it to be sure. Telling an operator "the barcode and the cover don't
+  // agree" when they do not disagree is a lie that costs trust the first time
+  // they check.
+  ONE_TAP_NOT_CORROBORATED: "Not enough of the cover was readable to be sure. Pick the book from the list.",
   SESSION_HAS_NO_CONFIRMATION: "Confirm the book first.",
   SESSION_HAS_NO_PRICING: "Price the book first.",
   SESSION_HAS_NO_CONDITION: "Record the condition first.",
@@ -387,10 +393,13 @@ function boundedIssue(issue) {
 async function confirmIssue(issue, source) {
   const out = await write(`/scan-sessions/${sessionId}/confirm`, { issue: boundedIssue(issue), source });
   if (!out.ok) {
-    // A contradiction refuses the one-tap and forces the grid (040 F3). The
-    // server states it as a CODE, and this screen turns the code into the forced
-    // pick rather than parsing a sentence.
-    if (out.data && out.data.error && out.data.error.code === "CONTRADICTION_BLOCKS_ONE_TAP") {
+    // A re-rank that did not reach the high band refuses the one-tap and forces
+    // the grid (040 v1.3.0 F3, as amended by E06-D01: the refusal keys on the
+    // BAND, and a contradiction is one of five causes). The server states it as a
+    // CODE, and this screen turns either code into the forced pick rather than
+    // parsing a sentence.
+    const code = out.data && out.data.error && out.data.error.code;
+    if (code === "CONTRADICTION_BLOCKS_ONE_TAP" || code === "ONE_TAP_NOT_CORROBORATED") {
       renderCandidateGrid({ band: "medium", contradiction: true }, "grid_pick");
     }
     return;

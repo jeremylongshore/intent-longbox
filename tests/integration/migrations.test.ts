@@ -63,6 +63,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "012_cost_log_outbox_id.sql",
       "013_supersession_forward_ordering.sql",
       "014_credential_namespace_and_host_allowlist.sql",
+      "015_llm_rerank_band_inputs.sql",
     ]);
 
     const tables = await pool.query(
@@ -117,8 +118,26 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  011_outbox.sql");
     expect(secondRun).toContain("skip  012_cost_log_outbox_id.sql");
     expect(secondRun).toContain("skip  013_supersession_forward_ordering.sql");
+    expect(secondRun).toContain("skip  014_credential_namespace_and_host_allowlist.sql");
+    expect(secondRun).toContain("skip  015_llm_rerank_band_inputs.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(14);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(15);
+
+    // 015 (E06-D01): the band's derivation is recorded beside the band, and the
+    // model's self-reported number may be absent — a model that declines to guess
+    // one is answering correctly, because nothing depends on it any more.
+    const rerankCols = await pool.query(
+      `SELECT column_name, data_type, is_nullable FROM information_schema.columns
+        WHERE table_name = 'llm_rerank' AND column_name IN ('band_inputs','confidence')`
+    );
+    const byName = Object.fromEntries(
+      (rerankCols.rows as Array<{ column_name: string; data_type: string; is_nullable: string }>).map((r) => [
+        r.column_name,
+        r,
+      ])
+    );
+    expect(byName["band_inputs"]?.data_type).toBe("jsonb");
+    expect(byName["confidence"]?.is_nullable).toBe("YES");
 
     // E02-B10: the ledger records a checksum for every file it applied, and a
     // second run skips WITHOUT adopting anything — an adoption on a database this

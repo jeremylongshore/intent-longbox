@@ -16,14 +16,32 @@ const candidateSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/**
+ * E06-D01 — the payload shape is unchanged in what it ACCEPTS and changed in
+ * what it MEANS.
+ *
+ * The three evidence fields stay nullable (a price box can genuinely be torn
+ * off; forcing a string would make the model invent one). `bands.ts` is where
+ * null now costs something. And `confidence` becomes OPTIONAL, because after
+ * E06-D01 nothing depends on it: it is recorded as one input and can only lower
+ * a band, so a model that declines to guess a number is answering correctly
+ * rather than failing validation.
+ */
 const identifyPayloadSchema = z.object({
   candidates: z.array(candidateSchema),
   evidence: z.object({
     issue_number_read: z.string().nullable(),
     price_box_text: z.string().nullable(),
     logo_era_guess: z.string().nullable(),
+    unreadable_reasons: z
+      .object({
+        issue_number_read: z.string().optional(),
+        price_box_text: z.string().optional(),
+        logo_era_guess: z.string().optional(),
+      })
+      .optional(),
   }),
-  confidence: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1).optional(),
 });
 
 /** Validate model JSON payload into the IdentifyResult success shape. */
@@ -45,7 +63,7 @@ export function toIdentifyResult(
     return r;
   });
   const evidence: Evidence = parsed.data.evidence;
-  return { ok: true, ranked, evidence, confidence: parsed.data.confidence, raw, usage };
+  return { ok: true, ranked, evidence, confidence: parsed.data.confidence ?? null, raw, usage };
 }
 
 /** Build user-text portion: prompt plus candidate metadata for re-rank mode. */

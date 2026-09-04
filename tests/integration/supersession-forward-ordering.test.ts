@@ -333,9 +333,14 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const created = await post(`/api/v1/shops/${shopId}/scan-sessions`, {});
       const sid = created.json.session.id as string;
 
+      // `grid_pick`, not `one_tap`: this session has no `llm_rerank` at all, and
+      // since E06-D01 / 040 v1.3.0 F3 a one-tap needs a re-rank the SERVER put in
+      // the high band. Seeding one would prove nothing about supersession, which
+      // is what this test is for — and the forced pick is the same act by the
+      // same person, so the record it writes is the record under test either way.
       const first = await post(`/api/v1/shops/${shopId}/scan-sessions/${sid}/confirm`, {
         issue: { title: "Hulk", issue: "180" },
-        source: "one_tap",
+        source: "grid_pick",
       });
       expect(first.status).toBe(201);
 

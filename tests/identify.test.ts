@@ -9,6 +9,16 @@ import { fakePool } from "./fakes.js";
 const BANDS = { high: 0.85, medium: 0.5 };
 // "036000291452" is a check-digit-valid UPC-A; "00311" = issue 003, cover 1, printing 1.
 const VALID_UPC_SUPP = "036000291452 00311";
+// The same UPC with a supplement naming issue 300 — the barcode AGREES with the
+// `okResult` candidate, which E06-D01 requires before any result reaches `high`.
+const UPC_AGREEING_WITH_300 = "036000291452 30011";
+
+/** Three readable evidence fields that agree with the candidate: the honest case. */
+const COMPLETE_EVIDENCE = {
+  issue_number_read: "#300",
+  price_box_text: "$1.00 US",
+  logo_era_guess: "1980s",
+};
 
 function fakeProvider(result: IdentifyResult): VisionProvider {
   return {
@@ -116,9 +126,14 @@ describe("runIdentify", () => {
     const out = await runIdentify(pool, {
       shopId: "shop-1",
       sessionId: "s-1",
-      provider: fakeProvider(okResult()),
+      // E06-D01 — "clean" now means what the SERVER can corroborate: three
+      // readable evidence fields and a barcode that agrees, not a number the
+      // model chose. The old version of this test passed with all three evidence
+      // fields null, which is the payload 046 finding R-3 is about.
+      provider: fakeProvider(okResult({ evidence: COMPLETE_EVIDENCE })),
       bands: BANDS,
       uploadsDir: "uploads",
+      barcodeDigits: UPC_AGREEING_WITH_300,
     });
     expect(out.band).toBe("high");
     expect(out.contradiction).toBe(false);
@@ -141,12 +156,19 @@ describe("runIdentify", () => {
     const rerankInsert = calls.find((c) => c.text.includes("INSERT INTO llm_rerank"));
     expect(rerankInsert).toBeDefined();
     const v = rerankInsert!.values!;
-    expect(v[0]).toBe("cs-1"); // FK to the vision candidate_set
+    expect(v[0]).toBe("cs-2"); // FK to the vision candidate_set (cs-1 is the barcode set)
     expect(v[3]).toBe("anthropic");
     expect(v[4]).toBe("claude-sonnet-5");
     expect(typeof v[5]).toBe("string"); // prompt hash
     expect(v[8]).toBe("high");
     expect(v[9]).toBe(false); // contradiction
+    // E06-D01 — the derivation's inputs land on the same immutable row as the
+    // conclusion, so 019 T3 is sliceable by evidence completeness.
+    const inputs = JSON.parse(v[13] as string) as Record<string, unknown>;
+    expect(inputs["band"]).toBe("high");
+    expect(inputs["evidence_missing"]).toEqual([]);
+    expect(inputs["barcode_agreement"]).toBe("agree");
+    expect(inputs["model_confidence"]).toBe(0.92);
   });
 
   it("downgrades a high-confidence result to medium on evidence contradiction (R7)", async () => {
@@ -154,13 +176,10 @@ describe("runIdentify", () => {
     const out = await runIdentify(pool, {
       shopId: "shop-1",
       sessionId: "s-1",
-      provider: fakeProvider(
-        okResult({
-          evidence: { issue_number_read: "#301", price_box_text: null, logo_era_guess: null },
-        })
-      ),
+      provider: fakeProvider(okResult({ evidence: { ...COMPLETE_EVIDENCE, issue_number_read: "#301" } })),
       bands: BANDS,
       uploadsDir: "uploads",
+      barcodeDigits: UPC_AGREEING_WITH_300,
     });
     expect(out.contradiction).toBe(true);
     expect(out.contradictionReasons[0]).toMatch(/issue_number_read/);
@@ -168,5 +187,59 @@ describe("runIdentify", () => {
     const rerankInsert = calls.find((c) => c.text.includes("INSERT INTO llm_rerank"));
     expect(rerankInsert?.values?.[8]).toBe("medium");
     expect(rerankInsert?.values?.[9]).toBe(true);
+  });
+
+  // ── E06-D01 ──────────────────────────────────────────────────────────────
+  it("refuses the high band to the 046 R-3 payload: null evidence, maximum confidence", async () => {
+    const { pool, calls } = identifyPool([coverPhoto]);
+    const out = await runIdentify(pool, {
+      shopId: "shop-1",
+      sessionId: "s-1",
+      // Exactly the payload the finding names. It validates, it raises no
+      // contradiction, and before this bead it took the one-tap path.
+      provider: fakeProvider(
+        okResult({
+          evidence: { issue_number_read: null, price_box_text: null, logo_era_guess: null },
+          confidence: 0.99,
+        })
+      ),
+      bands: BANDS,
+      uploadsDir: "uploads",
+      barcodeDigits: UPC_AGREEING_WITH_300,
+    });
+    expect(out.band).toBe("low");
+    expect(out.contradiction).toBe(false); // the gate is silent — that WAS the defect
+    const inputs = JSON.parse(
+      calls.find((c) => c.text.includes("INSERT INTO llm_rerank"))!.values!.at(-1) as string
+    ) as Record<string, unknown>;
+    expect(inputs["evidence_missing"]).toHaveLength(3);
+    expect(inputs["model_confidence"]).toBe(0.99);
+  });
+
+  it("caps at medium when the barcode is unavailable, however complete the evidence", async () => {
+    const { pool } = identifyPool([coverPhoto]);
+    const out = await runIdentify(pool, {
+      shopId: "shop-1",
+      sessionId: "s-1",
+      provider: fakeProvider(okResult({ evidence: COMPLETE_EVIDENCE })),
+      bands: BANDS,
+      uploadsDir: "uploads",
+    });
+    expect(out.band).toBe("medium");
+  });
+
+  it("records a null confidence rather than refusing a model that reported none", async () => {
+    const { pool, calls } = identifyPool([coverPhoto]);
+    const out = await runIdentify(pool, {
+      shopId: "shop-1",
+      sessionId: "s-1",
+      provider: fakeProvider(okResult({ evidence: COMPLETE_EVIDENCE, confidence: null })),
+      bands: BANDS,
+      uploadsDir: "uploads",
+      barcodeDigits: UPC_AGREEING_WITH_300,
+    });
+    expect(out.confidence).toBeNull();
+    expect(out.band).toBe("high"); // the omission costs nothing; it was never trusted
+    expect(calls.find((c) => c.text.includes("INSERT INTO llm_rerank"))?.values?.[7]).toBeNull();
   });
 });

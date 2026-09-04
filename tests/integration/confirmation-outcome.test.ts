@@ -182,6 +182,27 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
     );
   }
 
+  /**
+   * E06-D01 / 040 v1.3.0 F3: `POST …/confirm` with `source='one_tap'` is now
+   * refused unless the session's current `llm_rerank` is in the HIGH band. These
+   * tests are about `outcome` arithmetic, not about the band guard, so they seed
+   * the corroborated row the guard asks for rather than working around it.
+   */
+  async function seedHighBandRerank(sessionId: string): Promise<void> {
+    const cs = await pool.query(
+      `INSERT INTO candidate_set (scan_session_id, shop_id, method, candidates)
+       VALUES ($1,$2,'llm_vision',$3) RETURNING id`,
+      [sessionId, shopId, JSON.stringify([ASM300])]
+    );
+    await pool.query(
+      `INSERT INTO llm_rerank
+         (candidate_set_id, scan_session_id, shop_id, provider, model, prompt_hash, response,
+          confidence, band, contradiction)
+       VALUES ($1,$2,$3,'anthropic','claude-sonnet-5','deadbeef','{}'::jsonb,0.92,'high',false)`,
+      [(cs.rows[0] as { id: string }).id, sessionId, shopId]
+    );
+  }
+
   async function confirm(
     sessionId: string,
     body: { issue: Record<string, unknown>; source: string }
@@ -199,6 +220,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   it("writes confirm for a one-tap acceptance", async () => {
     const sessionId = await newSession();
     await seedCandidateSet(sessionId, [ASM300, { title: "Hulk", issue: "181" }]);
+    await seedHighBandRerank(sessionId);
     expect(await confirm(sessionId, { issue: ASM300, source: "one_tap" })).toBe("confirm");
   });
 
@@ -273,6 +295,7 @@ describe.skipIf(!dbUp)("004 human_confirmation.outcome", () => {
   it("never leaves outcome NULL on a row the route wrote (no second meaning for NULL)", async () => {
     const sessionId = await newSession();
     await seedCandidateSet(sessionId, [ASM300]);
+    await seedHighBandRerank(sessionId);
     for (const source of ["one_tap", "grid_pick", "manual_search", "owner_review"]) {
       expect(await confirm(sessionId, { issue: ASM300, source })).not.toBeNull();
     }

@@ -16,6 +16,8 @@ out/
 coverage/
 .nyc_output/
 tests/.tmp-smoke-uploads/
+tests/.tmp-adversarial/
+tests/.tmp-one-tap-uploads/
 
 # TypeScript
 *.tsbuildinfo

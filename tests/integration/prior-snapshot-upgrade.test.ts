@@ -41,6 +41,12 @@ const SNAPSHOTS = [
   // ever further from the shape anyone actually deploys stops testing an upgrade
   // and starts testing archaeology.
   { name: "010", file: "tests/fixtures/schema/after-010.sql", applied: 10 },
+  // E06-D01: added because `015` pushed head five past `010`, which is one more
+  // than the assertion at the foot of this file allows — the same reminder that
+  // E02-B10 left and E02-D07 answered, firing on schedule. `014` rather than
+  // `015` deliberately: a snapshot is a schema someone could be RUNNING, and
+  // `015` is the one this PR is adding. The newest RELEASED schema is `014`.
+  { name: "014", file: "tests/fixtures/schema/after-014.sql", applied: 14 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -170,7 +176,8 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // The newest fixture must stay within four migrations of head. E02-B10 wrote
     // this assertion with `006` as the newest and said in so many words that
     // shipping `011` was the moment to add `010`; E02-D07 shipped `011`/`012` and
-    // added it. The next bead to push head past `014` adds the next one.
+    // added it; E06-D01 shipped `015`, which put head five past `010`, and added
+    // `014`. The next bead to push head past `018` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

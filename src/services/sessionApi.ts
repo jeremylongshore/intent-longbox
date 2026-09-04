@@ -416,13 +416,28 @@ export async function confirm(
     // extra steps: the client has to parse it, and a second client will parse it
     // differently. `reasons` are evidence strings about the BOOK, not prose
     // about the person, and they are already in `llm_rerank.response`.
+    //
+    // E06-D01, AND 040 v1.3.0 F3 — WHICH NOW KEYS THE REFUSAL ON THE BAND.
+    // This guard used to key on `rerank.contradiction`, which was sound while the
+    // contradiction verdict was the only thing that could take a band off `high`.
+    // It no longer is: the band is derived from five ceilings, so the payload in
+    // 046 finding R-3 — no evidence at all, no contradiction — derives `low` and
+    // a contradiction-only check would have waved its `one_tap` through. A client
+    // that skips the downgrade cannot produce the row (040 F3's "schema-level
+    // rule, not a UI convention"), so the guard must refuse for EVERY non-high
+    // cause, not for one of five. No re-rank at all is also not `high`.
     if (body.source === "one_tap") {
       const rerank = await readLatestRerank(tx, ctx.shopId, session.id);
-      if (rerank?.contradiction) {
-        throw new LongboxError("CONTRADICTION_BLOCKS_ONE_TAP", {
-          band: rerank.band,
-          reasons: rerank.contradiction_reasons,
-        });
+      if (rerank?.band !== "high") {
+        // Two codes, because the operator sentences differ: 021 C3 is
+        // specifically "something on the cover disagrees", which is the wrong
+        // thing to say when the truth is "we could not read enough to be sure".
+        throw rerank?.contradiction
+          ? new LongboxError("CONTRADICTION_BLOCKS_ONE_TAP", {
+              band: rerank.band,
+              reasons: rerank.contradiction_reasons,
+            })
+          : new LongboxError("ONE_TAP_NOT_CORROBORATED", { band: rerank?.band ?? null });
       }
     }
 

@@ -1,0 +1,19 @@
+{
+  "candidates": [
+    {
+      "title": "The Amazing Spider-Man",
+      "issue": "300",
+      "publisher": "Marvel",
+      "year": 1988,
+      "variant": null,
+      "variantHints": [],
+      "confidence": 0.99
+    }
+  ],
+  "evidence": {
+    "issue_number_read": "#301",
+    "price_box_text": "$1.00 US",
+    "logo_era_guess": "1980s"
+  },
+  "confidence": 0.99
+}

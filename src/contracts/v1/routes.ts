@@ -212,7 +212,7 @@ export const ROUTES: readonly RouteSpec[] = [
     request: s.confirmRequest,
     response: s.confirmResponse,
     successStatus: 201,
-    errors: [...MUTATING, "CONTRADICTION_BLOCKS_ONE_TAP"],
+    errors: [...MUTATING, "CONTRADICTION_BLOCKS_ONE_TAP", "ONE_TAP_NOT_CORROBORATED"],
     summary: "Record the operator's identification.",
   },
   {

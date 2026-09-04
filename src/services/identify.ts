@@ -22,8 +22,8 @@ import type { Queryable } from "../db.js";
 import type { BandThresholds } from "../config.js";
 import type { ImageRef, VisionProvider } from "../providers/types.js";
 import { IDENTIFY_PROMPT } from "../providers/types.js";
-import { parseComicBarcode } from "./barcode.js";
-import { assignBand, applyContradiction, type Band } from "./bands.js";
+import { parseComicBarcode, type BarcodeResult } from "./barcode.js";
+import { barcodeAgreement, deriveBand, type Band, type BandInputs } from "./bands.js";
 import { checkEvidenceContradiction } from "./rerank.js";
 import { appendCostLog } from "./costLog.js";
 import { listSessionPhotos } from "./scanSession.js";
@@ -47,7 +47,8 @@ export interface IdentifyOutcome {
   band: Band;
   contradiction: boolean;
   contradictionReasons: string[];
-  confidence: number;
+  /** `null` when the model omitted it (E06-D01) or when no vision call happened. */
+  confidence: number | null;
   provider: string;
   model: string;
   costUsd: number;
@@ -73,20 +74,27 @@ export interface IdentifyArgs {
 
 /** Everything decided before anything is written. No INSERT reaches this half. */
 export interface IdentifyPlan {
-  barcode?: unknown;
+  /** Typed, not `unknown`: E06-D01's barcode-vs-candidate agreement reads it. */
+  barcode?: BarcodeResult;
   /** Present when the barcode parsed: the row `recordIdentify` will append. */
   barcodeSet?: { digits: string; candidates: unknown[] };
   vision?: {
     ranked: unknown[];
     raw: unknown;
     evidence: unknown;
-    confidence: number;
+    confidence: number | null;
     tokensIn: number;
     tokensOut: number;
   };
   band: Band;
   contradiction: boolean;
   contradictionReasons: string[];
+  /**
+   * E06-D01 — every input the band was derived from, written to
+   * `llm_rerank.band_inputs` so 019 T3 can be sliced by evidence completeness.
+   * Absent when no vision call produced a band.
+   */
+  bandInputs?: BandInputs;
   error?: string;
 }
 
@@ -131,7 +139,23 @@ export async function planIdentify(db: Queryable, args: IdentifyArgs): Promise<I
     tokensIn: result.usage.tokensIn,
     tokensOut: result.usage.tokensOut,
   };
-  plan.band = applyContradiction(assignBand(result.confidence, args.bands), check.contradiction);
+
+  // E06-D01 — THE BAND IS DERIVED HERE, FROM WHAT THE SERVER CAN CORROBORATE.
+  //
+  // It used to be `applyContradiction(assignBand(result.confidence, …), …)`,
+  // which is to say: the model's number, occasionally lowered. `deriveBand`
+  // takes evidence completeness, the contradiction gate's verdict, whether the
+  // BARCODE (a deterministic rung, printed on the book) agrees with the top
+  // candidate, whether the candidate set actually names one book, and the
+  // model's number as one input among five — and returns their minimum. The
+  // number can lower a band and cannot raise one (046 §5 A8 / R-3).
+  const inputs = deriveBand(result.evidence, result.ranked, result.confidence, {
+    contradiction: check,
+    barcode: barcodeAgreement(plan.barcode, top),
+    thresholds: args.bands,
+  });
+  plan.band = inputs.band;
+  plan.bandInputs = inputs;
   plan.contradiction = check.contradiction;
   plan.contradictionReasons = check.reasons;
   return plan;
@@ -186,8 +210,8 @@ export async function recordIdentify(
   const rerank = await db.query(
     `INSERT INTO llm_rerank
        (candidate_set_id, scan_session_id, shop_id, provider, model, prompt_hash, response,
-        confidence, band, contradiction, tokens_in, tokens_out, cost_usd)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+        confidence, band, contradiction, tokens_in, tokens_out, cost_usd, band_inputs)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
     [
       visionSetId,
       args.sessionId,
@@ -206,6 +230,10 @@ export async function recordIdentify(
       plan.vision.tokensIn,
       plan.vision.tokensOut,
       costUsd,
+      // E06-D01 — the derivation's inputs, so 019 T3 is sliceable by evidence
+      // completeness rather than reported as one rate over a mixed population.
+      // No percentage, no operator identifier: facts about a book and a call.
+      plan.bandInputs === undefined ? null : JSON.stringify(plan.bandInputs),
     ]
   );
 
@@ -272,7 +300,7 @@ export function toOutcome(
     band: plan.band,
     contradiction: plan.contradiction,
     contradictionReasons: plan.contradictionReasons,
-    confidence: plan.vision?.confidence ?? 0,
+    confidence: plan.vision?.confidence ?? null,
     provider: args.provider.id,
     model: args.provider.model,
     costUsd: written.costUsd,

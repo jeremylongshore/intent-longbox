@@ -164,6 +164,49 @@ describe("confirm", () => {
     expect(heads(p)).toContain("ROLLBACK");
   });
 
+  it("refuses a one-tap on a NON-high band with no contradiction (E06-D01, 040 v1.3.0 F3)", async () => {
+    // The 046 R-3 shape: the model claimed 0.99 with no readable evidence, the
+    // server derived `low`, and the contradiction gate — which only fires on a
+    // NON-NULL evidence field — stayed silent. A refusal keyed on `contradiction`
+    // would have waved this through.
+    const p = apiPool((text) =>
+      text.includes("FROM llm_rerank")
+        ? { rows: [{ id: "r-1", band: "low", contradiction: false, response: {} }] }
+        : undefined
+    );
+    const err = await api
+      .confirm(deps(p.pool), ctx("/confirm"), { issue: { title: "Hulk" }, source: "one_tap" })
+      .catch((e: unknown) => e);
+    // A SIBLING code, not the contradiction one: 021 C3 says "the barcode and the
+    // cover don't agree", and here they did not disagree — we could not read
+    // enough of the cover to be sure. The wrong sentence is worse than none.
+    expect(err).toMatchObject({ code: "ONE_TAP_NOT_CORROBORATED", status: 409 });
+    expect((err as { details: { band: string } }).details.band).toBe("low");
+    expect(heads(p)).toContain("ROLLBACK");
+  });
+
+  it("refuses a one-tap when the session has NO re-rank at all", async () => {
+    const p = apiPool((text) => (text.includes("FROM llm_rerank") ? { rows: [] } : undefined));
+    const err = await api
+      .confirm(deps(p.pool), ctx("/confirm"), { issue: { title: "Hulk" }, source: "one_tap" })
+      .catch((e: unknown) => e);
+    // Absent is not `high`. Nothing corroborated anything, so there is nothing
+    // for a one-tap to be a shortcut THROUGH.
+    expect(err).toMatchObject({ code: "ONE_TAP_NOT_CORROBORATED", status: 409 });
+    expect((err as { details: { band: string | null } }).details.band).toBeNull();
+  });
+
+  it("lets a one-tap through on a high band — the guard is a guard, not an outage", async () => {
+    const p = apiPool((text) =>
+      text.includes("FROM llm_rerank")
+        ? { rows: [{ id: "r-1", band: "high", contradiction: false, response: {} }] }
+        : undefined
+    );
+    await expect(
+      api.confirm(deps(p.pool), ctx("/confirm"), { issue: { title: "Hulk" }, source: "one_tap" })
+    ).resolves.toMatchObject({ status: 201 });
+  });
+
   it("lets a grid pick through on the same contradicting re-rank", async () => {
     const p = apiPool((text) =>
       text.includes("FROM llm_rerank")

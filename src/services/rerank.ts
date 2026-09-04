@@ -8,8 +8,14 @@ export interface ContradictionResult {
   reasons: string[];
 }
 
-/** Extract a numeric issue number from strings like "121", "#121", "121A". */
-function issueNumber(s: string): number | null {
+/**
+ * Extract a numeric issue number from strings like "121", "#121", "121A".
+ *
+ * Exported for `bands.ts` (E06-D01): the barcode-vs-candidate agreement check
+ * compares the SAME way this gate does, and two spellings of "what is the issue
+ * number" that could disagree would be a second defect of the first one's kind.
+ */
+export function issueNumber(s: string): number | null {
   const m = s.match(/\d+/);
   return m ? Number(m[0]) : null;
 }

@@ -138,6 +138,19 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: true,
   },
   {
+    table: "collectible_definition",
+    trigger: "collectible_definition_append_only",
+    since: "016_catalog_core.sql",
+    // A catalog VALUE authored by Longbox from an import or a human author — not
+    // Longbox's record of another system's fact. A corpus advance is a new row,
+    // not a re-observation (030 §2.2), so nothing here is ordered by observation.
+    ordersByObservedAt: false,
+    // No `scan_session_id`: the catalog has no session and 030 §2.1 gives it no
+    // tenancy either. Ordering a catalog row by one shop's session counter would
+    // be the claim 041 §2.0 declines to make.
+    sessionSeq: false,
+  },
+  {
     table: "condition_assessment",
     trigger: "condition_assessment_append_only",
     since: "001_init.sql",
@@ -159,11 +172,101 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: true,
   },
   {
+    table: "data_source",
+    trigger: "data_source_append_only",
+    since: "016_catalog_core.sql",
+    // The rights row 019 T25 makes non-optional. TERMS ARE FIXED AT REGISTRATION:
+    // the table has `UNIQUE (name)` and NO supersession column, so a source is
+    // registered once and its licence text is what every import made under it
+    // relied on. The rights/terms MODEL — whether a licence change supersedes,
+    // what attribution attaches to a derived row, whether CC BY-SA 4.0 metadata
+    // may seed a commercial catalog — is E04-B05's, with the licence question
+    // routed to counsel (047 §12.3). Adding a supersession chain here would
+    // decide that bead's contract from a table definition, so this file records
+    // the columns and asserts nothing about any licence.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "edition",
+    trigger: "edition_append_only",
+    since: "016_catalog_core.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "edition_external_id",
+    trigger: "edition_external_id_append_only",
+    since: "016_catalog_core.sql",
+    // A crosswalk edge is Longbox's ASSERTION about a mapping, carrying its own
+    // `match_method`, `confidence` and `reviewer` (030 §4). It is not a
+    // pass-through of a provider's observation, and it supersedes by a new row.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "edition_signature",
+    trigger: "edition_signature_append_only",
+    since: "016_catalog_core.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "human_confirmation",
     trigger: "human_confirmation_append_only",
     since: "001_init.sql",
     ordersByObservedAt: false,
     sessionSeq: true,
+  },
+  {
+    table: "identity_resolution",
+    trigger: "identity_resolution_append_only",
+    since: "017_lcid_lifecycle_and_resolution.sql",
+    ordersByObservedAt: false,
+    // SHOP-scoped but not SESSION-scoped: it keys on a `human_confirmation_id`,
+    // not on a `scan_session_id`, so it carries no `session_seq`. 041 I1's
+    // criterion is the column, not the tenancy.
+    sessionSeq: false,
+  },
+  {
+    table: "lcid_merge",
+    trigger: "lcid_merge_append_only",
+    since: "017_lcid_lifecycle_and_resolution.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "lcid_registry",
+    trigger: "lcid_registry_append_only",
+    since: "016_catalog_core.sql",
+    // INSERT-ONLY rather than append-only-with-supersession (047 §4.2) — but the
+    // ENFORCEMENT is identical, because `forbid_mutation()` refuses UPDATE and
+    // DELETE and nothing else. It is declared here rather than exempted for
+    // exactly that reason: an exemption row would say "this table is deliberately
+    // mutable", which is the opposite of true. 047 I1 is the invariant.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "lcid_retirement",
+    trigger: "lcid_retirement_append_only",
+    since: "017_lcid_lifecycle_and_resolution.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "lcid_split",
+    trigger: "lcid_split_append_only",
+    since: "017_lcid_lifecycle_and_resolution.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "lcid_split_outcome",
+    trigger: "lcid_split_outcome_append_only",
+    since: "017_lcid_lifecycle_and_resolution.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
   },
   {
     table: "listing_status_observation",
@@ -284,6 +387,28 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     ordersByObservedAt: false,
     sessionSeq: true,
   },
+  {
+    table: "vertical_pack",
+    trigger: "vertical_pack_append_only",
+    since: "016_catalog_core.sql",
+    // INSERT-ONLY (030 §7): a pack is REGISTERED once and evolves by a new
+    // `vertical_pack_version` row. Insert-only and append-only are the same
+    // enforcement — `forbid_mutation()` refuses UPDATE and DELETE and nothing
+    // else — so this is a declared trigger rather than an exemption.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "vertical_pack_version",
+    trigger: "vertical_pack_version_append_only",
+    since: "016_catalog_core.sql",
+    // 030 §5.2's single-rate manifest version. Immutable so that an old
+    // `collectible_definition` row stays READABLE: it records the one pack version
+    // its `attributes` validated against, and the schema that governed it is still
+    // on disk, addressable, unchanged.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
 ];
 
 /** A table declared exempt from the append-only set, with the record that exempted it. */
@@ -362,6 +487,21 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
       '"there is nothing here to preserve"; a row is INSERTed on bind and DELETEd on release, ' +
       "and deleting one destroys no history because the facts it indexes stay in the log. " +
       "Does not exist yet (041 §1 E19): 036 §7.1's migration is unwritten.",
+  },
+  {
+    table: "lcid_current_survivor",
+    kind: "permanent",
+    reason:
+      "047 A2 / §6.2 / I18, landed by migrations/017: a MATERIALIZED PROJECTION over " +
+      "`lcid_merge`, keys only — 041 §6.2's shape, where \"there is nothing here to " +
+      "preserve\". Its rows are INSERTed and UPDATEd by the merge transaction's own " +
+      "trigger, so it is deliberately mutable and cannot carry `forbid_mutation()`. " +
+      "IT IS NOT A STATUS COLUMN, and the distinction is the whole of Hickey's " +
+      "dissent in 047 §14: a status column is a second place a fact can live and " +
+      "DISAGREE from; this is written only by the transaction that appends the merge " +
+      "fact and is reproducible from `lcid_merge` alone by the one-pass rebuild in " +
+      "`src/catalog/projection.ts`, so a disagreement is a TEST FAILURE (I18) and " +
+      "never a data state. Dropping it loses nothing.",
   },
   {
     table: "shop",

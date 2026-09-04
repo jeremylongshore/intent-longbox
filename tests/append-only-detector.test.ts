@@ -113,16 +113,26 @@ describe("checkAppendOnlyTriggers", () => {
   // Equality in BOTH directions (041 §9.2 item 4): a trigger nothing declares is a
   // migration that added an append-only table without adding it to the list, so
   // nothing would have noticed it being created at the bypassable default.
+  //
+  // ⚠ THE SYNTHETIC NAME MOVED, AND 047 E2 PREDICTED THIS EXACT MOMENT. This
+  // fixture used `lcid_registry`, "chosen because it is KNOWN NOT TO EXIST" —
+  // and 047 §1 E2 flagged it as a collision arriving early: "a future reader
+  // grepping for lcid_registry will find two hits and must not read them as the
+  // table existing". E04-D01 created the table, so the name stopped satisfying
+  // the fixture's one requirement and this test began failing — correctly, and
+  // exactly as predicted. `shelf_audit` replaces it under the same rule: it is a
+  // plausible name for a table this design does not have and no record proposes.
+  // Whoever creates a real `shelf_audit` must move this fixture again.
   it("flags an undeclared %_append_only trigger even when it is ENABLE ALWAYS", async () => {
     const rows = [
       ...healthyRows(),
-      { table_name: "lcid_registry", trigger_name: "lcid_registry_append_only", tgenabled: "A" },
+      { table_name: "shelf_audit", trigger_name: "shelf_audit_append_only", tgenabled: "A" },
     ];
     const result = await checkAppendOnlyTriggers(fakePool(rows));
     expect(result.ok).toBe(false);
     expect(result.missing).toEqual([]);
     expect(result.disabled).toEqual([]);
-    expect(result.undeclared).toEqual([{ table: "lcid_registry", trigger: "lcid_registry_append_only" }]);
+    expect(result.undeclared).toEqual([{ table: "shelf_audit", trigger: "shelf_audit_append_only" }]);
   });
 
   it("reports all three classes at once rather than short-circuiting on the first", async () => {

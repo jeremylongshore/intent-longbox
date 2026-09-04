@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "047 A2 obligation 1 — THE CHECKED-IN BENCHMARK FIXTURE. 'A merge forest of",
+    "declared shape and depth, committed with the code, against which the rebuild",
+    "and the hot-path read are measured.'",
+    "",
+    "IT DECLARES A SHAPE, NOT A NUMBER. 030 A7's discipline and 018 §2 A3 both say",
+    "a threshold is set from the first MEASURED run on named hardware, never",
+    "guessed — so this file carries the topology and nothing else. The measurement",
+    "belongs beside the machine that produced it, and until one has run on named",
+    "hardware the honest content of this file is the input.",
+    "",
+    "The three shapes are the three that stress different parts of the design:",
+    "  chains   — depth, which is what a recursive CTE would degrade on and what",
+    "             the projection turns into one hop;",
+    "  stars    — width, many losers pointing at one survivor, which is the common",
+    "             real case (a fortnightly import near-duplicating one row);",
+    "  cascades — a survivor that is later merged away itself, which is the case",
+    "             the incremental maintenance has to re-point and the one-pass",
+    "             rebuild has to path-compress. If the two ever disagree, they",
+    "             disagree here."
+  ],
+  "chains": [
+    { "count": 8, "depth": 12 },
+    { "count": 2, "depth": 40 }
+  ],
+  "stars": [{ "count": 6, "losers": 25 }],
+  "cascades": [{ "count": 4, "generations": 6, "widthPerGeneration": 3 }],
+  "measurements": {
+    "_comment": [
+      "EMPTY ON PURPOSE. A number here is a claim about performance, and 018 §2 A3",
+      "forbids one that nobody has measured. The first run on named hardware fills",
+      "this in, naming the hardware, the date and the postgres version alongside",
+      "it. Until then the CI gate that has teeth is the PLAN SHAPE assertion",
+      "(047 A2 obligation 2), which is a structural property and not a timing."
+    ]
+  }
+}

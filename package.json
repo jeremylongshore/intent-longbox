@@ -24,6 +24,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "grant-app-role": "tsx scripts/grant-app-role.ts",
     "register-shop": "tsx scripts/register-shop.ts",
+    "rebuild-survivor-projection": "tsx scripts/rebuild-survivor-projection.ts",
     "fixture:schema": "tsx scripts/makeSchemaFixture.ts",
     "arch": "tsx scripts/architectureGate.ts",
     "contracts:emit": "tsx scripts/emitOpenapi.ts",

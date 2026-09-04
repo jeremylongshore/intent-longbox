@@ -64,6 +64,8 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "013_supersession_forward_ordering.sql",
       "014_credential_namespace_and_host_allowlist.sql",
       "015_llm_rerank_band_inputs.sql",
+      "016_catalog_core.sql",
+      "017_lcid_lifecycle_and_resolution.sql",
     ]);
 
     const tables = await pool.query(
@@ -99,6 +101,25 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // OWED, and the attempt log the lease is derived from (043 §2).
       "outbox",
       "outbox_attempt",
+      // 014 / 015 (E04-D01): 030 §7's catalog and 047's LCID namespace, lifecycle
+      // facts, crosswalk and survivor projection — the first time this system can
+      // name what a comic IS. Until they existed, identity was an untyped jsonb
+      // blob on one immutable row (047 §1 E4) and the wire contract typed it
+      // `z.unknown()` because there was nothing to describe it as (E5).
+      "vertical_pack",
+      "vertical_pack_version",
+      "data_source",
+      "lcid_registry",
+      "collectible_definition",
+      "edition",
+      "edition_signature",
+      "edition_external_id",
+      "lcid_merge",
+      "lcid_split",
+      "lcid_split_outcome",
+      "lcid_retirement",
+      "lcid_current_survivor",
+      "identity_resolution",
     ]) {
       expect(names).toContain(expected);
     }
@@ -120,8 +141,10 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  013_supersession_forward_ordering.sql");
     expect(secondRun).toContain("skip  014_credential_namespace_and_host_allowlist.sql");
     expect(secondRun).toContain("skip  015_llm_rerank_band_inputs.sql");
+    expect(secondRun).toContain("skip  016_catalog_core.sql");
+    expect(secondRun).toContain("skip  017_lcid_lifecycle_and_resolution.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(15);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(17);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

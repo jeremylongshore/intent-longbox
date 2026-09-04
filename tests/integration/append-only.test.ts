@@ -7,14 +7,45 @@ import pg from "pg";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { createFreshDb, probeDb, runMigrations, seedShop, superuserUrl } from "./helpers.js";
 import { APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
+import { mintLcidString } from "../../src/catalog/index.js";
 
 const dbUp = await probeDb();
+
+/**
+ * The key column an `UPDATE … WHERE <key> = $1` probe uses.
+ *
+ * Almost every append-only table has a surrogate `id`. Two do NOT, and both
+ * absences are deliberate rather than oversights:
+ *   * `lcid_registry`'s primary key IS the LCID (047 §4.2) — a surrogate id beside
+ *     it would be a second name for a name;
+ *   * `lcid_split_outcome` is a join child with the composite PK
+ *     `(split_id, product_lcid)` (047 §7.1).
+ * So the probe reads the key off this map instead of assuming `id`, which keeps
+ * the loop derived from the DECLARED LIST rather than from the tables that happen
+ * to be shaped like the others.
+ */
+const KEY_COLUMN: Record<string, string> = {
+  lcid_registry: "lcid",
+  lcid_split_outcome: "product_lcid",
+  vertical_pack: "vertical",
+};
+
+const keyOf = (table: string): string => KEY_COLUMN[table] ?? "id";
+
+interface CatalogSeed {
+  vertical: string;
+  code: string;
+  packVersionId: string;
+  corpusVersionId: string;
+  dataSourceId: string;
+}
 
 describe.skipIf(!dbUp)("append-only triggers", () => {
   let pool: pg.Pool;
   let superuserPool: pg.Pool;
   let shopId: string;
   let sessionId: string;
+  let catalog: CatalogSeed;
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_append_only_e02d05");
@@ -23,7 +54,60 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     superuserPool = new pg.Pool({ connectionString: superuserUrl(url) });
     shopId = await seedShop(pool);
     sessionId = (await createScanSession(pool, shopId)).id;
+
+    // E04-D01: the catalog cluster's recipes all need a registered vertical, a
+    // pack version, a corpus version and a rights row before they can insert
+    // anything — every one of those is a NOT NULL FK, which is 030's "point at
+    // the LCID, never at the row" and 019 T25 doing their jobs at the schema.
+    const vertical = "comic";
+    const code = "cmc";
+    await pool.query(`INSERT INTO vertical_pack (vertical, vertical_code) VALUES ($1,$2)`, [vertical, code]);
+    const pack = await pool.query(
+      `INSERT INTO vertical_pack_version (vertical, pack_version, manifest, signature_fn_ref)
+       VALUES ($1, 1, '{}', 'src/catalog/editionSignature.ts') RETURNING id`,
+      [vertical]
+    );
+    const corpus = await pool.query(
+      `INSERT INTO corpus_version (notes) VALUES ('catalog seed') RETURNING id`
+    );
+    const source = await pool.query(
+      `INSERT INTO data_source (name, namespace_class) VALUES ('upc','registrar') RETURNING id`
+    );
+    // `vertical_pack_version` is one of the tables under test, and its recipe
+    // inserts a second row for the same vertical — so the versions come from a
+    // sequence rather than a literal, and the UNIQUE (vertical, pack_version)
+    // stays a real constraint rather than something the test works around.
+    await pool.query(`CREATE SEQUENCE IF NOT EXISTS append_only_pack_version_seq START 2`);
+    catalog = {
+      vertical,
+      code,
+      packVersionId: (pack.rows[0] as { id: string }).id,
+      corpusVersionId: (corpus.rows[0] as { id: string }).id,
+      dataSourceId: (source.rows[0] as { id: string }).id,
+    };
   });
+
+  /** A fresh three-letter vertical code, for the `vertical_pack` recipe. */
+  let verticalCodeCounter = 0;
+  function freshVerticalCode(): string {
+    verticalCodeCounter += 1;
+    const n = verticalCodeCounter;
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    return letters[Math.floor(n / 676) % 26]! + letters[Math.floor(n / 26) % 26]! + letters[n % 26]!;
+  }
+
+  /** Mint one registry row and return the LCID. The INSERT *is* the mint (047 §4.1). */
+  async function mintLcid(kind: "definition" | "edition"): Promise<string> {
+    const lcid = mintLcidString(kind, catalog.code);
+    await pool.query(
+      `INSERT INTO lcid_registry (lcid, kind, vertical_code, minted_in_corpus_version_id, minted_by)
+       VALUES ($1,$2,$3,$4,'human_review')`,
+      [lcid, kind, catalog.code, catalog.corpusVersionId]
+    );
+    return lcid;
+  }
+
+  const mintEditionLcid = (): Promise<string> => mintLcid("edition");
 
   afterAll(async () => {
     await superuserPool?.end();
@@ -214,6 +298,139 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // 014 / 015 (E04-D01): the catalog cluster. 030 §7's tables and 047's LCID
+      // namespace, lifecycle facts and crosswalk. Every one of them is a FACT
+      // about the shared catalog, so every one is immutable — and the recipes had
+      // to be written in the same PR as the migration, which is the declared
+      // list doing its job for the second time on new tables.
+      case "vertical_pack": {
+        const code = freshVerticalCode();
+        const r = await pool.query(
+          `INSERT INTO vertical_pack (vertical, vertical_code) VALUES ($1,$2) RETURNING vertical`,
+          [`vertical-${code}`, code]
+        );
+        return (r.rows[0] as { vertical: string }).vertical;
+      }
+      case "vertical_pack_version": {
+        const r = await pool.query(
+          `INSERT INTO vertical_pack_version (vertical, pack_version, manifest, signature_fn_ref)
+           VALUES ($1, nextval('append_only_pack_version_seq'), '{}', 'src/catalog/editionSignature.ts')
+           RETURNING id`,
+          [catalog.vertical]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "data_source": {
+        const r = await pool.query(
+          `INSERT INTO data_source (name, namespace_class) VALUES ($1,'registrar') RETURNING id`,
+          [`source-${randomUUID()}`]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "lcid_registry": {
+        return mintEditionLcid();
+      }
+      case "collectible_definition": {
+        const lcid = await mintLcid("definition");
+        const r = await pool.query(
+          `INSERT INTO collectible_definition
+             (definition_lcid, vertical, vertical_pack_version_id, corpus_version_id, attributes, signature)
+           VALUES ($1,$2,$3,$4,'{}','sig') RETURNING id`,
+          [lcid, catalog.vertical, catalog.packVersionId, catalog.corpusVersionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "edition": {
+        const r = await pool.query(
+          `INSERT INTO edition
+             (edition_lcid, definition_lcid, vertical, vertical_pack_version_id, corpus_version_id,
+              attributes, signature)
+           VALUES ($1,$2,$3,$4,$5,'{}','sig') RETURNING id`,
+          [
+            await mintLcid("edition"),
+            await mintLcid("definition"),
+            catalog.vertical,
+            catalog.packVersionId,
+            catalog.corpusVersionId,
+          ]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "edition_signature": {
+        const r = await pool.query(
+          `INSERT INTO edition_signature
+             (vertical, signature, normalization_version, edition_lcid, corpus_version_id)
+           VALUES ($1,'sig',1,$2,$3) RETURNING id`,
+          [catalog.vertical, await mintLcid("edition"), catalog.corpusVersionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "edition_external_id": {
+        const r = await pool.query(
+          `INSERT INTO edition_external_id
+             (edition_lcid, provider, external_id, vertical, corpus_version_id, match_method, data_source_id)
+           VALUES ($1,'upc','012345678905',$2,$3,'exact',$4) RETURNING id`,
+          [await mintLcid("edition"), catalog.vertical, catalog.corpusVersionId, catalog.dataSourceId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "lcid_merge": {
+        const r = await pool.query(
+          `INSERT INTO lcid_merge
+             (losing_lcid, surviving_lcid, corpus_version_id, method, evidence, decided_by)
+           VALUES ($1,$2,$3,'human_review','{}','tester') RETURNING id`,
+          [await mintLcid("edition"), await mintLcid("edition"), catalog.corpusVersionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "lcid_split": {
+        const r = await pool.query(
+          `INSERT INTO lcid_split (source_lcid, corpus_version_id, method, evidence, decided_by)
+           VALUES ($1,$2,'human_review','{}','tester') RETURNING id`,
+          [await mintLcid("edition"), catalog.corpusVersionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "lcid_split_outcome": {
+        const parent = await pool.query(
+          `INSERT INTO lcid_split (source_lcid, corpus_version_id, method, evidence, decided_by)
+           VALUES ($1,$2,'human_review','{}','tester') RETURNING id`,
+          [await mintLcid("edition"), catalog.corpusVersionId]
+        );
+        const product = await mintLcid("edition");
+        await pool.query(`INSERT INTO lcid_split_outcome (split_id, product_lcid) VALUES ($1,$2)`, [
+          (parent.rows[0] as { id: string }).id,
+          product,
+        ]);
+        return product;
+      }
+      case "lcid_retirement": {
+        const r = await pool.query(
+          `INSERT INTO lcid_retirement (lcid, corpus_version_id, reason, method, evidence, decided_by)
+           VALUES ($1,$2,'phantom edition','human_review','{}','tester') RETURNING id`,
+          [await mintLcid("edition"), catalog.corpusVersionId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "identity_resolution": {
+        const confirmation = await pool.query(
+          `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
+           VALUES ($1,$2,'{}','one_tap') RETURNING id`,
+          [sessionId, shopId]
+        );
+        const r = await pool.query(
+          `INSERT INTO identity_resolution
+             (shop_id, human_confirmation_id, edition_lcid, corpus_version_id, method, resolved_by)
+           VALUES ($1,$2,$3,$4,'barcode','tester') RETURNING id`,
+          [
+            shopId,
+            (confirmation.rows[0] as { id: string }).id,
+            await mintLcid("edition"),
+            catalog.corpusVersionId,
+          ]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }
@@ -227,12 +444,13 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
   for (const table of eventTables) {
     it(`rejects UPDATE and DELETE on ${table}`, async () => {
       const id = await insertRow(table);
-      await expect(pool.query(`UPDATE ${table} SET id = id WHERE id = $1`, [id])).rejects.toThrow(
+      const key = keyOf(table);
+      await expect(pool.query(`UPDATE ${table} SET ${key} = ${key} WHERE ${key} = $1`, [id])).rejects.toThrow(
         /append-only/
       );
-      await expect(pool.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(/append-only/);
+      await expect(pool.query(`DELETE FROM ${table} WHERE ${key} = $1`, [id])).rejects.toThrow(/append-only/);
       // The row is still there, untouched.
-      const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE id = $1`, [id]);
+      const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${key} = $1`, [id]);
       expect((check.rows[0] as { n: number }).n).toBe(1);
     });
   }
@@ -254,20 +472,21 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
       // proving the ENABLE ALWAYS property rather than silently proving the
       // permission check twice, this probe escalates to the superuser, the only
       // principal in the cluster who can reach replica role at all.
+      const key = keyOf(table);
       const client = await superuserPool.connect();
       try {
         await client.query(`SET session_replication_role = 'replica'`);
-        await expect(client.query(`UPDATE ${table} SET id = id WHERE id = $1`, [id])).rejects.toThrow(
-          /append-only \(Hickey model\): UPDATE not allowed/
-        );
-        await expect(client.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(
+        await expect(
+          client.query(`UPDATE ${table} SET ${key} = ${key} WHERE ${key} = $1`, [id])
+        ).rejects.toThrow(/append-only \(Hickey model\): UPDATE not allowed/);
+        await expect(client.query(`DELETE FROM ${table} WHERE ${key} = $1`, [id])).rejects.toThrow(
           /append-only \(Hickey model\): DELETE not allowed/
         );
       } finally {
         await client.query(`SET session_replication_role = 'origin'`).catch(() => undefined);
         client.release();
       }
-      const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE id = $1`, [id]);
+      const check = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${key} = $1`, [id]);
       expect((check.rows[0] as { n: number }).n).toBe(1);
     });
   }

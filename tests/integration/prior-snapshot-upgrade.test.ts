@@ -45,7 +45,14 @@ const SNAPSHOTS = [
   // than the assertion at the foot of this file allows — the same reminder that
   // E02-B10 left and E02-D07 answered, firing on schedule. `014` rather than
   // `015` deliberately: a snapshot is a schema someone could be RUNNING, and
-  // `015` is the one this PR is adding. The newest RELEASED schema is `014`.
+  // `015` is the one that PR was adding. The newest RELEASED schema was `014`.
+  //
+  // E04-D01 KEEPS THIS ROW AND ADDS NONE. This bead's `016`/`017` put head five
+  // past `010` too, and it had staged an `after-013` for exactly that reason —
+  // but `014` is both NEWER and the shape production actually runs, and head 017
+  // is three past it, inside the limit. Two fixtures three migrations apart would
+  // be two upgrade paths tested to prove one property, so `after-013` was dropped
+  // rather than kept for symmetry.
   { name: "014", file: "tests/fixtures/schema/after-014.sql", applied: 14 },
 ] as const;
 

@@ -151,6 +151,107 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
     table: "corpus_version",
     rule: "Nothing writes it (041 §10.1).",
   },
+
+  // ---------------------------------------------------------------------------
+  // E04-D01 — THE CATALOG CLUSTER (030 §7, 047 §4–§9), landed by migrations
+  // 014/015. Twelve tables, ONE rule, stated once and cited by each row so that a
+  // reader does not have to reconstruct it twelve times:
+  //
+  //   THE CATALOG IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // 043 §3.3's catalogue names the nine events one SCAN SESSION produces, and
+  // every consumer of them is downstream of a shop's pipeline. A catalog row is
+  // the opposite kind of fact: it carries no `shop_id` (030 §2.1), it is written
+  // by a batch importer or a catalog author with NO SESSION IN SCOPE, and 029
+  // §2.3 requires it to be readable "by a batch importer with no pipeline
+  // present". An event about a `vertical_pack` registration or a GCD import batch
+  // would have to name a session that does not exist, and `outbox.session_seq` —
+  // the column that makes 043 §3.2's within-session delivery ORDER real — would
+  // be permanently NULL on every one of them.
+  //
+  // WHAT WOULD CHANGE THIS, so the rule is falsifiable rather than a shrug: a
+  // consumer outside `catalog` that must react to a catalog CHANGE rather than
+  // read the catalog on demand. E06-B02's exact-lookup cache is the first
+  // candidate, and 047 A2 has already ruled on it — that cache is invalidated
+  // TRANSACTIONALLY by inserts into the three lifecycle tables, NEVER by TTL and
+  // never by an eventually-delivered event. So the first plausible subscriber is
+  // decided AGAINST subscribing, which is why these rows say "no event" rather
+  // than "no event yet".
+  // ---------------------------------------------------------------------------
+  {
+    table: "vertical_pack",
+    rule:
+      "Catalog cluster (E04-D01): a pack registration has no session and no shop. See the " +
+      "block comment above — the rule is that the catalog is not a subject of the session " +
+      "event stream, and 047 A2 already rules its first plausible subscriber out.",
+  },
+  {
+    table: "vertical_pack_version",
+    rule: "Catalog cluster (E04-D01): as vertical_pack. A pack version is a manifest, not an episode.",
+  },
+  {
+    table: "data_source",
+    rule:
+      "Catalog cluster (E04-D01): a rights row (019 T25) registered by an operator, not " +
+      "produced by a session.",
+  },
+  {
+    table: "lcid_registry",
+    rule:
+      "Catalog cluster (E04-D01): a mint is atomic with the citing catalog row or the " +
+      "import-batch fact (047 §4.4). A consumer that wants the LCID reads it through that " +
+      "row — the same construction llm_rerank's exclusion uses.",
+  },
+  {
+    table: "collectible_definition",
+    rule: "Catalog cluster (E04-D01): a corpus-versioned catalog VALUE with no session and no shop.",
+  },
+  {
+    table: "edition",
+    rule: "Catalog cluster (E04-D01): as collectible_definition.",
+  },
+  {
+    table: "edition_signature",
+    rule:
+      "Catalog cluster (E04-D01): a dedupe lookup row written in the same transaction as its " +
+      "edition. Read through the reference.",
+  },
+  {
+    table: "edition_external_id",
+    rule:
+      "Catalog cluster (E04-D01): a crosswalk edge. Its review workflow is E04-B06's queue, " +
+      "which is a QUERY over edges awaiting certification (047 §5.2 item 3) — a derived " +
+      "worklist, not a delivered event.",
+  },
+  {
+    table: "lcid_merge",
+    rule:
+      "Catalog cluster (E04-D01): 047 A2 rules that the one downstream reader of a merge — " +
+      "E06-B02's resolution cache — is invalidated TRANSACTIONALLY by this INSERT and never " +
+      "by TTL or by an eventually-delivered event. An event here would be the weaker " +
+      "mechanism the record refused.",
+  },
+  {
+    table: "lcid_split",
+    rule: "Catalog cluster (E04-D01): as lcid_merge. The review obligation it creates is a query (047 §7.3).",
+  },
+  {
+    table: "lcid_split_outcome",
+    rule: "Catalog cluster (E04-D01): a child of lcid_split, written in the same transaction.",
+  },
+  {
+    table: "lcid_retirement",
+    rule: "Catalog cluster (E04-D01): as lcid_merge.",
+  },
+  {
+    table: "identity_resolution",
+    rule:
+      "Catalog cluster (E04-D01), and the one SHOP-SCOPED member. It is the catalog's " +
+      "statement ABOUT a human_confirmation, written by E06's resolution ladder in the same " +
+      "transaction as the confirmation it describes — so a consumer that wants it reads it " +
+      "through `longbox.workflow.confirmed`'s reference rather than through a tenth event " +
+      "(043 §3.3: the catalogue is AUTHORED, nine names, never generated).",
+  },
   {
     table: "media_deletion",
     rule: "Platform's own table; 029 §2.9 makes platform the graph's leaf — it publishes to nobody inside it.",

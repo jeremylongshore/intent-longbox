@@ -261,6 +261,43 @@ module.exports = {
     },
 
     {
+      // E04-D01. A NAMED RULE, NOT AN EXEMPTION. `src/catalog/` is the catalog
+      // module's real code, landing ahead of E02-B03's `src/modules/` relocation
+      // — so the module rules keyed on `^src/modules/` do not cover it and would
+      // silently leave the estate's newest boundary unenforced. 029 §5 move 8's
+      // F3 staging argument says a rule over an EMPTY barrel is ceremony; the
+      // corollary is that a rule over a FULL one is mandatory, which is why these
+      // two are keyed on the real path instead of waiting for the relocation.
+      name: "catalog-public-surface-only",
+      severity: "error",
+      comment:
+        "029 §2 / §3.3: the catalog module's only public surface is src/catalog/index.ts. " +
+        "Routes, services, consumers and scripts import THAT and nothing else. Reaching " +
+        "into src/catalog/mint.ts or src/catalog/resolve.ts defeats the boundary without " +
+        "tripping any layer rule — and 047 I16 (only `catalog` mints) is only enforceable " +
+        "while the mint helper has exactly one door.",
+      from: { path: "^src/", pathNot: ["^src/catalog/"] },
+      to: { path: "^src/catalog/.+", pathNot: ["^src/catalog/index\\.ts$"] },
+    },
+
+    {
+      name: "catalog-is-a-leaf",
+      severity: "error",
+      comment:
+        "029 §3.1's ALLOWED table gives catalog exactly one dependency: platform. 029 §2.3 " +
+        "requires catalog to survive a partner leaving and to stay readable by a batch " +
+        "importer WITH NO PIPELINE PRESENT — which is only true while it imports nothing " +
+        "but the database handle. So no workflow, no resolution, no condition, no " +
+        "valuation, no commerce, no reporting, no routes, no consumers, and no provider " +
+        "seam (029 §4 / locked decision 2: catalog is not a provider consumer).",
+      from: { path: "^src/catalog/" },
+      to: {
+        path: "^src/",
+        pathNot: ["^src/catalog/", "^src/db\\.ts$", "^src/db/", "^src/modules/platform/"],
+      },
+    },
+
+    {
       name: "platform-is-a-leaf",
       severity: "error",
       comment: "029 §2.9: if platform needs a domain fact, the design is wrong.",
@@ -277,7 +314,20 @@ module.exports = {
         "treats a downgraded architecture rule as a refusal.",
       from: {
         orphan: true,
-        pathNot: ["\\.d\\.ts$", "^src/server\\.ts$", "^src/modules/[^/]+/index\\.ts$"],
+        // `src/catalog/index.ts` joins the module-index exception for the SAME
+        // reason those are there and not as a new class of waiver: a module's
+        // public surface is entered from outside the import graph this config
+        // walks (tests are excluded by `options.exclude`), so it is unreachable
+        // BY CONSTRUCTION rather than dead. Its siblings are not exempt — they
+        // are reachable through it, and a file this barrel stops re-exporting
+        // becomes an orphan and fails the gate, which is the property that makes
+        // the exception safe.
+        pathNot: [
+          "\\.d\\.ts$",
+          "^src/server\\.ts$",
+          "^src/modules/[^/]+/index\\.ts$",
+          "^src/catalog/index\\.ts$",
+        ],
       },
       to: {},
     },

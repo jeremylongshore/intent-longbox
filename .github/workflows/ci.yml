@@ -128,7 +128,7 @@ jobs:
     # Beads are the work truth and the PR is the code evidence for exactly one of
     # them (CLAUDE.md § Governance, "Bead <-> PR linkage"; 023 §3/§5). This job makes
     # that linkage machine-checkable. Needs no checkout — the body is in the event.
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - name: 'PR body must carry a line matching "Bead: longbox-"'
         env:

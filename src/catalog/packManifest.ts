@@ -41,7 +41,7 @@
 // row it exists to fill would be a contract with itself.
 
 import { z } from "zod";
-import { COPY_FACT_KEYS, assertNoForbiddenKeys } from "./copyFacts.js";
+import { COPY_FACT_KEYS, GRADER_NAMESPACES, assertNoForbiddenKeys } from "./copyFacts.js";
 import { REGISTERED_VERTICALS, packFor } from "./packRegistry.js";
 
 /**
@@ -401,7 +401,9 @@ export function certifyNoCopyFacts(manifest: VerticalPackManifest): Certificatio
           code: "COPY_FACT_OR_PROVIDER_FIELD",
           message:
             `${level}.${field.name}: ${(err as Error).message} ` +
-            `(030 §5.4, 047 A6 — the denylist is \`COPY_FACT_KEYS\`: ${COPY_FACT_KEYS.join(", ")})`,
+            `(030 §5.4, 047 A6 — the denylist is \`COPY_FACT_KEYS\`: ${COPY_FACT_KEYS.join(", ")}; ` +
+            `plus any grade/cert/serial/slab key namespaced to a grading company, ` +
+            `\`GRADER_NAMESPACES\`: ${GRADER_NAMESPACES.join(", ")} — E04-D05)`,
         });
       }
     }

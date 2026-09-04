@@ -49,19 +49,138 @@ export const COPY_FACT_KEYS: readonly string[] = [
   "serial",
 ];
 
-/** Provider-named keys, refused by 030 §4 rule 2. */
-const PROVIDER_KEY_RE = /^(gcd|metron|pricecharting|ebay|covrprice|comicvine|tcgplayer|psa|bgs|cgc|sgc)_?id$/;
+/**
+ * Provider-named keys, refused by 030 §4 rule 2.
+ *
+ * ⚠ `cbcs`, `pgx` and `beckett` JOINED AT E04-D05, and the reason is a message
+ * and not a hole. Without them `pgxId` and `beckett_id` fell PAST this rule to
+ * the grader-namespace rule below, which refused them — correctly — with a
+ * sentence saying the key "names a grade, a certification, a serial or a slab
+ * label". It does not: it names a provider's identifier, and the author would
+ * have been told the wrong thing about their own key. The namespace lists are
+ * now aligned, so the key that names a grading company as a PROVIDER gets the
+ * provider's sentence and the key that names one as a GRADE gets the copy
+ * fact's.
+ */
+const PROVIDER_KEY_RE =
+  /^(gcd|metron|pricecharting|ebay|covrprice|comicvine|tcgplayer|psa|bgs|cgc|sgc|cbcs|pgx|beckett)_?id$/;
 
-/** Case- and separator-insensitive comparison form. */
+/**
+ * The grading companies whose NAME, used as a key's namespace, makes the key a
+ * copy fact whatever noun follows it (E04-D05).
+ *
+ * ⚠ WHY A PREFIX RULE EXISTS AT ALL, AND WHAT WAS WRONG WITHOUT IT.
+ * `COPY_FACT_KEYS` above is an EXACT list, so `psaGrade`, `bgs_grade`,
+ * `cgcCertNumber`, `sgc-cert` and `CGC_Serial` were refused only by
+ * `FIELD_NOT_IN_SCHEMA` — that is, refused because no pack's Zod object happened
+ * to declare them. That is refusal by ACCIDENT: 051 §4.1 advertises C10 as a
+ * refusal BY NAME, and a future pack author who declares `psaGrade` in their own
+ * schema would have satisfied the field checks and CERTIFIED. 047 §8.4 is the
+ * authority — "`grader` and `cert_number` are copy facts in EVERY vertical …
+ * a slabbed card is the same edition as a raw one, held by a different copy in a
+ * different condition at a different price" — and a grader's own name in front
+ * of a grade word does not change which of those three the key names.
+ */
+export const GRADER_NAMESPACES: readonly string[] = [
+  "psa",
+  "bgs",
+  "cgc",
+  "sgc",
+  "cbcs",
+  "pgx",
+  "tcgplayer",
+  "beckett",
+];
+
+/**
+ * Words that make a grader-namespaced key a copy fact when they OPEN the
+ * remainder, so `cgcCertNumber` and `psaGradeLabel` are caught along with
+ * `cgcCert` and `psaGrade`.
+ *
+ * These are long enough that a prefix match is safe: no plausible EDITION
+ * attribute of a comic or a card begins with them. `grad` is deliberate and
+ * catches `psaGrading` / `bgsGrader`; its known cost is that a hypothetical
+ * `bgsGraduation` would also be refused, which is the direction to be wrong in.
+ */
+const GRADER_WORDS_PREFIX: readonly string[] = ["grade", "grad", "cert", "serial", "slab", "label", "score"];
+
+/**
+ * Words too SHORT to match as a prefix without catching innocent English, so
+ * they must be the WHOLE remainder.
+ *
+ * ⚠ THIS IS THE BOUNDARY, AND IT IS THE POINT OF THE RULE (047 §8.4).
+ * A grader namespace followed by a NON-grade word is an ordinary key and MUST
+ * PASS: `psalm` (`psa` + `lm`), `bgsTitle`, `psaNormalized`, `bgsIdeal`,
+ * `cgcIndex`. Were `no`/`num`/`id` prefix-matched, the last three would be
+ * refused as copy facts, and a denylist that refuses ordinary words is a
+ * denylist pack authors learn to work around. Exact-remainder matching keeps
+ * `psaNumber`, `cgcNo`, `bgs_num` and `psaId` refused while leaving the
+ * innocent ones alone.
+ *
+ * `<namespace>_id` in its exact form is ALREADY the provider rule's (030 §4
+ * rule 2) and is checked first, so `psa_id` keeps raising
+ * `ProviderKeyInAttributesError` and this rule never sees it. The overlap is
+ * intentional: both classes are one refusal code at the manifest (051 §4.1's
+ * `COPY_FACT_OR_PROVIDER_FIELD`), so a pack author cannot cross the line by
+ * choosing which error they trip.
+ */
+const GRADER_WORDS_EXACT: readonly string[] = ["number", "num", "no", "id"];
+
+/**
+ * Case- and separator-insensitive comparison form.
+ *
+ * ⚠ EVERY non-alphanumeric character is stripped, not just `_` and `-`
+ * (E04-D05). Stripping only those two left `psa.grade`, `psa grade` and
+ * `psa/grade` as three keys the rules had never heard of — and a jsonb
+ * `attributes` object accepts all three, so the escape was reachable and not
+ * theoretical. The wider strip is strictly MORE refusing: it can only fold two
+ * spellings together, never separate one that already matched.
+ */
 export function canonicalKey(key: string): string {
-  return key.toLowerCase().replace(/[_-]/g, "");
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * The grader namespace a key is written in, or `undefined` if it is not a
+ * grader-namespaced copy fact.
+ *
+ * Case-insensitive and separator-blind by construction, because it works on
+ * `canonicalKey`'s form: `psaGrade`, `PSA_GRADE`, `psa-grade` and `psagrade`
+ * are one key. Exported so a caller can ASK, and so the rule is testable
+ * without constructing a payload.
+ */
+export function graderNamespaceOf(key: string): string | undefined {
+  const canonical = canonicalKey(key);
+  for (const namespace of GRADER_NAMESPACES) {
+    if (!canonical.startsWith(namespace)) continue;
+    const rest = canonical.slice(namespace.length);
+    if (rest.length === 0) continue; // the bare grader name is not a key of ours
+    if (GRADER_WORDS_PREFIX.some((word) => rest.startsWith(word))) return namespace;
+    if (GRADER_WORDS_EXACT.includes(rest)) return namespace;
+  }
+  return undefined;
 }
 
 /** Thrown when an attribute payload names a copy fact (047 §2.3, A6; 036; 037). */
 export class CopyFactInEditionError extends Error {
-  constructor(readonly key: string) {
+  /**
+   * `graderNamespace` is set when the key was caught by the NAMESPACE rule
+   * rather than by `COPY_FACT_KEYS`, so the message can name the grader the
+   * author wrote instead of leaving them to compare their key against a list it
+   * is deliberately not on.
+   */
+  constructor(
+    readonly key: string,
+    readonly graderNamespace?: string
+  ) {
     super(
-      `attribute ${JSON.stringify(key)} is a COPY fact, not an edition attribute (047 §2.3, A6). ` +
+      (graderNamespace === undefined
+        ? ""
+        : `attribute ${JSON.stringify(key)} is namespaced to the grading company ` +
+          `${JSON.stringify(graderNamespace.toUpperCase())} and names a grade, a certification, a ` +
+          `serial or a slab label. A grader's name in front of a key does not make the key an ` +
+          `edition fact (047 §8.4). `) +
+        `attribute ${JSON.stringify(key)} is a COPY fact, not an edition attribute (047 §2.3, A6). ` +
         `A slabbed book is the SAME EDITION as a raw one — it is a different copy, in a different ` +
         `condition, at a different price, and none of those three is identity. A grader's label is ` +
         `a number wearing a name, and locked decision 5 with 019 T7 (non-waivable) forbid a numeric ` +
@@ -93,7 +212,16 @@ export class ProviderKeyInAttributesError extends Error {
 export function assertNoForbiddenKeys(value: unknown): void {
   if (value === null || typeof value !== "object") return;
   for (const key of Object.keys(value as Record<string, unknown>)) {
-    if (COPY_FACT_KEYS.includes(canonicalKey(key))) throw new CopyFactInEditionError(key);
-    if (PROVIDER_KEY_RE.test(canonicalKey(key))) throw new ProviderKeyInAttributesError(key);
+    const canonical = canonicalKey(key);
+    if (COPY_FACT_KEYS.includes(canonical)) throw new CopyFactInEditionError(key);
+    // ⚠ ORDER IS LOAD-BEARING, AND IT IS ONE LINE OF BEHAVIOUR.
+    // `psa_id` / `cgcId` are BOTH a provider name (030 §4 rule 2) and a
+    // grader namespace, and the exact `<namespace>_id` shape belonged to the
+    // provider rule before E04-D05 existed. Testing the provider rule first
+    // keeps that error, so the namespace rule only ever ADDS refusals and
+    // never re-labels one. Both are the same code at the manifest (051 §4.1).
+    if (PROVIDER_KEY_RE.test(canonical)) throw new ProviderKeyInAttributesError(key);
+    const namespace = graderNamespaceOf(key);
+    if (namespace !== undefined) throw new CopyFactInEditionError(key, namespace);
   }
 }

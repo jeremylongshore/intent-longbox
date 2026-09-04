@@ -94,7 +94,13 @@ export {
   type SignatureFields,
 } from "./editionSignature.js";
 
-export { COPY_FACT_KEYS, CopyFactInEditionError, ProviderKeyInAttributesError } from "./copyFacts.js";
+export {
+  COPY_FACT_KEYS,
+  CopyFactInEditionError,
+  GRADER_NAMESPACES,
+  ProviderKeyInAttributesError,
+  graderNamespaceOf,
+} from "./copyFacts.js";
 
 export {
   COMIC_IDENTITY_SCHEMA_VERSION,
@@ -150,6 +156,10 @@ export {
   assertVersionMoved,
   canonicalManifest,
   certify,
+  // Exported for E04-D05's test: it is the ONE certification function that
+  // consults no pack schema, so calling it directly is how "refused by NAME"
+  // is proved to be independent of whether a pack declares the field.
+  certifyNoCopyFacts,
   manifestField,
   manifestParts,
   verticalPackManifest,

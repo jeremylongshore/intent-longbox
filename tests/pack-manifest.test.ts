@@ -14,6 +14,7 @@ import {
   assertVersionMoved,
   canonicalManifest,
   certify,
+  certifyNoCopyFacts,
   comicManifest,
   sportsCardManifest,
   tcgCardManifest,
@@ -83,16 +84,85 @@ describe("030 §5.4 / 049 C10 — a copy fact is never an identity field", () =>
     expect(codes(m)).toContain("COPY_FACT_OR_PROVIDER_FIELD");
   });
 
-  it("refuses a provider-named field (030 §4 rule 2)", () => {
+  // E04-D05 — THE HALF OF C10 THAT WAS ADVERTISED AND NOT BUILT.
+  // Before this, `psaGrade` declared as an edition field was refused only as
+  // FIELD_NOT_IN_SCHEMA: not because it names a copy fact, but because the
+  // pack's Zod object did not happen to declare it. A pack author who declared
+  // it in their OWN schema would therefore have CERTIFIED — which is exactly
+  // the discharge 051 §4.1 claims, undone by the author it was written for.
+  // These cases assert the refusal is BY NAME, at both levels, whatever noun
+  // follows the grading company's.
+  const graderNamespaced = [
+    "psaGrade",
+    "bgs_grade",
+    "cgcCertNumber",
+    "sgc-cert",
+    "CGC_Serial",
+    "tcgplayerGrade",
+    "beckettScore",
+    "cbcsSlabLabel",
+  ];
+
+  it.each(graderNamespaced)("refuses `%s` as an edition field, by NAME", (name) => {
     const m = draft();
     m.identitySchema.edition.push({
-      name: "gcd_id",
+      name,
       required: false,
       inDefinitionSignature: false,
       inEditionSignature: false,
     });
     expect(codes(m)).toContain("COPY_FACT_OR_PROVIDER_FIELD");
   });
+
+  it.each(graderNamespaced)("refuses `%s` on the DEFINITION too", (name) => {
+    const m = draft();
+    m.identitySchema.definition.push({
+      name,
+      required: false,
+      inDefinitionSignature: false,
+      inEditionSignature: false,
+    });
+    expect(codes(m)).toContain("COPY_FACT_OR_PROVIDER_FIELD");
+  });
+
+  it("refuses `psaGrade` for its NAME, not because a schema failed to declare it", () => {
+    // The C10 discharge, stated as the scenario that motivated E04-D05: a
+    // future pack author adds `psaGrade` to their own Zod object so the field
+    // checks pass, and certification must STILL refuse it.
+    //
+    // `certifyNoCopyFacts` is the proof, because it is the one certification
+    // function that never consults `packFor(...).schemas` — its verdict cannot
+    // depend on what any pack declares. If it fires, the refusal is by name.
+    const m = draft();
+    m.identitySchema.edition.push({
+      name: "psaGrade",
+      required: false,
+      inDefinitionSignature: false,
+      inEditionSignature: false,
+    });
+    const byName = certifyNoCopyFacts(m);
+    expect(byName.map((f) => f.code)).toEqual(["COPY_FACT_OR_PROVIDER_FIELD"]);
+    expect(byName[0]?.message).toMatch(/grading company "PSA"/);
+    // And the whole gate agrees, alongside whatever the field checks say.
+    expect(codes(m)).toContain("COPY_FACT_OR_PROVIDER_FIELD");
+  });
+
+  // `pgx_id` and `beckett_id` joined `PROVIDER_KEY_RE` at E04-D05: they were in
+  // the grader-namespace list but not the provider one, so they were refused
+  // with a sentence about grades and slab labels rather than about providers.
+  it.each(["gcd_id", "pgx_id", "beckett_id", "cbcs_id"])(
+    "refuses the provider-named field `%s` (030 §4 rule 2)",
+    (name) => {
+      const m = draft();
+      m.identitySchema.edition.push({
+        name,
+        required: false,
+        inDefinitionSignature: false,
+        inEditionSignature: false,
+      });
+      expect(codes(m)).toContain("COPY_FACT_OR_PROVIDER_FIELD");
+    }
+  );
 });
 
 describe("030 §6 rule 3 — an unregistered vertical is refused, never defaulted", () => {

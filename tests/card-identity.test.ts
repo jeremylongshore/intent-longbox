@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CopyFactInEditionError,
+  GRADER_NAMESPACES,
   ProviderKeyInAttributesError,
   REGISTERED_VERTICALS,
   SIGNATURE_SEPARATOR,
@@ -20,6 +21,7 @@ import {
   UnregisteredVerticalError,
   definitionSignature,
   editionSignature,
+  graderNamespaceOf,
   isUsableClaim,
   normalizeCardNumber,
   normalizeLanguage,
@@ -233,6 +235,111 @@ describe("cert and copy facts are refused by name, in every vertical (047 §8.4,
     expect(() =>
       parseIdentityAttributes(SPORTS_CARD_VERTICAL, "edition", { number: "1", grader: "PSA" })
     ).toThrow(/COPY fact/);
+  });
+});
+
+describe("E04-D05 — a grader NAMESPACE is refused by name, not by a schema's silence", () => {
+  // THE DEFECT THIS BLOCK CLOSES. `COPY_FACT_KEYS` is an exact list, so before
+  // this rule `psaGrade` was refused only as FIELD_NOT_IN_SCHEMA — because no
+  // pack's Zod object declared it. A pack author who declared it in their own
+  // schema would have certified, and 051 §4.1 advertises C10 as a refusal BY
+  // NAME. 047 §8.4: a grader's name in front of a key does not turn a copy fact
+  // into an edition fact, in ANY vertical.
+  const verticals = ["comic", SPORTS_CARD_VERTICAL, TCG_CARD_VERTICAL] as const;
+
+  const graderNamespaced = [
+    "psaGrade",
+    "bgs_grade",
+    "cgcCertNumber",
+    "sgc-cert",
+    "CGC_Serial",
+    "tcgplayerGrade",
+    "cbcsSlabLabel",
+    "pgxGradeLabel",
+    "beckettScore",
+    "PSA_NUMBER",
+    "cgcNo",
+    "bgs_num",
+    "psaGrading",
+    // E04-D05 review: `canonicalKey` stripped only `_` and `-`, so these three
+    // spellings were keys the rules had never heard of — and a jsonb
+    // `attributes` object accepts all three, which made the escape reachable.
+    "psa.grade",
+    "psa grade",
+    "psa/grade",
+  ];
+
+  it.each(verticals)("refuses every grader-namespaced shape on a %s EDITION", (vertical) => {
+    for (const key of graderNamespaced) {
+      expect(() => parseIdentityAttributes(vertical, "edition", { [key]: "9" })).toThrow(
+        CopyFactInEditionError
+      );
+    }
+  });
+
+  it.each(verticals)("refuses every grader-namespaced shape on a %s DEFINITION", (vertical) => {
+    for (const key of graderNamespaced) {
+      expect(() => parseIdentityAttributes(vertical, "definition", { [key]: "9" })).toThrow(
+        CopyFactInEditionError
+      );
+    }
+  });
+
+  it("names the grading company, so the author is not left comparing against a list", () => {
+    expect(() =>
+      parseIdentityAttributes(SPORTS_CARD_VERTICAL, "edition", { number: "1", psaGrade: "10" })
+    ).toThrow(/namespaced to the grading company "PSA"/);
+    expect(graderNamespaceOf("cgcCertNumber")).toBe("cgc");
+    expect(GRADER_NAMESPACES).toContain("beckett");
+  });
+
+  // ⚠ THE BOUNDARY, STATED AS TESTS. A grader namespace followed by a NON-grade
+  // word is an ordinary key and MUST PASS — `no`/`num`/`id` match only as the
+  // whole remainder, precisely so `bgsIdeal` and `psaNormalized` survive.
+  it.each([
+    "psalm",
+    "bgsTitle",
+    "psaNormalized",
+    "bgsIdeal",
+    "cgcIndex",
+    "sgcSeries",
+    "printRun",
+    "parallel",
+  ])("does NOT fire on %s", (key) => {
+    expect(graderNamespaceOf(key)).toBeUndefined();
+  });
+
+  it("leaves the exact provider-id shape to the provider rule, which owns it", () => {
+    // Both classes are one refusal code at the manifest (051 §4.1), so this is
+    // about which sentence the author reads, not about whether they are refused.
+    // E04-D05 review: `cbcs`, `pgx` and `beckett` were in the GRADER list but
+    // not the PROVIDER one, so `pgxId` fell through and was told it named a
+    // grade or a slab label. It names a provider's identifier. Every grading
+    // company in one list is now in the other.
+    for (const key of ["psa_id", "cgcId", "cbcs_id", "pgxId", "beckett_id", "psa.id", "beckett id"]) {
+      expect(() =>
+        parseIdentityAttributes(SPORTS_CARD_VERTICAL, "edition", { number: "1", [key]: "9" })
+      ).toThrow(ProviderKeyInAttributesError);
+    }
+  });
+
+  it("still refuses the exact-list keys it did before, unchanged", () => {
+    // The last two are the E04-D05 review's separator finding applied to the
+    // EXACT list: a wider `canonicalKey` folds them onto entries that were
+    // always there, which is why the change can only refuse more.
+    for (const key of [
+      "grader",
+      "cert_number",
+      "serialNumber",
+      "grade",
+      "slab",
+      "cert.number",
+      "serial number",
+    ]) {
+      expect(() => parseIdentityAttributes("comic", "edition", { issue: "1", [key]: "x" })).toThrow(
+        CopyFactInEditionError
+      );
+    }
   });
 });
 

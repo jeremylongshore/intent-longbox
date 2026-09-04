@@ -146,3 +146,42 @@ export async function assertRoleSeparationOrThrow(
     `role-separation check ok: serving as "${result.role}" — owns no append-only table, not a superuser`
   );
 }
+
+/**
+ * THE MIRROR OF THE BOOT ASSERTION, for the scripts that seed rows as the owner
+ * (E04-B04; E02-D06's other half).
+ *
+ * ⚠ WHY THIS EXISTS AT ALL, STATED AS THE DEFECT IT CLOSES. `resolveMigrateUrl`
+ * FALLS BACK to `DATABASE_URL` outside production, deliberately and loudly — so a
+ * seeding script that only calls it will happily connect as the APPLICATION role,
+ * which has `INSERT` on every table through `grant-app-role`. It would then
+ * succeed, and the resulting rows would be indistinguishable from rows written by
+ * the owner. The boot assertion refuses a server that could disable a trigger;
+ * this refuses a seeding script that is NOT the role E02-D06 says owns the
+ * schema, which is the same rule read from the other end.
+ *
+ * The test is deliberately the SAME query, inverted: a connection that owns (or
+ * can `SET ROLE` into owning) NONE of the declared append-only tables is the app
+ * role, and an operator act is not the app role's to perform. A superuser is
+ * allowed here — it owns everything by construction, and refusing it would break
+ * a single-role local checkout for no gain, since the danger a superuser poses is
+ * to the SERVING connection and not to a one-shot seed.
+ */
+export async function assertSchemaOwnerOrThrow(
+  pool: RoleQueryable,
+  logger: RoleSeparationLogger = console
+): Promise<void> {
+  const result = await checkRoleSeparation(pool);
+  if (result.ownedAppendOnlyTables.length === 0 && !result.isSuperuser) {
+    logger.error(`schema-owner check FAILED: role "${result.role}" owns no append-only table`);
+    throw new Error(
+      `refusing to seed: this connection authenticates as "${result.role}", which owns none of the ` +
+        `declared append-only tables — that is the APPLICATION role, not the schema owner. ` +
+        `An operator script writes configuration rows and must connect as the owning role: set ` +
+        `MIGRATE_DATABASE_URL (see .env.example). \`resolveMigrateUrl\` falls back to DATABASE_URL ` +
+        `outside production as a dev convenience, and the app role has INSERT through ` +
+        `pnpm grant-app-role, so without this check the fallback would silently succeed.`
+    );
+  }
+  logger.info(`schema-owner check ok: connected as "${result.role}"`);
+}

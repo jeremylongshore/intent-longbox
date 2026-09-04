@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertRoleSeparationOrThrow,
+  assertSchemaOwnerOrThrow,
   checkRoleSeparation,
   describeRoleSeparationFailure,
 } from "../src/services/roleSeparation.js";
@@ -93,5 +94,47 @@ describe("assertRoleSeparationOrThrow", () => {
       })
     ).rejects.toThrow();
     expect(logged[0]).toMatch(/role-separation check FAILED at boot/);
+  });
+});
+
+describe("assertSchemaOwnerOrThrow — the mirror, for operator scripts (E04-B04)", () => {
+  // `resolveMigrateUrl` falls back to DATABASE_URL outside production and the app
+  // role has INSERT through `pnpm grant-app-role`, so a seeding script that only
+  // resolved the URL would connect as the app role and SUCCEED, writing rows
+  // indistinguishable from the owner's. These are the cases that stop it.
+  it("REFUSES the application role — owns no append-only table, not a superuser", async () => {
+    await expect(assertSchemaOwnerOrThrow(fakePool("longbox_app", false, []), silent)).rejects.toThrow(
+      /refusing to seed/
+    );
+  });
+
+  it("names the role and points at MIGRATE_DATABASE_URL", async () => {
+    await expect(assertSchemaOwnerOrThrow(fakePool("longbox_app", false, []), silent)).rejects.toThrow(
+      /longbox_app[\s\S]*MIGRATE_DATABASE_URL/
+    );
+  });
+
+  it("accepts the schema owner", async () => {
+    await expect(
+      assertSchemaOwnerOrThrow(fakePool("longbox_migrate", false, ["cost_log", "shop"]), silent)
+    ).resolves.toBeUndefined();
+  });
+
+  it("accepts a superuser, which owns everything by construction", async () => {
+    // A single-role local checkout is a dev convenience, not the danger: what a
+    // superuser threatens is the SERVING connection, which the boot assertion
+    // refuses. A one-shot seed is not that.
+    await expect(assertSchemaOwnerOrThrow(fakePool("postgres", true, []), silent)).resolves.toBeUndefined();
+  });
+
+  it("logs the refusal before throwing", async () => {
+    const logged: string[] = [];
+    await expect(
+      assertSchemaOwnerOrThrow(fakePool("longbox_app", false, []), {
+        error: (m: string) => logged.push(m),
+        info: () => undefined,
+      })
+    ).rejects.toThrow();
+    expect(logged[0]).toMatch(/schema-owner check FAILED/);
   });
 });

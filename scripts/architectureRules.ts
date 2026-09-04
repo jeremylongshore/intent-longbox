@@ -561,6 +561,14 @@ export const CATALOG_IDENTITY_FILES: readonly string[] = [
   // much as one that edited the comic mapper. A subject set that grew a member
   // and did not grow this row would have passed while watching the wrong file.
   "src/catalog/cardIdentity.ts",
+  // E04-B04. A manifest is a field list too — `identitySchema.definition` and
+  // `.edition` name every field and flag which of them sit in which key — and it
+  // is the field list a FUTURE pack author writes, which makes it the likeliest
+  // place for the merge A8 forbids to reappear. A diff editing a manifest's field
+  // declarations beside `identityKey` is the paired edit, whatever the shape of
+  // the list.
+  "src/catalog/comicManifest.ts",
+  "src/catalog/cardManifests.ts",
 ];
 
 /** `from "…"` / `require("…")`, capturing the specifier. */

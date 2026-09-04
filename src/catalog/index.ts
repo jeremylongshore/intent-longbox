@@ -53,8 +53,18 @@
 //   a second vertical on evidence; 030 §5.4: "architectural possibility is not
 //   market permission". E04-B03 is a proof that the core is not comic-shaped.
 //
+//   HERE SINCE E04-B04 — the PACK MANIFEST as shipped code and its CERTIFICATION
+//           (`packManifest.ts`: the Zod manifest schema, and `certify()`, which
+//           refuses a copy fact as an identity field (030 §5.4 / 049 C10), an
+//           unregistered vertical, a signature position the signature function
+//           does not have, a field the pack's schema does not validate, a numeric
+//           or blocklisted grade band, and a cert namespace in the crosswalk);
+//           the three shipped manifests beside their packs (`comicManifest.ts`,
+//           `cardManifests.ts`) and the set they form (`manifestRegistry.ts`).
+//           The AUTHORITATIVE vertical codes — `cmc`, `spc`, `tcg` — are assigned
+//           in those manifests, discharging 049 §8.
+//
 //   NOT HERE, by 047 §12.3's assignment —
-//     * the pack manifest as shipped code                        E04-B04
 //     * the rights registry and any licence analysis             E04-B05 (+ counsel)
 //     * the crosswalk review queue and its own tenancy detector   E04-B06
 //     * the corpus ingest, its delta cursor and its dedupe        E04-B11
@@ -130,6 +140,28 @@ export {
   signatureInput,
   type VerticalPack,
 } from "./packRegistry.js";
+
+export {
+  CAPTURE_SHOT_KINDS,
+  MANIFEST_SCHEMA_VERSION,
+  PackCertificationError,
+  UNIVERSAL_PROHIBITED_CLAIMS,
+  assertCertified,
+  assertVersionMoved,
+  canonicalManifest,
+  certify,
+  manifestField,
+  manifestParts,
+  verticalPackManifest,
+  type CaptureShotKind,
+  type CertificationFinding,
+  type ManifestField,
+  type VerticalPackManifest,
+} from "./packManifest.js";
+
+export { comicManifest } from "./comicManifest.js";
+export { sportsCardManifest, tcgCardManifest } from "./cardManifests.js";
+export { MANIFESTS, manifestFor } from "./manifestRegistry.js";
 
 export {
   UnattachedDefinitionError,

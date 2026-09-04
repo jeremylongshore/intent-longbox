@@ -1,6 +1,8 @@
 # User Journey: intent-longbox
 
-**Version:** 1.0.0
+> **Superseded by 000-docs/033 for design purposes (E05 and E11); kept for its retailer language.** 033 §8 lists which journey steps hold and which are superseded, and why.
+
+**Version:** 1.0.1
 
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 

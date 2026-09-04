@@ -1,8 +1,32 @@
-# Default code owners
+# Code owners for jeremylongshore/intent-longbox.
+#
+# Every path resolves to the same owner today (single-author autonomous build).
+# The file exists so that adding a second engineer is a one-line change per area
+# rather than a policy discussion. Last match wins in CODEOWNERS, so the
+# specific entries below override the `*` default.
+#
+# Branch protection on main does NOT require reviews (single author), so these
+# entries are ownership documentation and review-request routing, not a merge
+# gate. If a review requirement is ever turned on, this file is what it enforces.
+
+# Default owner for everything not matched below
 * @jeremylongshore
 
-# CI/CD workflows require owner approval
-/.github/workflows/ @jeremylongshore
+# Data model — append-only Hickey invariants live in SQL triggers (locked decision 4)
+/migrations/ @jeremylongshore
+
+# Provider seam — BYOK model policy, credential resolution, adapter contracts (locked decision 2)
+/src/providers/ @jeremylongshore
+
+# Delivery surface — workflows, dependabot, templates, this file
+/.github/ @jeremylongshore
+
+# Governed docs — filing standard, decision records, registers, blueprint
+/000-docs/ @jeremylongshore
+
+# Test policy — thresholds and waivers are engineer-owned and hash-pinned
+/tests/TESTING.md @jeremylongshore
+/.harness-hash @jeremylongshore
 
 # Security-sensitive files
 SECURITY.md @jeremylongshore

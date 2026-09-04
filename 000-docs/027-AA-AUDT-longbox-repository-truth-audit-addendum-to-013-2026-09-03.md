@@ -1,6 +1,6 @@
 # Repository Truth Audit — Addendum to 013 (appaudit EXISTS/TARGET re-check at a pinned HEAD)
 
-**Version:** 1.0.2
+**Version:** 1.0.3
 **Bead:** E02-B01 `longbox-e5b.2.1` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class CODE) — see 000-docs/014 §8
 **Filed:** 2026-09-03 · **Owner:** Jeremy Longshore · **Author:** parent session via `longbox-domain-builder` · **Audit pending:** `longbox-gate-auditor`
 **Sensitivity:** Restricted internal (014 §10) — cites file:line and identifiers only, never file contents beyond single lines already public inside the repo.
@@ -309,6 +309,9 @@ Nothing below is edited by this addendum: 013 is append-versioned and 018 §4 C2
 **tests/TESTING.md**: line 11's applicable-layers list omits L4-contract and L5-security, both now installed; line 50's `p1_gaps` still names four gaps closed in the same commit range; line 52's `measured: unit 118/118` is now 162/162. This file is hash-pinned — any edit must be followed by `pnpm exec audit-harness init` (018 §5).
 
 ---
+
+
+**008** (approved build plan) — added at v1.0.3 from the E15-B01 gate audit: `008:14` names the repo under the old org as current state (same class as the queued 006 C01) — correct to `jeremylongshore/intent-longbox` with a transfer note; `008:104` is true history of the transfer — label it as history. Neither is a register row; both were missing from this queue.
 
 ## 8. Identity repair landed with this audit
 

@@ -122,6 +122,33 @@ jobs:
             --lockfile=pnpm-lock.yaml
             --format=table
 
+  bead-link:
+    name: PR names its bead
+    runs-on: ubuntu-latest
+    # Beads are the work truth and the PR is the code evidence for exactly one of
+    # them (CLAUDE.md § Governance, "Bead <-> PR linkage"; 023 §3/§5). This job makes
+    # that linkage machine-checkable. Needs no checkout — the body is in the event.
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    steps:
+      - name: 'PR body must carry a line matching "Bead: longbox-"'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          # Write to a file first: piping into `grep -m1` under `pipefail` can fail the
+          # step on EPIPE rather than on a missing bead line.
+          printf '%s\n' "$PR_BODY" > pr_body.txt
+          # The Bead line must be within the first five lines (the template's first line).
+          if head -n 5 pr_body.txt | grep -qE '^[[:space:]]*Bead:[[:space:]]*longbox-'; then
+            echo "OK: $(grep -E '^[[:space:]]*Bead:' pr_body.txt | head -n 1)"
+            exit 0
+          fi
+          echo "::error::PR body must contain a line matching '^Bead: longbox-…'." >&2
+          echo "Add it as the first line of the description, e.g.:" >&2
+          echo "  Bead: longbox-e5b.15.1 (E15-B01) — Repair repository references and define …" >&2
+          echo "Use the bead ID from 'bd show', not the alias alone. See .github/pull_request_template.md." >&2
+          exit 1
+
   # ── Harness gates ──
   # verify + escape-scan are deterministic (hash manifest, policy-floor diff) and were
   # promoted to blocking on 2026-09-02 after a clean observe window. conform stays advisory

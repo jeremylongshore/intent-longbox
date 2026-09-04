@@ -1,6 +1,6 @@
 # Decision Record — The Workflow State Machine, Its Two Machines, and the Authorized Transitions
 
-**Version:** 1.2.1
+**Version:** 1.2.2
 **Status:** **RATIFIED 2026-09-04** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §14. Amendments A1–A9 absorbed in full, none declined; two dissents preserved in §14.
 **Bead:** E02-B06 `longbox-e5b.2.6` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class DEC, owner-role product, risk critical) — see 000-docs/014 §8 row E02-B06
 **Drafted:** 2026-09-04 by `longbox-domain-builder` · **Cannon:** `rich-hickey-reviewer` + `martin-fowler-reviewer`, 2026-09-04 · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
@@ -22,6 +22,7 @@
 | 1.1.2 | 2026-09-04 | Patch from the E02-D02 invariant review (PR #52): §4.4's derivation key for `listing_link_current_status` is the channel-asserted `observed_at` (then `id`), not arrival-time `created_at` — the code in `src/services/listingStatus.ts` already does this and the record now says the same; §4.4/§8.1 record that migration 005 landed the table early, FK'd to `shopify_draft`, with the `observed_at`/`source` spellings. No decision on the machine changed. | acting head, from the `longbox-invariant-reviewer` report on PR #52 |
 | **1.2.0** | **2026-09-04** | **Amended by a row under 029 §9, at the request of 041 §3.5 (E02-B07), ratified the same day.** §5.1's proposed `observed_current_id` column is **collapsed into A1's `against_table`/`against_id`** and is not built. **This changes a decision — the migration sketch's column set — hence a minor bump rather than a patch.** It changes no *rule*: §5.1's own text already called the two "one idea" (*"a write says what world it was made against, and the reader checks"*), and the check, the 409, the E05 acceptance criterion (A9) and I13 are untouched in substance — a confirmation issued against confirmation X now carries `('human_confirmation', X)` instead of `observed_current_id = X`. The yield is one concept, one column pair, one CHECK and one index instead of two mechanisms for one idea, and one fallback counter (I18) instead of two. §5.1 and §8.1 item 4 are edited in place; §9's I13 reads unchanged. | 041 §3.5 / §14 A9, acting head |
 | 1.2.1 | 2026-09-04 | **Patch — a statement of fact repaired, no decision changed, §14 stays signed.** §7's closing paragraph attributed the actor / tenant / correlation-id / idempotency-key / schema-version envelope to **029 §10**. `029:685` is `## 10. Consequences`; the section runs to `029:698` and assigns no envelope and mentions no API. The requirement is real and better sourced than the pointer suggested — `029:704` (the non-decision naming E02-B08 and E02-B09), `029:739` (§12.3's forward reference) and **`034:391-399`, which declares `correlation_id` in the resolved `RequestContext` and attributes it to E02-B08 by name**. Found by 000-docs/042 §1 E23 and applied under §14's clause that statements of fact about the existing tree are amendable in place; 042 §9.3 records it, and 042 A11 directed that it be performed rather than filed. | `longbox-domain-builder` for 042, acting head |
+| 1.2.2 | 2026-09-04 | Patch (statement of fact): §8.2's contract step and its pointer name E02-D10 (`longbox-e5b.2.20`) — E02-B10 shipped the expand half and closed; the epic gate audit found the contract step ownerless. | acting head |
 
 ## 0. Evidence posture
 
@@ -570,7 +571,7 @@ Today's endpoints that *set* status become endpoints that *append a fact*; the s
 8. **Deprecation, not removal**: `COMMENT ON COLUMN scan_session.status IS 'DEPRECATED by 000-docs/040 (E02-B06). Read scan_session_current_state. No writer after E02-B08; dropped in the contract step at E02-B10.'` The column is **kept and stops being written**; the CHECK stays until the drop.
 9. **No data statement. No seed. No backfill** (§8.4).
 
-### 8.2 The contract step — E02-B10, a separate migration, after the last writer is gone
+### 8.2 The contract step — E02-D10 (`longbox-e5b.2.20`; E02-B10 shipped the expand half), a separate migration, after the last writer is gone
 
 This half **cannot** ride in the expand migration, because dropping a column that live code still writes breaks the deploy. It lands only after E02-B08 has removed `setSessionStatus` and its two call sites (`routes:213`, `:373`), and after the TypeScript surface (`ScanSessionRow.status`, `scanSession.ts:10`) and the three tests that assert `"in_progress"` (`tests/integration/scan-session-flow.test.ts:36`, `tests/integration/smoke.http.test.ts:67`, `tests/scan-session-service.test.ts:18`) have moved to the view.
 
@@ -608,7 +609,7 @@ The precedent is 030 A1, 034 §4.4 and 036 §7.4: when the schema cannot disting
 > **Entry C — 029 §2.9 (`platform`), "Tables owned".** Add **`request_idempotency`**.
 > *Rationale:* 029 §2.9 already claims "idempotency keys" among platform's responsibilities; this is the table.
 
-> **Entry D — 029 §2.10, the ownership table.** Add the three rows above, and amend the `scan_session` row's note: it is the one non-append-only table in the scan chain **until E02-B10's contract step**, after which it joins the `001:174-176` trigger array and the exception ceases to exist.
+> **Entry D — 029 §2.10, the ownership table.** Add the three rows above, and amend the `scan_session` row's note: it is the one non-append-only table in the scan chain **until E02-D10's contract step (`longbox-e5b.2.20`; E02-B10 shipped the expand half and closed)**, after which it joins the `001:174-176` trigger array and the exception ceases to exist.
 
 ## 9. Invariants, as numbered testable statements
 

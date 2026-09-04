@@ -157,7 +157,7 @@ export async function assertAppendOnlyTriggersOrThrow(
  * the estate notify path — the same path the rest of the estate's alerting uses
  * (041 §9.2 item 3). Do not invent an alerting integration here.
  *
- * TODO(E00-B03): apply the 019 amend-by-row that adds this detector as T34's SEVENTH
+ * TODO(E00-D01 → 019 v1.3.0 T34): applied — the 019 amend-by-row adds this detector as T34's SEVENTH
  * heartbeat, at this five-minute interval. 041 §9.3 rules YES on the substance (a
  * detector guarding the sole enforcement of locked decision 4, not itself monitored
  * for liveness, is the failure 020 names one level up) and supplies the row's text

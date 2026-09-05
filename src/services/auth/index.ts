@@ -178,11 +178,35 @@ export { resolvePrincipal } from "./principal.js";
 export type { Principal, PrincipalOutcome } from "./principal.js";
 
 export {
+  highestRole,
   liveMembershipShopIds,
   liveRolesOf,
   membershipAt,
+  membershipsAt,
   revokeMembership,
   shopRoster,
   shopsForSession,
 } from "./memberships.js";
-export type { MembershipScope, Role, RosterEntry, ShopSummary } from "./memberships.js";
+export type { MembershipRow, MembershipScope, Role, RosterEntry, ShopSummary } from "./memberships.js";
+
+// E03-B03 — the permission matrix and the one decision that reads it. The door
+// matters here for the same reason it matters for `verifyOperatorPin`: an
+// `authorize()` reached from outside this module would be a permission decision
+// taken against memberships nothing guaranteed were live.
+export {
+  GRANTED_PERMISSIONS,
+  PERMISSION_MATRIX_VERSION,
+  ROLE_GRANTABLE,
+  ROLE_GRANTS,
+  authorize,
+  mayGrantRole,
+} from "./permissions.js";
+export type { AuthorizationVerdict, RefusalReason } from "./permissions.js";
+
+export {
+  decisionsByUnreconciledSessions,
+  recordAuthorizationDecision,
+  shouldRecord,
+  unreconciledBreakGlassSessions,
+} from "./authorizationAudit.js";
+export type { AuthorizationDecisionRecord } from "./authorizationAudit.js";

@@ -94,6 +94,16 @@ const SNAPSHOTS = [
   // last schema released before this bead's own migration, so it is the one an
   // operator upgrading a deployed database would actually be starting from.
   { name: "023", file: "tests/fixtures/schema/after-023.sql", applied: 23 },
+  // E03-B03 shipped `028` and added this one, **before the assertion at the foot
+  // of this file forced it**. With `023` alone the newest fixture sits three
+  // behind a head of 26 — inside the limit — so nothing was red. It is added
+  // anyway because of the gap: E03-B06 is landing `026` and `027` on this same
+  // base, and the moment it merges head becomes 28, which is FIVE past `023` and
+  // fails for whichever branch merges second. That failure would arrive as a
+  // stranger's red build on somebody else's PR. `025` rather than `028`, for the
+  // reason every row above gives: a snapshot is a schema somebody could be
+  // RUNNING, and `028` is the one this PR is adding.
+  { name: "025", file: "tests/fixtures/schema/after-025.sql", applied: 25 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;

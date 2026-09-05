@@ -60,6 +60,10 @@ import {
   MAX_OUTSTANDING_INVITATIONS_PER_SHOP,
   redemptionWaitMs,
 } from "./policy.js";
+import { membershipsAt } from "./memberships.js";
+import { buildCommit } from "../../config.js";
+import { recordAuthorizationDecision } from "./authorizationAudit.js";
+import { PERMISSION_MATRIX_VERSION, authorize, mayGrantRole } from "./permissions.js";
 import { recordFailure, type AuthMethod } from "./pin.js";
 import type { SessionRow } from "./sessions.js";
 
@@ -72,7 +76,17 @@ export interface IssuedInvitation {
   expiresAt: Date;
 }
 
-export type IssueRefusal = "too_many_outstanding" | "not_a_member";
+/**
+ * `not_permitted` REPLACES `not_a_member` (E03-B03), and the rename is the
+ * finding: the old name described the check that was actually there — *do you
+ * hold a membership* — while the rule 048 §7.1 states is *are you an owner or a
+ * manager, and are you handing out something you hold*. A refusal name that
+ * describes the wrong test is how the gap survived review. **The two causes
+ * share ONE name on purpose**: "your role may not invite" and "your role may not
+ * invite THAT role" answer identically, so a caller cannot walk the ladder to
+ * discover which roles exist above them.
+ */
+export type IssueRefusal = "too_many_outstanding" | "not_permitted";
 
 /**
  * Issue an invitation. **Returns the code once and never again.**
@@ -100,16 +114,46 @@ export async function issueInvitation(
     now: Date;
   }
 ): Promise<{ ok: true; invitation: IssuedInvitation } | { ok: false; refusal: IssueRefusal }> {
-  const inviter = await tx.query(
-    `SELECT m.id FROM membership m
-      WHERE m.app_user_id = $1 AND m.shop_id = $2
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
-      LIMIT 1`,
-    [args.invitedBy, args.shopId]
-  );
-  if (inviter.rows.length === 0) return { ok: false, refusal: "not_a_member" };
+  // ⚠ **THIS CHECK WAS A MEMBERSHIP CHECK AND NOT A ROLE CHECK, AND E03-B03
+  // FOUND IT.** It asked only whether the inviter held SOME live membership at
+  // the shop — so an `operator` could invite an `owner`, reachable today from
+  // `scripts/issue-invitation.ts` by anyone who can run it, and the route
+  // table's own comment claimed this service "checks the role". It did not.
+  //
+  // Two rules now, both read off the matrix (054 §3, §5):
+  //   * `membership.invite` — a SHOP-scoped permission, so a location-scoped
+  //     manager cannot staff the shop from one storefront;
+  //   * `mayGrantRole` — nobody hands out a role above their own rank. An owner
+  //     may name a second owner (048 §8.2's recovery nomination needs it); a
+  //     manager may invite operators and nothing else.
+  const memberships = await membershipsAt(tx, args.invitedBy, args.shopId);
+  const verdict = authorize(memberships, "membership.invite", { atLocation: null, now: args.now });
+  const permitted = verdict.kind === "allowed" && mayGrantRole(verdict.role, args.role);
+
+  // 054 §4.3 (S5′): a PRIVILEGED act records its decision whatever surface it
+  // was reached from. This one has no route and no session — it is an operator
+  // script — so the surface is the script and the chain is null, and the record
+  // is written on the ISSUANCE transaction rather than on a second connection.
+  // That is the one place the record's own "outside the request transaction"
+  // rule does not hold, and 054 §4.5 states it: a CLI has no request
+  // transaction to be outside of, and writing the decision beside the grant
+  // makes the pair atomic, which is the stronger property when it is available.
+  await recordAuthorizationDecision(tx, {
+    shopId: args.shopId,
+    routeMethod: "CLI",
+    routePath: "scripts/issue-invitation.ts",
+    permission: "membership.invite",
+    matrixVersion: PERMISSION_MATRIX_VERSION,
+    matrixCommit: buildCommit(),
+    membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+    role: verdict.role ?? null,
+    sessionChainId: null,
+    decision: permitted ? "allowed" : "refused",
+    // A rank refusal is a ROLE refusal: the caller's role may not hand out the
+    // role asked for. It is not a scope refusal, which is about WHERE.
+    refusalReason: permitted ? null : verdict.kind === "refused_scope" ? "scope" : "role",
+  });
+  if (!permitted) return { ok: false, refusal: "not_permitted" };
 
   const outstanding = await countOutstandingInvitations(tx, args.shopId);
   if (outstanding >= MAX_OUTSTANDING_INVITATIONS_PER_SHOP) {

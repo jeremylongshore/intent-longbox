@@ -1,0 +1,404 @@
+# Decision Record — Least-Privilege RBAC: the Permission Matrix, its Enforcement, and the Actor Audit
+
+**Version:** 1.1.1
+**Status:** **PROPOSED.** The two-lens cannon **was dispatched** by the parent session — `security-auditor` **ACCEPT-WITH-CHANGES** (F1–F10 plus the re-ruled S5′) and `martin-kleppmann-reviewer` **ACCEPT-WITH-CHANGES** (K1–K5) — and all fifteen findings are folded here, with the acting head's rulings in §2.4 and three dissents preserved verbatim in §14. **It is not RATIFIED: the acting head signs at CLOSE, after the gate audit**, and a record that pre-announced its own ratification would be the artifact deciding its own review. v1.0.0's §2 carried positions the builder had drafted in-band (no builder agent holds the Agent tool); **§2 is now the dispatched lenses' own**, and the drafts are superseded rather than kept beside them. The code half additionally carries a `longbox-invariant-reviewer` verdict — **PASS-WITH-NOTES on `39df6a9` — **and what carries across the three rebases since is stated in two halves, because it is not one claim.**
+**(i) 054's OWN files are byte-identical**: `--stat 39df6a9 e1d4f85` over `migrations/028`, `src/services/auth/{permissions,authorizationAudit}.ts`, `src/contracts/v1/permissions.ts` and the five test files is EMPTY, so a verdict taken on those files at `39df6a9` is a verdict on the files that ship.
+**(ii) `hook.ts` and `routes.ts` DID move**, under PR #87 rather than under this bead (§0's hop three), so for those the verdict does not simply carry — **it was RE-VERIFIED at the evidence base `c8106c0`**: `enforcePermission` still throws on `permission === null` (`src/services/auth/hook.ts:391-395` in this branch's head), and #87's two connector routes sit OUTSIDE `TENANT_PREFIX`, so the fail-closed default covers them by declaring `requires: null` rather than by exception. **A verdict is about bytes, and bytes that moved need looking at again**** — whose eight items are folded here too — which is a separate instrument from this record's ratification.
+**Bead:** E03-B03 `longbox-e5b.3.3` (epic LBOX-E03 `longbox-e5b.3`, gate **G2**, layer security, risk critical) — 014 §8 row E03-B03; 048 §12.4 row 6; 046 §9 rows 3, G-2, G-11; 034 §8.
+**Drafted:** 2026-09-04 by `longbox-security-tenancy-builder` · **Audit:** `longbox-invariant-reviewer` (code) and `longbox-gate-auditor` (this record) before close · **Decision owner:** Jeremy Longshore (acting head of board under the 2026-09-03 delegation)
+**Sensitivity:** Restricted internal (014 §10). It names no shop, no person and no credential. It is filed a class above 034 because §4 turns on 022 P3 and 019 T35, and the 019 rows it reasons from are themselves Restricted internal.
+**Supersedes:** nothing. It **discharges 048 §12.4 row 6** in three of its four parts — the permission matrix, the G2 defect-count assertion, and the break-glass half of T35(c)'s reconciliation — and **explicitly does not discharge the fourth**, the `identity` accessor module (§8).
+**Inputs:** 014 §8 row E03-B03 · 015 alias map · **034 v1.2.0 §2.6, §2.7, §3.1–§3.4, §5 I2/I5/I9/I13, §6 alt. 2, §8** · **048 v1.5.1 §2.2, §3.5, §6.1–§6.5, §7.1, §7.3, §11 I7/I11/I13/I14, §12.3, §12.4 rows 3a and 6** · **042 v1.4.2 §3.1, §3.4 (A8), §4.2–§4.4, §5.3, §8.1–§8.2** · **041 §2.1, §2.3, §9.2** · **046 §9 G-2/G-11, §11** · **019 v1.4.0 T24, T34, T35 (all non-waivable)** · **022 P3, P7** · 044 §2, §6 · 023 §3, §5 · 031 §1 · `src/services/auth/*`, `src/contracts/v1/{routes,permissions,errors}.ts`, `migrations/019`, `migrations/028`, `scripts/architectureRules.ts` · CLAUDE.md locked decisions 4, 5, 7.
+
+## Change log
+
+**Version convention** (006 `:6`): a **minor** bump means the content of a decision changed; a **patch** means a statement of fact was repaired with no decision changing.
+
+| Version | Date | What changed | Authority |
+|---|---|---|---|
+| **1.1.1** | **2026-09-05** | **A PATCH — three POINTERS, no decision touched, and every one of them stale for the same reason.** The gate re-audit of `3775ddb` cleared 5 of 7 blockers and 4 of 5 patches, accepted §3.4's narrowing and accepted the MINOR ruling as the better call; what remained was addresses that had gone stale ONE GENERATION LATER, after PR #87 merged and 053 was signed. **(a)** E1 moves from `hook.ts:243-248` to **`:266-271`** — #87 inserted a provider-callback block 23 lines above it — and **(f)** E4 gains **`routes.ts:368`**, a line it never carried. **(b)** The evidence base is re-pinned from a BRANCH commit to **`c8106c0` on `main`**, per 016 `:246`: a branch commit is not an address a reader who never saw the branch can resolve, and this record has now named three different ones. The invariant verdict's carry is **split into its two true halves** — 054's own files are byte-identical across every rebase, so the verdict carries; `hook.ts` and `routes.ts` moved under #87, so for those it was RE-VERIFIED at `c8106c0` (`enforcePermission` still throws on `permission === null`; #87's connector routes are outside `TENANT_PREFIX`). **(c)** §0's rebase bullet becomes THREE hops and says plainly that hop three **did** move two cites — *the bullet's own method is what caught them*, which is the argument for keeping it. **(d)** §1's heading and **(e)** the doc-number bullet name the base and the shelf as they now are (`main` ends at 055). **(g)** §3.4 records that the `owed` equality pin goes red when E03-D11 retires the two pending rows, by design. **No §3–§6 ruling moved**, which is why this is a patch under both readings the v1.1.0 row sets out. | `longbox-security-tenancy-builder` (E03-B03), on the `longbox-gate-auditor` re-audit of `3775ddb` |
+| **1.1.0** | **2026-09-04** | **A MINOR, and the number was CONTESTED — both readings are recorded because the acting head chose between them rather than inheriting one.** The `longbox-gate-auditor` read it as a **patch** under 006's THIRD clause (E03-D12, landed the same day): an unsigned record is CORRECTED rather than amended, and a pre-ratification change is a patch **provided no ruling is REVERSED** — and nothing here reverses one, because §4.3's recording scope was **widened** (a widening is not the clause's narrowing, and neither is a reversal) and *"one request is one decision"* was a **statement of fact** withdrawn rather than a ruling undone. The `longbox-invariant-reviewer` read it as a **minor** under 006:6's FIRST clause: decision CONTENT moved — the recording rule widened, `authored_by` was removed, an index was removed, two columns were added — and a minor is what 006:6 says a content change takes. **Both readings are correct about their own clause, and they are about different clauses**: the third governs the UNSIGNED-record case and asks whether a signed position was undone; the first governs content and asks whether a decision moved. **The acting head chose the MINOR**, on the ground that the third clause narrows how a correction is counted and does not exempt a record from the first when the correction changes what the system does — and, plainly, because a reader who sees only *"patch"* against a commit that changed what is recorded about people at work has been told the wrong size of thing. **The one-line consequence: there is no v1.0.1; this is v1.1.0 and the row below it is v1.0.0.** **The rest, in four groups. (1) The dispatched cannon**: §2 is replaced by the lenses' own positions (the v1.0.0 in-band drafts are superseded), §14 preserves three dissents verbatim, and fifteen findings are folded — the chain index DROPPED with §4.2 now listing the column and what it makes derivable (F1); a revocation read as an early expiry and §6 narrowed to what the query proves, filing E03-D14 (F2, F3); the shop's rate token taken BEFORE the audit write (F4); a tenant-prefixed allowlist row may not loosen its principal (F5); the self-grant CHECK stated as a SHAPE constraint (F6); §8 gains E01-B06's monitoring notice (F7); §3.2 states what the fail-closed default discloses (F9); `authored_by` dropped (F10); **the "one request is one decision" claim WITHDRAWN** and the N:1 ratio documented and pinned, filing E03-D15 (K1); `matrix_commit` stamped beside the semver, filing E03-D16 (K2); K4's companion query added and the migration comment that claimed the dropped index served T35(c) corrected as FALSE. **(2) S5′ in full**: §5's inverted parenthetical corrected, and two properties stated — nobody mints break-glass through any code path, and a multi-grant person acts as the rank-selected grant. **(3) The I13 mechanism**, landed before the lenses returned: ONE rank table in the contract layer, both readers importing it, a contract test that fails on a second one under any name; §2.4's first condition is struck as DISCHARGED and §7 I13 moves from NOT WRITTEN to TESTED. **(4) The invariant review of `39df6a9` (PASS-WITH-NOTES)**: the T35(c) query gains `m.shop_id = s.shop_id`; §7 records that 014 §8's acceptance line names two roles 034 §2.6 retired; a tautological assertion and a "cannot drift" over-claim are repaired. §7 grows to **eighteen invariants, all tested**; §12 tells a v1.0.0 reader what moved; §13 records four alternatives refused. **And 019 T35(b) gains an owner**: the accessor module is **E03-D17 (`longbox-e5b.3.27`)**, cited in §8 where the obligation previously named no bead — an open non-waivable threshold with no holder is the state 019 §3.0 exists to prevent, and it was this record's to notice rather than to leave. | `longbox-security-tenancy-builder` (E03-B03), on the dispatched cannon and the invariant review |
+| 1.0.0 | 2026-09-04 | Initial record, **PROPOSED**. Four decisions: the matrix as versioned data with two scopes and one enforcement site (§3); the actor audit as a DECISION record rather than an activity log, with the 022 P3 argument stated in full and the recording rule that follows from it (§4); the rank rule that closes an escalation E03-D07 shipped (§5); and break-glass bounded by expiry, reason and a no-self-grant CHECK (§6). Fourteen invariants (§7). §2's lenses are drafted in-band and disclosed as such. | `longbox-security-tenancy-builder` (E03-B03) |
+
+## 0. Evidence posture
+
+Per 018 §2 A1/A3.
+
+- **Every claim about what the repository does today is REPRODUCED at `c8106c0`** — `origin/main` and this branch's MERGE BASE — with a `file:line` or the command that produced it. Every command was run with `/usr/bin/grep`, never the `rg` alias (046 E26). **The base of record is a commit on `main`, not a commit on this branch**, per 016's rule that a branch commit is not an address anybody else can resolve: `ebc05ae`, `dca5da0` and `dc20112` were each the base at some point in this record's life, and the two rebases below are why naming a moving one was never going to hold.
+- **The branch was rebased THREE times before landing — onto `dca5da0`, then `dc20112`, then `c8106c0` — and the third hop DID move two §1 cites.** Checked rather than assumed, and checked the way 052 §0 learned to check it: the sharp question, not the blunt one. **Hop one**, `--stat ebc05ae dca5da0 -- src scripts migrations tests`, returns three files (PR #86's timeout declarations), none of them cited here. **Hop two**, the same command over `dca5da0 dc20112` widened with `package.json .github`, returns nothing at all — 055's ratification is docs-only. **Hop three is different, and the bullet's own method is what caught it**: `--stat dc20112 c8106c0` over the same paths returns **34 files** (PR #87, connector OAuth), and restricted to the six files §1 points at it returns **two** — `src/contracts/v1/routes.ts` (+221) and `src/services/auth/hook.ts` (+27). Both are real moves and both are repaired at v1.1.1: **E1 goes from `hook.ts:243-248` to `:266-271`** (+23, the provider-callback block #87 inserted above it) and **E4 gains `routes.ts:368`**, which it never carried. The other four cites — `invitations.ts:103-112`, `enrollment.ts:107-117`, `memberships.ts:15-16`, `019_identity_core.sql:176-180` — were re-resolved line by line at `c8106c0` and are unchanged.
+  - **The lesson this bullet is now the third recording of: pin to MAIN, not to a branch commit** (016 `:246`). v1.0.0 said `dca5da0`, v1.1.0 said `dc20112`, and each was true when written and stale one merge later. **The base of record is `c8106c0`** — a commit on `main`, which is an address a reader who never saw this branch can resolve. A repository-wide count would have answered the wrong question in either direction on all three hops: 34 changed files reads as danger and 3 as safety, when what matters is only whether one of them is a file this record points at.
+- **This record is written WITH its bead rather than after it.** Unlike 052, the code and the record are one branch; a `file:line` in §3–§6 is the code this PR adds, and §1's rows are the tree it replaces.
+- **What is TESTED and what is ASSERTED.** §3, §5 and §6 are TESTED end to end (unit, contract and integration; §7 names the file per invariant). §4's *storage* is TESTED; §4's **claim that the table is not a surveillance surface is ASSERTED BY ABSENCE** — carried by a closed column list, a single-writer architecture rule and the absence of any route, and absence is a weaker instrument than a passing test. It is stated that way on purpose.
+- **Test counts, as the commands that produce them, RE-RUN at the head this record ships with.** `/usr/bin/grep -c '^\s*it(' tests/auth-permissions.test.ts` → **29**; `… tests/contract/permission-enforcement.test.ts` → **17**; `… tests/contract/authorization-audit-surface.test.ts` → **7**; `… tests/integration/authorization-decision.test.ts` → **16**; `… tests/integration/rbac-matrix.test.ts` → **5** declared, which the generator expands to **40** executed cases (four roles × nine shop-scoped routes, plus four scope cases). `/usr/bin/grep -c 'expect(' tests/auth-permissions.test.ts` → **52**.
+  - ⚠ **Five of these six numbers were STALE at v1.0.0** — they were the counts at `39df6a9` (whose test files are byte-identical through every rebase since — §0), taken before the cannon's fold and the invariant review added cases, and they were carried forward unrecomputed. Only `authorization-audit-surface` (7) and the generated 40 were unchanged. **A count that names no commit is a count that goes wrong silently**, which is why this bullet now names the head it was taken at, and why the gate audit found five of them rather than one.
+- **No number here is a measurement**, and no percentage appears that is not a quoted threshold (021 `:62`). A permission matrix does not have an accuracy.
+- **Migration number.** This bead takes **028** and not 026: E03-B06 is building **`026`** on the same base, and **`027` is UNALLOCATED**. The gap is two wide rather than one, and the distinction earns its sentence: a reader who assumes 027 is spoken for takes 029 next and widens the gap again for nobody. The runner's ledger keys on FILENAME and applies unseen files in sorted order (`scripts/migrationDiscipline.ts` `planMigrations`), so a gap is legal, self-healing and read by nothing — verified by reading the runner rather than by assuming 044 §3 permits it, and recorded in `migrations/028`'s header and in `tests/integration/migrations.test.ts` so the next reader does not treat the gap as damage.
+- **Doc number.** 054 was the next free number when it was taken: `000-docs/` ended at **052** on `main`, and **053 was claimed but unlanded** on E03-B06's branch, so taking 054 was deliberate rather than a gap. **Both have landed since** — the shelf at the evidence base `c8106c0` ends at **055** (053 merged with PR #87; 055 is E03-D12's key-ring record), so `main` reads 052, 053, 055 and this file fills the 054 slot on merge. The bullet is updated rather than deleted because *"which number I took and why"* and *"what the shelf looks like now"* are different facts and a reader wants both.
+
+## 1. What exists today (REPRODUCED at `c8106c0`, the evidence base — §0)
+
+| # | Claim | Evidence |
+|---|---|---|
+| **E1** | **There is no permission model at all.** Every authenticated request that resolves a membership may do everything a shop-scoped route offers. The hook reads a role and stores it; nothing consults it. | `src/services/auth/hook.ts:266-271` — `const scope = await membershipAt(…); req.auth.role = scope.role;` and no reader |
+| **E2** | The comment on the resolver says so in as many words, and the quote is verbatim: *"The highest role held at that scope" (034 §3.1) needs an order, and this is it. **It grants nothing.**"* — *that* scope, not *this*, and lines 15–16 rather than 23–27, which is where v1.0.0 pointed. A misquoted line is a line the next reader cannot find. | `src/services/auth/memberships.ts:15-16` **at the base `dc20112`** — the file is rewritten by this bead, so the cite is to the tree this record describes and not to the one it ships |
+| **E3** | **`issueInvitation` checks MEMBERSHIP, not ROLE — so an `operator` could invite an `owner`.** The query filters on `app_user_id` and `shop_id` and the live-grant predicates, with no `role` clause, and its refusal is named `not_a_member`. | `src/services/auth/invitations.ts:103-112` |
+| **E4** | And the route table asserts the opposite: *"E03-D07 builds the service (`issueInvitation`, **which checks the role**)"*. A false claim in the artifact a reviewer reads to decide whether to look. | `src/contracts/v1/routes.ts:368` (inside the `POST /api/v1/invitations` pending row's `reason`) |
+| **E5** | `issueEnrollmentCode` DOES check the role, in hand-written SQL — `role IN ('owner','manager')` — which is a second, private copy of a policy nothing else can read. It ignores the grant's SCOPE entirely. | `src/services/auth/enrollment.ts:107-117` |
+| **E6** | **No actor audit exists.** `/usr/bin/grep -rn "authorization_decision\|access_audit" src/ migrations/` returns nothing at `c8106c0`. 034 §8 assigns the table to this bead and does not shape it. | command output; `034:605` |
+| **E7** | **034 I5's third clause has no mechanism.** `membership` carries the two break-glass CHECKs (`effective_until` and `reason` NOT NULL) and nothing enforces *"and is never granted by its own holder"*. | `migrations/019_identity_core.sql:176-180`; `034:557` |
+| **E8** | **042 A8's G2 exit condition — *"no defect-kind row may exist at G2"* — has no mechanism** (046 G-11). The route walk asserts that a `defect` row NAMES a closing bead, which is a different sentence. The list happens to be empty since E03-D08. | `tests/contract/route-table-scoping.test.ts`; `046:343` |
+| **E9** | 019 T35 renders **OPEN** on any citing artifact and says why: *"(a) and the route-walk are OPEN until `operator_id` exists (E03-B03)"*. `operator_id` now exists (E03-D09); the accessor module still does not. | `019:118` |
+
+## 2. The two-lens cannon — DISPATCHED
+
+The parent session convened both lenses on this branch. Both returned
+**ACCEPT-WITH-CHANGES**. Their positions are recorded here; the acting head's
+rulings are §2.4, and the dissents that survive those rulings are §14, verbatim.
+
+> **What v1.0.0 said and why it is gone.** The record's first version carried two
+> positions the *author* had drafted against each lens's published brief, because
+> a builder agent in this repository cannot dispatch one. That was labelled at the
+> time and it is superseded here rather than kept alongside: a drafted position
+> and a returned one are different objects, and keeping both would invite a reader
+> to cite the wrong one. The drafted version's guesses were **not** the findings
+> below — it anticipated three of fifteen — which is the honest measure of what
+> in-band drafting is worth.
+
+### 2.1 The security lens (`security-auditor`) — ACCEPT-WITH-CHANGES, ten findings
+
+| # | Sev | Finding | Ruling |
+|---|---|---|---|
+| **F1** | HIGH | **`authorization_decision_chain_idx` has no reader, and what it buys is the thing the table promises not to be.** A session chain is a person, a phone and a shift; an index on it is a fast *"everything this person did that day"*. **DROP the index, keep the column**, and §4.2 must LIST `session_chain_id` and state what it makes derivable unindexed. | ADOPTED. §4.2; migration 028. |
+| **F2** | HIGH | **`unreconciledBreakGlassSessions` ignores `membership_revocation`.** 034 §2.7 ends a grant with a ROW, so a window read off `effective_until` alone reports a session issued *after* a revocation as reconciled — the exact session an investigator wants. | ADOPTED, with the test the lens specified (revoked 10:00, session 11:00 → reported). |
+| **F3** | HIGH | **The query's population is "people holding some break-glass row", not T35(c)'s "Longbox-origin sessions".** There is no staff flag in this schema. Narrow §6's sentence to what the query proves. | ADOPTED. §6 narrowed; the missing predicate is filed as **E03-D14**. |
+| **F4** | MED | **The audit INSERT runs before the tenant plugin's rate buckets** — one phone with a live session can drive unbounded INSERTs without meeting a limiter. | ADOPTED: the shop's `ordinary` token is taken immediately after tenant resolution, before the write; the plugin hook skips when it has been. §10 states the coupling. |
+| **F5** | MED | No assertion stops an `AUTH_ALLOWLIST` row **under the tenant prefix** declaring a looser principal — 048 E3's shape. | ADOPTED as a contract assertion. |
+| **F6** | MED | §6 over-claims the self-grant CHECK: `granted_by IS NULL` passes and two holders granting each other passes. **It is a shape constraint.** | ADOPTED. §6 states the real bound. |
+| **F7** | MED | 022 P3's versioned monitoring notice must name this store before a live shop; §8's hand-off list omits **E01-B06**. | ADOPTED. §8. |
+| **F8** | MED | Land the I13 mechanism and repair the record's tally. | ADOPTED — landed on this branch before the cannon returned (§7 I13). |
+| **F9** | LOW | §3.2 should say that the fail-closed default **discloses declared-vs-unregistered to a member**. | ADOPTED. §3.2. |
+| **F10** | LOW | `authored_by` has no writer but the system. Drop it or justify it. | ADOPTED — dropped. |
+
+**S5′ — the re-ruled dissent, ADOPTED IN FULL.** The lens's v1.0.0 objection was that recording allowances only on mutating routes had a scheduled failure date. Re-put with evidence, it is stronger: **the rule is already failing.** `issueInvitation` and `issueEnrollmentCode` call `authorize()` on the two most privileged acts in the system and recorded nothing, because neither is a route and neither had a `mutating` flag to be true. The rule is widened to **mutating OR privileged** now, and both CLI paths call the writer. Four smaller items came with it, all adopted: §5's parenthetical about the location manager was **inverted** and is corrected; *nobody may grant `support_break_glass` through any code path* is stated as a property and asserted; a multi-grant person **acts as the rank-selected grant** and the record says so; §8 must name `authorization_decision` inside the future accessor module's scope; and §3.3 owes one sentence on the wrong-location 404 **costing more** than the wrong-shop 404.
+
+### 2.2 The consistency lens (`martin-kleppmann-reviewer`) — ACCEPT-WITH-CHANGES, five findings
+
+**K1 — the most costly to recover from.** *"The record's stated invariant — one request is one decision — is quietly false under conditions the system is explicitly built to expect."* A client retrying with the **same `Idempotency-Key`** re-enters the hook, which runs on `onRequest`, **before** `request_idempotency` dedupes anything. The authorization is genuinely taken again and genuinely recorded again, so the ratio is **N:1 decisions to effects** and the record claimed 1:1. **Ruling: ACCEPT N:1 as a documented property** — §4.5 names *both* retry vectors, §4.2's *"refused four times"* becomes *"four attempts"*, and a test **pins** the second row so the property is deliberate rather than accidental. Keying the decision on the idempotency key is filed as **E03-D15**.
+
+**K2 — `matrix_version` names a code constant, not a row.** Two deployments can both say `1.0.0` while one carries an edit nobody bumped. **Ruling: stamp the deploying commit alongside the semver on every row** (cheap; done — `matrix_commit`), and file the immutable `permission_matrix_version` snapshot table the row should ultimately point at as **E03-D16**.
+
+**K3 — the two rank tables.** *"`memberships.ts` ranks roles for the highest role held at this scope, and `permissions.ts` ranks them again to choose which allowed grant to record. They are identical today and are separate constants with a comment explaining why. I do not accept a comment as a mechanism."* The same finding the security lens filed as F8. **Discharged before the cannon returned** — one rank table in the contract layer, both readers importing it; see §7 I13. *(This is the lens's own number. The record called it K5 at v1.0.0, which is 048's K5 — a different document's numbering, for the composite session FK — and the collision is the kind of thing that turns a citation into a wrong turn.)*
+
+**K4 — with the chain index gone, the investigator's second question has no path.** *"Did the unreconciled session do anything?"* **Ruling: extend the reconciliation with a companion that reports which flagged chains produced decision rows, by unindexed join** — cheap when something is already wrong, expensive otherwise, which is the correct shape. **And the migration comment claiming the dropped index served T35(c) was FALSE** — the reconciliation touches this table not at all — so the comment is corrected rather than deleted.
+
+**K5 — the single-writer rule is verified equality-checked.** No change.
+
+### 2.3 Where the two lenses met
+
+On the recording rule. The security lens wanted privileged reads recorded; the consistency lens was indifferent to *which* decisions are recorded and insisted only that the rule be stated once and mechanically enforced. `shouldRecord` is a pure function with its own tests, so widening it satisfied both — one edit, one test, no second policy.
+
+### 2.4 Acting-head rulings
+
+**Adopt §3–§6 as amended by all fifteen findings.** Three conditions travel forward rather than being resolved here, and each names its owner:
+
+1. ~~**K3/F8 — the two rank tables agree by inspection and by nothing else.**~~ **DISCHARGED at v1.1.0, on this branch and before the lenses returned.** One rank table in the contract layer, both readers importing it, and a contract test that fails on a second one (§7 I13).
+2. **E11-B09 inherits S5′'s remaining half by name.** `support_break_glass` holds no permission today, so the widened rule cannot yet be exercised on a break-glass READ — which is the event 019 T35(c) most wants a row for. The bead that gives the role its read path revisits §4.3 in the same PR, or the rule fails silently at exactly the moment it matters.
+3. **K1's N:1 property is ACCEPTED, not fixed.** It is documented (§4.5), pinned by a test, and **E03-D15** owns the fix. An accepted property that nobody wrote down is a bug; one that is written down and tested is a design.
+
+## 3. Decision A — the matrix is DATA, it has two scopes, and it is enforced in one place
+
+### 3.1 The rule
+
+> **Who may do what is one constant, versioned, read by one decision function and by the test that pins it. A route DECLARES the permission it requires; the identity module decides who holds it. The version of the matrix that decided is recorded on every decision.**
+
+`src/contracts/v1/permissions.ts` holds the VOCABULARY — eleven permissions, each with a scope and a plain-English explanation. `src/services/auth/permissions.ts` holds the GRANTS — `ROLE_GRANTS`, four roles, and `PERMISSION_MATRIX_VERSION = "1.0.0"`.
+
+**The split across two files is the least-privilege property, not filing.** With the grants beside the route table, a new route could be added, given a new permission and granted to a role in one edit by the author who wants the route to work. With the grants one module away, adding a route can only NAME an existing permission; widening who holds one is an edit to the identity module, where a reviewer looks for exactly that.
+
+**One thing in the contract layer that is NOT a permission, and why it does not contradict the split above.** `ROLE_NAMES` and `ROLE_RANK` live beside the vocabulary. That looks at first like policy in the wrong module, and it is not: **the rank ORDERS roles and grants nothing.** No permission is held because a rank is high enough — `ROLE_GRANTS` is the only thing that grants, and it is one module away — and the closed enum is already a `CHECK` on two tables (`membership.role`, `authorization_decision.role`), so the contract layer is where it was going to have to be spelled anyway. What the rank decides is which of several allowing grants an audit row NAMES, and which role a request context reports; both are questions about ORDER, and neither is a question about permission. §7 I13 is the mechanism that keeps a second copy from appearing.
+
+**The matrix, in full:**
+
+| Permission | Scope | owner | manager | operator | support_break_glass |
+|---|---|:--:|:--:|:--:|:--:|
+| `scan.session.open` | location | ✓ | ✓ | ✓ | — |
+| `scan.session.read` | location | ✓ | ✓ | ✓ | — |
+| `scan.photo.write` | location | ✓ | ✓ | ✓ | — |
+| `scan.photo.read` | location | ✓ | ✓ | ✓ | — |
+| `scan.identify` | location | ✓ | ✓ | ✓ | — |
+| `scan.confirm` | location | ✓ | ✓ | ✓ | — |
+| `condition.record` | location | ✓ | ✓ | ✓ | — |
+| `pricing.request` | location | ✓ | ✓ | ✓ | — |
+| `listing.draft.request` | location | ✓ | ✓ | ✓ | — |
+| `membership.invite` | **shop** | ✓ | ✓ | — | — |
+| `device.enrollment.issue` | location | ✓ | ✓ | — | — |
+
+**Two things about this table are decisions and not observations.**
+
+**(a) The three shop roles hold the nine scan-flow permissions identically.** 034 §2.6 gives the operator *"the scan flow"* and the manager *"the same surfaces, scoped to their locations"*; 031 §1's representative shop is one owner and two operators at one counter doing the same work. Inventing a differentiation the shop does not have — an operator who may photograph but not price — would be 034 §6 alternative 2's permission system growing a UI. The roles differ where the shop differs: **who may bring a person or a phone into the shop.**
+
+**(b) `support_break_glass` holds NOTHING, and it is the strongest line in the record.** Longbox's own support role cannot open a scan, cannot upload a photograph, cannot spend the shop's lookup budget on `scan.identify` and cannot send a draft to the shop's store. 022 P7's *"no invisible super-admin"* is enforced by an empty list rather than by a promise. Its read path is 034 §3.3's accessor module, which is **not an HTTP route and is not built here** (§8).
+
+**The vocabulary is closed by two mechanisms rather than by intent:** every permission is REQUIRED by at least one route row — active, or pending with its bead named — and the grants are a constant with no write path, no migration and no admin screen. A permission nothing asks for fails the build.
+
+### 3.2 Enforcement: one site, driven by a `requires` column, fail-closed
+
+`RouteSpec` gains `requires: Permission | null`. The authentication hook gains a sixth step, inside the tenant branch, after the membership read:
+
+```
+Sec-Fetch-Site → Idempotency-Key → session → rate class → tenant → PERMISSION
+```
+
+**Null is permitted only outside the tenant prefix**, and that is not a category of route that skips authorization — it is the set of routes for which no role has been resolved, because a role is a property of a membership at a shop and those routes are the ones that ESTABLISH the shop. They are constrained by their PRINCIPAL instead, on 048 R12's other list.
+
+**A tenant-prefixed route whose row declares no permission is REFUSED.** That is the second fail-closed default in this hook (the first is the `device+operator` principal), and it is the half that matters: a shop-scoped route added next year does not inherit *"anyone with a membership"* by saying nothing.
+
+**What the fail-closed default DISCLOSES, stated because it is a disclosure** (F9). A member of the shop who reaches a tenant-prefixed path that is registered but declares no permission gets `403`, while a path that is not registered at all gets `404 ROUTE_NOT_FOUND`. So a signed-in member can tell *"this route exists and is misconfigured"* from *"this route does not exist"*. That is accepted rather than overlooked: the caller is already inside the tenant, the fact discloses a build mistake rather than another shop's data, and the alternative — answering 404 for a misconfigured route — would hide exactly the defect this default exists to make loud. It is not available to a stranger, because the hook refuses an anonymous request several steps earlier.
+
+**The enforcement is proved reachable, not merely present.** `tests/contract/permission-enforcement.test.ts` is written to the evidence standard `rate-class-enforcement.test.ts` had to learn the hard way — it compares OFFSETS to prove the call sits inside the tenant branch and after the membership read, requires the decision function and the audit writer to be called from inside `enforcePermission`, and pins the fail-closed default as a literal. A declaration whose enforcement nobody proved reachable is a declaration, not a control.
+
+### 3.3 Two refusals, one of which must be indistinguishable from absence
+
+| Verdict | Wire | Why |
+|---|---|---|
+| `refused_role` — no grant this person holds carries the permission | **403 `PERMISSION_DENIED`** | A fact about the caller's own role, which they can read off their own screen. Disclosing it costs nothing and lets the client say something useful. |
+| `refused_scope` — the role holds it, but not HERE | **404 `SHOP_NOT_FOUND`, no `details`** | 019 T24 and 048 §6.5. **Byte-identical to the answer a caller with no membership at all receives.** A location-scoped grant is exactly the shape where a person could otherwise learn that another location, or another shop, exists. |
+
+The RECORD keeps the difference (`refusal_reason`), because an auditor needs the answer the caller must not get.
+
+**One residual, stated rather than discovered (S5′).** The two 404s are byte-identical in their bodies and **not** in their cost: a wrong-SHOP request is refused by comparing two strings from the session, touching no table (048 R13's timing half), while a wrong-LOCATION request has already run `membershipsAt` and the permission decision. An attacker with a stopwatch can therefore distinguish *"a shop I hold nothing at"* from *"my own shop, at a counter I am not granted"* — which discloses that a second location exists at a shop they already belong to. It is accepted: the population who can measure it is the shop's own staff, the fact is one their employer knows, and closing it would mean making the cheap refusal artificially slow, which is a real cost paid on every request to hide a fact from people standing in the building.
+
+### 3.4 The two pending privileged routes stay pending
+
+`POST /api/v1/invitations` and `POST /api/v1/device-enrollment-codes` remain `pending: true` on the auth allowlist, naming **E03-D11 `longbox-e5b.3.21`** — 048 §4.1 puts issuance in a privileged session, the first factor has no bead but that one, and a route calling itself privileged while nothing enforced privilege would be a worse artifact than an honest CLI (E03-D07's ruling, unchanged). What this bead adds is the `requires` on those two rows, so **E03-D11 inherits the answer instead of choosing one**. ⚠ **It adds one to those two and to no others**: E03-B06's `GET /api/v1/connectors/shopify/install` is also `pending: true`, and it waits on **E10-B02** rather than on E03-D11. Its permission is E10-B02's to decide, and inventing a `connector.install.*` entry here to make an assertion uniform would put a permission in the matrix that no bead asked for — 034 §6 alternative 2's hazard arriving through a test. The contract test therefore requires a `requires` on a pending row **only where the closing bead is E03-D11**, and names the two rows that owe one so the exception cannot quietly empty it. ⚠ **That naming is an EQUALITY, and it goes red the day E03-D11 lands** — registering the two issuance routes retires their `pending` flags, the `owed` list empties, and the assertion fails. **That is by design and not a trap**: the bead that gives those routes a privileged session is exactly the bead that should have to look at this test, delete the pin and confirm that the permissions moved from the auth allowlist onto the route table rather than evaporating, and the permission is already ENFORCED on the CLI path (§5), so the route landing later changes only how a person reaches the act.
+
+### 3.5 No second decision-maker
+
+`authorize()` is called from four files, all inside the identity module, asserted by a contract test that strips comments first. No file under `src/routes/` may compare a role or read the grant table. The shape being refused is an `if (req.auth.role === "owner")` in a handler: a permission decision taken outside the matrix and invisible to every test in this record.
+
+## 4. Decision B — the actor audit is a DECISION record, not an activity log
+
+### 4.1 The rule
+
+> **`authorization_decision` records which permission a route asked for, which membership grant answered, under which matrix version, and whether the act was permitted. It names a GRANT and never a person, a route TEMPLATE and never a URL, and it carries no item, no duration and no count.**
+
+### 4.2 The 022 P3 argument, stated rather than assumed
+
+022 P3's CFO constraint is unambiguous: *"the cheapest way to satisfy T35 is never to build a per-operator surface, and no such surface may be built and then restricted."* A table recording every request a named person made would be a covert timeclock with a security justification stapled to it. So four properties, each a specific thing the table refuses to be:
+
+1. **It names the MEMBERSHIP, not the `app_user_id`.** The person is one join away, through `membership`, and that join is exactly what 034 §3.3's accessor rule exists to gate. The membership is also the right object: it is the AUTHORITY the act was taken under, which a role name cannot identify when a person holds two grants (a normal state during a handover — 034 §2.7's *"a role change is two rows"*).
+2. **It stores the route TEMPLATE.** `/api/v1/shops/:shopId/scan-sessions/:id/identify`, never the URL. A URL carries ids; a row carrying ids is joinable to the ITEM, which turns *"who was allowed"* into *"what they did to this book"*.
+3. **It carries no `correlation_id`, no `scan_session_id`, no IP, no user agent, no duration and no count.** Each is a real proposal somebody will make and each is refused by name, in the migration and in `tests/contract/authorization-audit-surface.test.ts`, which pins the column list closed. Adding a column is a red build and a conversation.
+4. **`matrix_version` AND `matrix_commit` are what make a past row readable.** Memberships are reconstructible; the rule applied to them is code, and code is not a row. The semver names a CONSTANT, which is exactly K2's objection — two deployments can both say `1.0.0` while one carries an edit nobody bumped — so every row also carries the commit the deciding build was made from, or the literal `unknown` when a deployment sets no build stamp. A value rather than a null, so it cannot be confused with a row written before the column existed. The immutable snapshot table this should ultimately point at is **E03-D16**.
+
+5. **`session_chain_id` is CARRIED and UNINDEXED, and F1 is the reason both halves are stated.** The column is here because 019 T35(c)'s reconciliation runs session-to-grant and a decision that cannot name its session cannot participate in it. **What it makes derivable, said plainly: joined to `app_session`, it reconstructs which decisions one person took on one phone in one shift** — which is the covert timeclock 022 P3 forbids, and the first version of this record argued the table's privacy *while shipping a dedicated index on exactly that join*. The index is gone (migration 028), so the reconstruction costs a sequential scan: available to a scheduled job that has cause, not to a casual question. **An unindexed column is a weaker control than an absent one, and this is the trade rather than a claim that the risk is gone.**
+
+**The consequence, stated as a property rather than as a hope: the most a report built on this table ALONE can say is "a manager-scoped grant was refused `membership.invite` four times."** — four ATTEMPTS, not four requests, because a client that retries with the same `Idempotency-Key` produces a second decision row for one effect (§4.5, K1). Saying anything about a person requires the membership join, and 019 T35 governs that join.
+
+**And the honest caveat.** This is a per-operator RECORD in the sense that a join reaches a person. It is not a per-operator SURFACE: no route projects it, no DTO names it, the generated OpenAPI does not contain the string, and there is no index on `membership_id` — the query *"every decision by this grant, fast"* is deliberately not optimised for. That is asserted by absence, which is weaker than a test, and §0 says so.
+
+### 4.3 Which decisions are recorded
+
+> **Every refusal, on any method. An allowance where the act MUTATES or the permission is PRIVILEGED.**
+
+The asymmetry is the whole argument. An allowance on a READ route, joined through the membership, is a record of what a named person LOOKED AT — a browsing history of the shop's own books, which is covert measurement whatever the intent behind it. An allowance on a WRITE route is the decision an auditor needs, and the act itself is already attributed by the row it produced (`operator_id`, `actor_verified` — 048 §6.3); what this adds is the AUTHORITY.
+
+A refusal is recorded whatever the method, because **a refusal is the security event**: it is what 019 T24 counts, and a refused read is the attempt most worth keeping.
+
+**The `privileged` clause is S5′, and the lens was right that the rule was ALREADY failing** rather than scheduled to. `membership.invite` and `device.enrollment.issue` — adding a person to a shop and enrolling a phone, the two acts that change who or what may act at all — are reached from operator scripts. They have no route, so they had no `mutating` flag to be true, so **the two most privileged acts in the system recorded nothing**. Privilege is now a property of the PERMISSION (`PERMISSIONS[...].privileged`), which is the only level at which it is true regardless of surface, and both CLI paths call the writer.
+
+**A CLI act records a null session and names the SCRIPT.** `route_method` is the literal `CLI` and `route_path` is `scripts/issue-invitation.ts`; `session_chain_id` is NULL under a CHECK that permits the null only for a `CLI` row, so it can never become *"a session the writer failed to record"*. Recording the script is an operational fact about how the act arrived, not a fact about a person, and it is what lets a reader tell a privileged act taken at a terminal from one taken on a phone.
+
+The rule is a pure function, `shouldRecord(verdict, { mutating, privileged })`, with its own tests — so it is a property of the system rather than of one call site, and changing it is one line and one test rather than an archaeology exercise. **§14's S5′ dissent is preserved against the version that shipped at v1.0.0**, and §8 binds E11-B09 to revisit the rule the moment break-glass holds a read permission, because a privileged READ is the event T35(c) most wants a row for and the widened rule still cannot be exercised on one.
+
+**And the growth bound is now real** (F4). The audit INSERT runs in an `onRequest` hook on the root instance; the tenant plugin's rate bucket runs after it. So a live session could reach the write without meeting a limiter, and *"bounded by requests that reach a live grant"* bounded nothing. The shop's `ordinary` token is taken immediately after tenant resolution and **before** the decision is written — which is where 042 §8.1 wanted it anyway — and the plugin's hook skips when this one has taken it, so a request still spends exactly one token. A throttled request records no decision, because none was taken.
+
+**Where authorization is not reached, nothing is recorded.** A caller with no live membership is refused by TENANCY (`SHOP_NOT_FOUND`) before any permission is evaluated, so no row is written. That is a deliberate boundary and it bounds the table: a flood cannot fill it without valid sessions and live grants. The asymmetry is stated because it is visible in the data — an expired break-glass grant leaves no authorization row at all, only the absence of one.
+
+### 4.4 One writer, one table, no readers on the wire
+
+`recordAuthorizationDecision` in `src/services/auth/authorizationAudit.ts` is the only `INSERT INTO authorization_decision` in the tree, enforced by `pnpm arch` (rule 3b) on `cost_log`'s precedent and for a sharper reason: **a second writer can record a decision no decision function took.** An audit of authority with two authors is not an audit. The rule is an EQUALITY — no writer is also a violation, because a refactor that quietly stops recording leaves an empty audit behind a green gate.
+
+### 4.5 Where it is written, and how it can tear (K1, adopted)
+
+The row is written **outside the request transaction, on the pool.** Two reasons, and the second decided it:
+
+1. **The decision is a fact about the REQUEST, not about the write.** A mutation that rolls back was still authorized; a refused request has no transaction to join at all.
+2. **It keeps the INSERT out of the hot transaction's write set.** 048 §12.2 already records the session row as a `40001` serialization-failure source under 041 §4.5's retry budget; a second write would make every authorization decision a retry candidate, and a retried transaction would write its decision twice while the domain effect happened once.
+
+**The tear, stated plainly: a decision row can commit for a request whose work then fails. The reverse cannot happen.** That is the correct direction for an audit of AUTHORITY and the wrong one for an audit of ACTS — which the domain rows already are.
+
+**And the ratio is N:1, not 1:1 — K1, the cannon's most costly finding.** v1.0.0 claimed *"one request is one decision"*, and that is false under two vectors the system is explicitly built to expect:
+
+1. **An `Idempotency-Key` REPLAY.** The hook runs on `onRequest`, **before** `request_idempotency` dedupes anything, so a client retrying the same key is authorized again and recorded again while the effect happens once. E05-B08's offline queue is a second consumer by construction (042 §2.2), so this is the normal case rather than the pathological one.
+2. **A `40001` RETRY inside the request.** The decision is written outside the transaction, so a transaction retried under 041 §4.5's budget does *not* rewrite its decision — which is the half this design gets right, and the reason it is stated beside the half it does not.
+
+**The ruling is to ACCEPT N:1 as a documented property rather than to fix it here.** Keying the decision on `(shop_id, idempotency_key)` would make it 1:1 and would move the write inside the transaction the design deliberately keeps it out of; that trade is **E03-D15 (`longbox-e5b.3.25`)'s** to make, with the lock-order consequences it implies. What this record owes in the meantime is honesty about the ratio, and a test that PINS the second row — so the property is deliberate, and the bead that changes it knows it is changing something somebody signed.
+
+**The CLI paths are the one place the rule reverses, and it is stated rather than excused.** `issueInvitation` and `issueEnrollmentCode` write their decision on the ISSUANCE transaction, because a script has no request transaction to be outside of. There, the decision and the grant are atomic — which is the stronger property when it is available, and it is available exactly because there is no hot path to keep the write off.
+
+**Fail-closed for an allowance, best-effort for a refusal (S3).** If the row cannot be written for an act about to be permitted, the request is refused (`INTERNAL_ERROR`). If it cannot be written for an act being refused, the refusal stands and the failure is logged: turning a refusal into a different refusal buys nothing, and turning it into a 500 tells a prober they hit something.
+
+### 4.6 Retention, and the heartbeat this writer owes
+
+Retention is **E03-B09's** (048 §12.4 row 4b), and this record invents no window. 019 T34's heartbeat list already names *"the break-glass access-audit writer"*; the liveness signal itself is **E13-B04's**, like every other detector's, and the writer is built so that bead has a caller rather than a design.
+
+## 5. Decision C — nobody grants a role above their own rank
+
+> **`ROLE_GRANTABLE`: an owner may name an owner, a manager or an operator; a manager may name an operator; nobody else may name anybody.**
+
+This closes **E3/E4**, a live escalation: `issueInvitation` checked that the inviter held *some* live membership, so an `operator` could invite an `owner` — reachable from `scripts/issue-invitation.ts` by anyone who could run it — while the route table claimed the service *"checks the role"*.
+
+Two rules now, both matrix data: the permission `membership.invite` — held by `owner` and `manager` and **shop**-scoped, so **a manager whose own grant is scoped to ONE LOCATION cannot use it at all**, wherever they are standing — and `mayGrantRole`. **An owner may name a second owner** because 048 §8.2's recovery nomination needs it and a shop with one owner and no second is one lost phone from having nobody.
+
+*(The parenthetical here read the other way round at v1.0.0 — "so a location manager cannot staff the shop from one storefront", which describes a restriction on WHERE the act is performed rather than on WHICH GRANT carries it. The scope rule is a property of the grant: a shop-scoped manager may invite from any counter, and a location-scoped one may not invite from their own. S5′ caught it; a sentence that inverts the subject of a least-privilege rule is worth more than a typo.)*
+
+**Two consequences worth stating as properties, because both are easy to assume and neither is written anywhere else.** First, **no role may hand out `support_break_glass` through any code path** — `ROLE_GRANTABLE` gives it to nobody and `InvitableRole` does not contain it, so the only way it arrives is a deliberate operator act against the database, under §6's CHECKs. That is the whole of how 022 P7's super-admin fails to exist. Second, **a person holding two live grants acts as the RANK-SELECTED one**: `authorize()` records the highest-ranked grant that covers the act, which is the same rank the request context reports (§7 I13), so *"which authority was this done under"* has one answer and not two.
+
+The refusal is renamed `not_a_member` → **`not_permitted`**, and the rename is part of the finding: a refusal name that describes the wrong test is how the gap survived review. **The two causes share one name** — "your role may not invite" and "your role may not invite THAT role" answer identically — so a caller cannot walk the ladder to discover which roles exist above them.
+
+`issueEnrollmentCode`'s hand-written `role IN ('owner','manager')` (E5) is replaced by the same decision function, which also gives it the SCOPE its SQL never had: `device.enrollment.issue` is location-scoped, so a manager granted at one storefront may set up a phone at that storefront and nowhere else.
+
+## 6. Decision D — break-glass is bounded in three places, because each fails differently
+
+034 §3.2's *"each layer fails differently"*, applied to the role 022 P3 calls *"the only technical read path to per-operator data"*:
+
+1. **The database CHECK** (`migrations/019`, unchanged): a `support_break_glass` grant has an expiry and states a reason.
+2. **The query** (`membershipsAt`, unchanged): `effective_until > now()` filters an expired grant out of every decision.
+3. **The decision** (`authorize`, new): a break-glass grant with no expiry, a blank reason, or an expiry already past grants NOTHING — dropped before its role is consulted. This is the third copy on purpose: the failure it guards against is **the CHECK being dropped by a future migration**, which no query and no constraint can notice.
+
+And one new constraint: **`membership_break_glass_is_never_self_granted`** — 034 I5's third clause, which had no mechanism (E7). `NOT VALID` on 023's precedent.
+
+⚠ **It is a SHAPE constraint and not the bound, and F6 is right to insist on the distinction.** `granted_by IS NULL` passes it (the bootstrap grant, deliberately), and two holders granting each other passes it. What it catches is the single most likely accident and the single most obvious abuse — one person writing their own break-glass row — and nothing more. **The real bound is that no code path in this system mints the role**: `ROLE_GRANTABLE` gives it to nobody, `InvitableRole` does not contain it, and the matrix gives it no permission to reach anything with (§5, asserted). A break-glass grant arrives by a deliberate act against the database by somebody holding the schema owner's credentials, which is a person the CHECK was never going to stop and the audit trail is (`membership` is append-only; the grant names its granter, its expiry and its reason).
+
+**019 T35(c)'s reconciliation ships as a query**, `unreconciledBreakGlassSessions` — every `app_session` of a person holding the role, minus those covered by a live, reasoned, expiring grant at the moment of issuance (048 R16: it derives from `app_session`, not from a success row in `auth_attempt`). An unmatched row is **K1**. It has no scheduler; that is E13-B04's, and shipping the predicate now means the periodic job is a caller rather than a design.
+
+**A REVOCATION is an early `effective_until`, and F2 caught that the query did not know it.** 034 §2.7 ends a grant with a ROW rather than by editing the grant, so a covering window read off `effective_until` alone reports a session issued *after* a revocation as reconciled — which is precisely the session an investigator is looking for. The predicate now excludes any grant whose revocation predates the session.
+
+⚠ **AND WHAT IT PROVES IS NARROWER THAN T35(c)'S SENTENCE (F3).** T35(c) reconciles *"Longbox-origin sessions"*. **This schema has no staff flag** and cannot tell a Longbox person from a shop's person, so the population here is *every session of a person who holds a `support_break_glass` grant at some time* — a superset of what matters and a **subset of "Longbox-origin"**. A Longbox employee who was never granted break-glass is invisible to it. That is a real gap and not a rounding: the predicate that closes it is **E03-D14**, and until it lands, any artifact citing T35(c) must cite what this query proves rather than what the threshold says.
+
+**And the investigator's second question has a path that is deliberately not cheap (K4).** *"Did the unreconciled session do anything?"* is answered by `decisionsByUnreconciledSessions`, which takes the chains the reconciliation already flagged — a handful on a bad day, none on a good one — and joins them to the decision log **by sequential scan**, because F1 removed the index that would have made it fast. A query that is cheap only when something is already wrong is the correct shape for this one. It returns counts and permission names, never a per-decision timestamp: enough to say *"this session was allowed two privileged acts"*, not enough to reconstruct a shift.
+
+## 7. Invariants
+
+| # | Invariant | Test |
+|---|---|---|
+| **I1** | The matrix is exactly the table in §3.1, at version `1.0.0`, role by role. Neither the constant nor the test may be edited to match the other without an amendment here. | `tests/auth-permissions.test.ts` |
+| **I2** | `support_break_glass` is refused **every** permission in the vocabulary, iterated rather than sampled. | `tests/auth-permissions.test.ts` |
+| **I3** | Every permission the matrix names is REQUIRED by some route row (active or pending), and every tenant-prefixed route declares a non-null `requires`. | `tests/contract/permission-enforcement.test.ts` |
+| **I4** | The enforcement call sits inside `registerAuthentication`, inside the tenant branch, after the membership read — proved by offset. | `tests/contract/permission-enforcement.test.ts` |
+| **I5** | A tenant-prefixed route with no declared permission is REFUSED (fail closed), pinned as a source literal because the behaviour has no route today. | `tests/contract/permission-enforcement.test.ts` |
+| **I6** | For every (role, route) pair the matrix allows, the request is not refused by either arm of the gate; for every pair it denies, the answer is `403 PERMISSION_DENIED`. **40 generated cases.** ⚠ Generating from the constant proves **ENFORCEMENT** and cannot prove the matrix is the intended one — a widened `ROLE_GRANTS` widens these expectations with it. I1 is the test that goes red on a widening; the two are not interchangeable and neither is sufficient alone (invariant review, note 7). | `tests/integration/rbac-matrix.test.ts` (with `tests/auth-permissions.test.ts` as I1's pin) |
+| **I7** *(019 T24, non-waivable)* | A location-scoped grant at another location is refused **byte-identically** to a caller with no membership at all — same code, same empty `details`, bodies compared field by field with `correlation_id` excluded. | `tests/integration/rbac-matrix.test.ts` |
+| **I8** | A shop-scoped permission is refused to a location-scoped grant wherever it stands, while a location-scoped permission at the same grant is allowed. | `tests/auth-permissions.test.ts`, `tests/integration/rbac-matrix.test.ts` |
+| **I9** *(022 P3; widened by S5′)* | An ordinary allowed READ writes NO audit row; an allowed WRITE writes exactly one, naming grant, role, matrix version and matrix commit; a refusal writes one whatever the method; **and a PRIVILEGED act writes one even with nothing to mutate and no route at all** — asserted over both CLI paths, where the row names the script and carries a null session. | `tests/auth-permissions.test.ts`, `tests/integration/authorization-decision.test.ts`, `tests/integration/invitation.test.ts` |
+| **I9a** *(K1)* | **A replayed `Idempotency-Key` writes a SECOND decision for ONE effect.** The property is PINNED rather than fixed (§4.5): one `request_idempotency` row, one scan session, two `authorization_decision` rows, both `allowed`. E03-D15 owns the change; this is what tells it that it is changing something signed. | `tests/integration/authorization-decision.test.ts` |
+| **I9b** *(F4)* | **A burst on a shop-scoped route is throttled BEFORE any decision is written.** Rows written equal requests that got through; the throttled remainder writes nothing, so a live session cannot grow the table without meeting a limiter. | `tests/integration/authorization-decision.test.ts` |
+| **I10** *(022 P3, 019 T35; F1/F10)* | The audit's column list is closed, carries none of eleven named forbidden columns **and no `authored_by`**, has one writer, no route, no DTO and no appearance in the generated OpenAPI. **Exactly ONE index is created, and neither of the two per-person joins — `session_chain_id` and `membership_id` — is indexed**, asserted by name and by count so a third cannot arrive unnoticed. | `tests/contract/authorization-audit-surface.test.ts`, `pnpm arch` rule 3b |
+| **I11** | The audit table refuses `UPDATE` and `DELETE` **from the app role**, under the `ENABLE ALWAYS` trigger, including in `session_replication_role='replica'`. | `tests/integration/authorization-decision.test.ts`, `tests/integration/append-only.test.ts` |
+| **I12** *(034 I5; F6, S5′)* | A break-glass grant with no expiry, no reason, or granted by its own holder is refused **by the database**; an expired one grants nothing; a well-formed one is not silently dropped; **and NO role may hand out `support_break_glass` through any code path**, asserted over every actor role. | `tests/integration/authorization-decision.test.ts`, `tests/auth-permissions.test.ts` |
+| **I13** *(K3, answered at v1.1.0)* | **There is ONE role-rank table, and neither reader may grow its own.** The rank and the closed role enum live in `src/contracts/v1/permissions.ts`; `memberships.highestRole()` and `authorize()` both import it; `Role` is derived from `ROLE_NAMES`. Four assertions: the rank is DECLARED in exactly one file; no other file under `src/` contains a role-keyed rank table under ANY name (the shape, not the identifier — `DECISION_RANK` is proof that the name is the part an author changes); every role is ranked, distinctly, with break-glass below owner and manager (034 §2.6, 022 P7); and **for every ordered pair of roles the role `authorize()` records equals the role `highestRole()` reports** — what a request context says a person IS cannot disagree with what an audit row says they ACTED AS. Both negative directions were exercised by hand before landing. | `tests/contract/permission-enforcement.test.ts` |
+| **I14** *(019 T35(c), 048 I14; F2, K4)* | `unreconciledBreakGlassSessions` returns nothing for a session covered by a live grant; returns the session whose grant had already ended; **and returns a session issued after the grant's REVOCATION, which a window read off `effective_until` alone reported as reconciled.** Its companion reports which flagged chains produced decision rows, and answers nothing for an empty list. | `tests/integration/authorization-decision.test.ts` |
+| **I15** *(042 A8, 046 G-11)* | The tenancy allowlist holds ZERO `defect`-kind rows — the G2 exit condition, which until now had no mechanism. | `tests/contract/permission-enforcement.test.ts` |
+| **I16** *(F5, 048 E3)* | **No auth-allowlist row under the tenant prefix may declare a principal other than `device+operator`.** The list is empty of such rows today; the assertion is what stops one being added in a hurry, which is the shape `GET /api/v1/shops` took. | `tests/contract/permission-enforcement.test.ts` |
+
+⚠ **A note on the bead's own acceptance line, because it names roles that no longer exist** (invariant review, note 5). 014 §8's acceptance for E03-B03 reads *"Owner, manager, grader, operator, support and partner permissions test cleanly"* — **six roles, written before 034 §2.6 ratified FOUR.** `grader` was folded into `operator` (037 makes condition a job the scan flow does, not a role that does it) and `partner` is not a membership at all: 048 §12.3 and §5.3 put partner authentication on a **bearer credential on a header, never a cookie**, which is **E18-B02's** and has no `membership` row to hold a permission. So the acceptance line is satisfied by the four roles 034 ratified, and the two it names beyond them are satisfied by being retired rather than by being tested. Saying so here is cheaper than a future reader concluding this bead shipped two-thirds of its acceptance.
+
+**Eighteen invariants, ALL EIGHTEEN TESTED at v1.1.0.** Fourteen at v1.0.0; I13, the one that was NOT WRITTEN, is now carried; the cannon added **I9a** (K1's replay property, pinned rather than fixed), **I9b** (F4's throttle-before-write) and **I16** (F5's tenant-prefix principal), and widened I9, I10, I12 and I14. The count is stated because 042 v1.1.1's gate audit found two tallies nobody re-counted after an amendment, and this record has now been re-counted three times.
+
+## 8. What this record does NOT decide, and what it hands on
+
+- **The `identity` accessor module — NOT BUILT, and this is the fourth part of 048 §12.4 row 6 that stays open.** 034 §3.3 requires exactly one module to `SELECT` `operator_id` / `created_by` / `confirmed_by` (and, per 048 R17, any column of `auth_attempt`) through one audited accessor gated on break-glass. This bead builds the ROLE's boundary and the decision record; it does not build the accessor. **019 T35(b) therefore still renders OPEN**, and RTM 048 I7's accessor half stays ⛔. The residual is named in §10 and belongs to a follow-on under E03-B03 or to E11-B09, whichever the parent session routes it to.
+  - **OBLIGATION, AND IT NOW HAS AN OWNER: E03-D17 (`longbox-e5b.3.27`, P1).** The accessor module is 019 **T35(b)**, it is non-waivable, and until this bead was filed it had no owner at all — which is the state 019 §3.0 exists to prevent, and the reason this line was written as an obligation rather than as a remark. It is a `-D` bead against E03-B03 rather than a fold into **E11-B09** (*"audit, privacy-request, support impersonation and break-glass administration"*, `longbox-e5b.11.9`) deliberately: E11-B09 is the bead that gives break-glass its READ PATH, so folding the accessor into it would mean the gate and the thing it gates arrive in one PR, and the gate would be reviewed by whoever was busy building the surface. **E11-B09 remains the first CONSUMER** and inherits §4.3's revisit (below); E03-D17 builds the module it must go through.
+  - ⚠ **AND `authorization_decision` IS INSIDE THAT MODULE'S SCOPE** (S5′). When the accessor lands, this table's `membership_id` and `session_chain_id` join to a person exactly as `operator_id` does, so they belong behind the same audited reader and the same break-glass gate. Saying so now is what stops the accessor being built around the four column names 034 §3.3 happened to list in 2026 while a fifth path sat beside it.
+- **The T24 runtime per-request assertion and the daily cross-tenant audit query** (034 §3.2, 019 T24). This bead ships the CONTRACT layer's authorization; the runtime assertion over every row read or written is a separate control and is not here.
+- **Row-level security — E03-B04's**, unchanged.
+- **Retention of `authorization_decision` — E03-B09's** (§4.6).
+- **The detector heartbeat — E13-B04's** (§4.6).
+- **The privileged session and the first factor — E03-D11's** (§3.4).
+- **The break-glass READ path and its 7-day notice to the employee (022 P3) — E11-B09's**, which also inherits **§2.1 S5′**: the moment break-glass holds a read permission, §4.3's *mutating-or-privileged* rule must be revisited, because a break-glass READ is the one event T35(c) most wants a row for and is neither mutating nor privileged as those are defined here. **It reaches per-operator data through E03-D17's accessor and not around it** — which is why the two are separate beads.
+- **The versioned monitoring notice — E01-B06's** (F7). 022 P3 requires each employee to receive, before first use, a one-page plain-language notice of what Longbox records about them; it is a **G1 artifact alongside T33** and 021 registers it as C10. **This bead creates a new store of records about people at work**, so the notice must name it — in the notice's own terms, not this record's — before a live shop. Filed on E01-B06 rather than decided here, because the wording is a [counsel] item and 021's T26 pre-send governs it.
+- **The "Longbox-origin" predicate — E03-D14 (`longbox-e5b.3.24`)'s** (F3). There is no staff flag in this schema, so T35(c)'s population cannot be expressed. §6 says what the shipped query proves instead.
+- **Keying the decision on the idempotency key — E03-D15 (`longbox-e5b.3.25`)'s** (K1). The N:1 ratio is accepted and documented here; making it 1:1 means moving the write into the request transaction, which is a lock-order decision this record deliberately does not take.
+- **The immutable `permission_matrix_version` snapshot table — E03-D16 (`longbox-e5b.3.26`)'s** (K2). `matrix_commit` is the cheap half and it ships here; a row the decision POINTS AT, rather than two strings it carries, is the durable answer.
+- **Any 019 threshold or 022 principle.** Nothing here amends one; per `019:202` a conflict halts and escalates by a 006 row.
+
+## 9. Alternatives considered
+
+**A1 — A `role` table with permission rows in the database.** Rejected, and 034 §6 alternative 2 already rejected it one level up: a permission system is a SURFACE that grows a UI, an admin screen and a way to grant yourself more. A constant cannot be misconfigured at runtime, is greppable, and makes the matrix a diff a reviewer reads.
+
+**A2 — Per-handler permission checks.** Rejected for 048 R10's reason, verbatim: a rule enforced by fourteen copies is a rule with thirteen places to be forgotten. It is also unprovable — the contract test's offset check has nothing to point at.
+
+**A3 — One refusal code for everything.** Rejected. The tenancy refusal MUST be indistinguishable from absence (T24) and the role refusal must not be, because a client that cannot tell "sign in again" from "ask your owner" shows the wrong sentence at a counter (022 P6).
+
+**A4 — Record every allowance, including reads.** Rejected on 022 P3, and it is the alternative the security lens most nearly won (§2.1 S5′). Kept as a pure function so the reversal is one line when a role exists that needs it.
+
+**A5 — Put the audit INSERT in the request transaction.** Rejected on K2: it buys atomicity at the cost of a second write in a transaction that already carries the session row, and a retried transaction would write two decisions for one effect.
+
+**A6 — Fail OPEN when the audit write fails.** Rejected on S3. A claim about "every authorized mutation" that is only usually true is a claim 021's T26 pre-send would have to strike.
+
+**A7 — Give `support_break_glass` the scan-flow permissions "so support can reproduce a problem".** Rejected outright. It would make Longbox staff able to act as a shop, which is the super-admin 022 P7 says does not exist here. Support reproduces problems on synthetic data.
+
+## 10. Consequences
+
+**What gets better.**
+- **046 G-2 closes for RBAC**, and G-11's G2 exit condition acquires the mechanism it never had.
+- A live escalation (an operator inviting an owner) is closed, and the false claim that described it as checked is corrected in the artifact that made it.
+- `issueEnrollmentCode` stops carrying a private copy of a policy, and gains the scope check its SQL never had.
+- The permission a route needs is now visible in the route table, so E03-D11 and E18-B02 inherit answers rather than choosing them.
+
+**What gets worse, stated plainly.**
+- **Every mutating request now costs one extra round trip** — an INSERT on the pool before the handler runs. It is one statement on an unindexed-by-membership table and it is bounded by "requests that reach a live grant", but it is on the hot path and it is not free. No number is quoted because none has been measured (018).
+- **The audit table grows without a sweep.** Retention is E03-B09's and until that lands the table only grows. It is now bounded by the shop's `ordinary` rate bucket, which is taken BEFORE the write (F4); before that fix it was bounded by nothing an attacker holding a live session had to respect, and "bounded by requests that reach a live grant" bounded nothing.
+- **Fail-closed-on-allowance couples every mutating route to the audit store's availability** (F4, S3). If the row cannot be written for an act about to be permitted, the request is refused — so a failure on this write stops the scan flow and not merely the audit. That is the correct direction and it is a coupling that did not exist before this bead. **E13's degraded-mode work is told**: the shop's fallback is the manual path, exactly as it is at a spend ceiling (050 §6), and nothing here silently downgrades to "permit and do not record".
+- **A decision row can outlive a rolled-back request, and a retried client writes TWO rows for one effect** (§4.5, K1). Correct for authority, wrong for acts, and now pinned by a test so nobody reads the table as a log of what happened — or reads a count of rows as a count of requests.
+- **`session_chain_id` still makes a shift reconstructible, just not cheaply** (F1, §4.2). The index is gone; the join is not. An unindexed column is a weaker control than an absent one, and the column is kept because 019 T35(c) needs it.
+- **The accessor module is still missing** (§8), so 019 T35(b) stays OPEN and any artifact citing T35 still renders OPEN — **now with an owner, E03-D17 (`longbox-e5b.3.27`), which is a strictly better position than an open threshold nobody holds but is not the same as a closed one.** This bead narrows what T35 is exposed to; it does not close it.
+- ~~**The two rank tables agree by inspection only** (K3, I13). A real defect, recorded rather than hidden.~~ **FIXED at v1.1.0**: there is one table, in the contract layer, and the third spelling of the four role names went with it. What remains is a smaller and stated cost — **the identity module now imports from the contract layer for its `Role` type**, which is a new edge in a direction that did not exist before. It is the right direction (a ratified closed enum is a contract-level fact, and it is already a `CHECK` on two tables) and `pnpm depcruise` has no rule against it, but it is an edge somebody added rather than one that was always there.
+- **`support_break_glass` now has an empty permission list, which means a break-glass session can do literally nothing over HTTP.** That is intended, and it means the role is untestable end-to-end until E11-B09 gives it its read path — the §6 shape checks are written against a role that currently has nothing to guard.
+
+## 11. Ratification
+
+**PROPOSED — NOT ratified at v1.1.0.** The two-lens cannon was dispatched and both lenses returned **ACCEPT-WITH-CHANGES**; all fifteen findings are folded and none was declined; three dissents stand in §14. **The acting head signs at CLOSE, after the `longbox-gate-auditor` verdict on this record**, and this section will say so when it does. A record that announced its own ratification in the same commit that wrote it would be the artifact deciding its own review — which is exactly the shape 052 §9 had to disclose the absence of a cannon to avoid.
+
+**What is already true and is not waiting on that signature.** The code half carries a `longbox-invariant-reviewer` verdict of **PASS-WITH-NOTES on `39df6a9`, and a re-verification PASS on all eleven items** — carrying to this head in the two halves §0 states: 054's own files are byte-identical across every rebase, and `hook.ts`/`routes.ts`, which PR #87 moved, were re-checked at `c8106c0` — the fail-closed refusal of an undeclared tenant route proven live, T24's byte-identical refusal proven on the wire, architecture-gate rule 3b proven to fire, and the new CHECKs proven to refuse in the database — with its eight notes folded here. CI's required checks are a separate and deterministic gate.
+
+**What ratification will NOT authenticate when it comes.** It will not close 019 T35(b), which needs the accessor module (§8). It will not make §10's residuals smaller by having been signed. And it will not settle E03-D14, E03-D15 or E03-D16, which are the three things this record decided NOT to decide.
+
+## 12. What changed between v1.0.0 and v1.1.0, for a reader who saw the first version
+
+v1.0.0 was PROPOSED and said so, because the builder could not dispatch the lenses. **v1.1.0 is still PROPOSED** — what changed is that the lenses have now spoken and their findings are in. A reader who saw the first version should know four things moved:
+
+1. **§2 is the lenses' own positions.** The drafted stand-ins are gone; they anticipated three of fifteen findings, which is the honest measure of the exercise.
+2. **The audit table lost an index and a column and gained one** — `authorization_decision_chain_idx` and `authored_by` out (F1, F10), `matrix_commit` in (K2).
+3. **The recording rule widened** from *mutating* to *mutating OR privileged*, and the two CLI issuance paths now write decisions (S5′). At v1.0.0 the two most privileged acts in the system recorded nothing.
+4. **The "one request is one decision" claim is withdrawn** (K1) and replaced by a documented, tested N:1 property.
+
+## 13. Alternatives the cannon raised and the acting head did NOT take
+
+- **Re-add the chain index "for the investigation path"** (raised against F1). Refused: the investigation path is a scheduled job with cause, and K4's companion serves it by sequential scan. An index is a standing affordance and a job is an act somebody takes.
+- **Make `matrix_commit` fail-closed at boot** (raised against K2). Refused: a server that will not start without a build stamp makes every local run a configuration exercise for a column that improves an audit and enforces nothing. `unknown` is an honest value.
+- **Fix K1 now by keying the decision on `(shop_id, idempotency_key)`.** Refused *here* and filed as E03-D15: it moves the write into the transaction §4.5 deliberately keeps it out of, which is a lock-order decision with its own consequences, and it should be taken by a bead that is looking at the lock order rather than by one tidying a ratio.
+- **Record every allowance, including ordinary reads** (the shape S5′ could have taken). Refused: 022 P3. The widening is to PRIVILEGE, not to volume.
+
+## 14. Dissents, preserved verbatim
+
+Three positions survive the rulings above. They are recorded in the lenses' own words, unedited, because a dissent paraphrased by the party it was aimed at is not preserved.
+
+**Security lens — S5′, on the recording rule as it shipped at v1.0.0:**
+
+> "The mutating-only recording rule is not a rule with a scheduled failure date; it is a rule that is already failing. issueInvitation and issueEnrollmentCode call authorize() and record nothing … a grant that records who created it does not record under what authority they were allowed to."
+
+*Status: ADOPTED IN FULL at v1.1.0 — the rule is widened and both paths write. The dissent stands as the record of what v1.0.0 shipped, and E11-B09 inherits the half that cannot be exercised until break-glass holds a read permission.*
+
+**Security lens — S6, on the privacy argument in §4.2:**
+
+> "I do not accept §4.2's privacy argument as written. It defends a table by the columns it refuses while shipping session_chain_id with a dedicated index … An argument that omits its own strongest counterexample is not an argument I will sign."
+
+*Status: the index is DROPPED (F1) and §4.2 now lists the column and states what it makes derivable. **The dissent is preserved rather than marked resolved**, because what it indicts is the record's method — arguing from a list of refusals — and that method is still how §4.2 is written. The correction is that the list is now complete.*
+
+**Consistency lens — finding 1, on the stated invariant:**
+
+> "the record's stated invariant ('one request is one decision') is quietly false under conditions the system is explicitly built to expect — clients WILL retry with the same Idempotency-Key."
+
+*Status: the claim is WITHDRAWN and the true property documented and tested (§4.5, I9a). The dissent is preserved because the ruling ACCEPTS the behaviour rather than fixing it, and a reader who disagrees with that acceptance should find the objection here rather than in a closed thread.*

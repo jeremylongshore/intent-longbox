@@ -64,7 +64,9 @@ async function main(): Promise<void> {
 
     if (!out.ok) {
       const why = {
-        not_a_member: "the issuer holds no live owner or manager membership at that shop (048 §7.3)",
+        not_permitted:
+          "the issuer's live role at that shop does not carry `device.enrollment.issue`, or " +
+          "carries it at another location (048 §7.3, 054 §3)",
         unknown_location: "that location does not belong to that shop (034 I7)",
         too_many_outstanding:
           "that shop already has the maximum number of outstanding enrollment codes (048 §7.1a)",

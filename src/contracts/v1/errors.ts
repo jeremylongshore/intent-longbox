@@ -340,6 +340,21 @@ export const ERROR_CODES = {
       "without parsing prose: this one means 'tap your name', that one means 'this phone is not " +
       "signed in to a shop'.",
   },
+  PERMISSION_DENIED: {
+    status: 403,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "E03-B03 / 054 §3.3 — the caller holds a live membership at this shop and their role does " +
+      "not carry the permission the route requires. **403 and not 404, and the difference is " +
+      "argued rather than defaulted**: a tenancy refusal must be indistinguishable from absence " +
+      "(019 T24, 048 §6.5) because it would otherwise tell a stranger which shops exist, whereas " +
+      "a ROLE refusal tells the caller a fact about their own membership that they can already " +
+      "read off their own screen. The refusal that could leak — the wrong LOCATION, or a " +
+      "location-scoped grant against a shop-scoped permission — is deliberately NOT this code: " +
+      "it answers SHOP_NOT_FOUND, byte-identically to a shop that was never issued.",
+  },
   PIN_INVALID: {
     status: 401,
     retryable: false,
@@ -514,6 +529,7 @@ export const MESSAGES: Record<ErrorCode, string> = {
   IDENTIFY_PROVIDER_UNAVAILABLE: "no vision provider is configured for this shop",
   SESSION_REQUIRED: "this route requires a session and none resolved",
   OPERATOR_REQUIRED: "this route requires the second of the two session chains",
+  PERMISSION_DENIED: "the role held at this shop does not carry the permission this route requires",
   PIN_INVALID: "the submitted credential was not accepted",
   PIN_REFUSED: "the chosen PIN does not satisfy the PIN policy",
   INVITATION_INVALID: "the submitted invitation code was not accepted",

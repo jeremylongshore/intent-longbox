@@ -289,7 +289,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
         now: new Date(),
       })
     );
-    expect(notPrivileged).toEqual({ ok: false, refusal: "not_a_member" });
+    expect(notPrivileged).toEqual({ ok: false, refusal: "not_permitted" });
 
     const elsewhere = await seedShop(pool, {
       name: "Shop F",

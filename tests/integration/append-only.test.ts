@@ -831,6 +831,22 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // E03-B03's actor audit (`migrations/028`). A REFUSAL, because a refusal
+      // is the row shape that names no membership — the one this suite can write
+      // without inventing a grant, and the one an attacker would most like to
+      // edit away.
+      case "authorization_decision": {
+        const r = await pool.query(
+          `INSERT INTO authorization_decision
+             (shop_id, route_method, route_path, permission, matrix_version,
+              role, session_chain_id, decision, refusal_reason)
+           VALUES ($1,'POST','/api/v1/shops/:shopId/scan-sessions','scan.session.open','1.0.0',
+                   'operator', gen_random_uuid(), 'refused', 'role')
+           RETURNING id`,
+          [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }

@@ -99,6 +99,12 @@ const ERROR_COPY = {
   // cross-site attempt — so it must not pretend to.
   SESSION_REQUIRED: "This phone needs to be set up for the shop. Ask the owner.",
   OPERATOR_REQUIRED: "Tap your name to carry on.",
+  // E03-B03. The person is signed in and their role does not cover this — so
+  // the sentence says what to do (ask somebody who can) and never why, because
+  // "why" here is the shop's own staffing and not this screen's business. It
+  // does NOT appear for a wrong location: that answers as an unknown shop, on
+  // purpose (054 §3.3).
+  PERMISSION_DENIED: "This is not something your role can do. Ask the owner or a manager.",
   PIN_INVALID: "That didn't work. Try again in a moment.",
   // E03-D07 (048 §7). Same discipline: the server answers ONE code for an
   // unknown, spent, expired or wrong-shop code, so this screen cannot tell them

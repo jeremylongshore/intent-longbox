@@ -75,6 +75,15 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "024_invitations_and_device_enrollment.sql",
       "025_authenticator_recovery_and_nomination.sql",
       "026_connector_oauth.sql",
+      // ⚠ **027 IS MISSING ON PURPOSE, AND THE GAP IS LEGAL.** E03-B03 took 028
+      // while E03-B06 was building 026 on the same base, so the two branches
+      // could not collide on a filename; 026 has since landed and 027 was never
+      // allocated to anybody. The ledger keys on FILENAME and the runner applies
+      // unseen files in sorted order (`planMigrations`), so nothing reads
+      // contiguity — this list is ORDERED, not numbered, and a future 027 would
+      // simply slot in. A reader who assumes 027 is spoken for takes 029 next
+      // and widens the gap again for nobody.
+      "028_authorization_decision.sql",
     ]);
 
     const tables = await pool.query(
@@ -156,7 +165,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  019_identity_core.sql");
     expect(secondRun).toContain("skip  020_sessions_pin_and_auth_attempt.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(26);
+    // A COUNT of files, not of the highest number: 26 on main plus this bead's
+    // 028 is 27, while the highest number is 028 and 027 does not exist.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(27);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

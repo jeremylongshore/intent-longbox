@@ -258,6 +258,50 @@ export function checkCostLogWriters(files: readonly SourceFile[]): Finding[] {
 }
 
 // ---------------------------------------------------------------------------
+// Rule 3b — 054 §4.4 (E03-B03): the actor audit has ONE writer.
+// ---------------------------------------------------------------------------
+
+/** The one module allowed to `INSERT INTO authorization_decision`. */
+export const AUTHORIZATION_DECISION_WRITER = "src/services/auth/authorizationAudit.ts";
+
+const AUTHORIZATION_DECISION_INSERT = /INSERT\s+INTO\s+authorization_decision\b/gi;
+
+/**
+ * `cost_log`'s rule, one table over, and the reason is sharper here.
+ *
+ * A second writer of a cost row is a second definition of what a call costs. A
+ * second writer of an AUTHORIZATION DECISION is a row asserting that a permission
+ * was granted when no decision function granted it — an audit table whose rows
+ * mean two different things, which is an audit table that cannot be read at all.
+ * The single writer is also what makes 054 §4.3's recording rule (every refusal;
+ * an allowance only where the route mutates) a property of the system rather than
+ * of one call site.
+ *
+ * `.match()` and not `.test()`, for the reason rule 3 records: a /g regex's
+ * `test()` advances `lastIndex` between calls and skips every other match.
+ */
+export function checkAuthorizationDecisionWriters(files: readonly SourceFile[]): Finding[] {
+  const writers = files
+    .filter(
+      (f) => f.path.startsWith("src/") && (f.text.match(AUTHORIZATION_DECISION_INSERT) ?? []).length > 0
+    )
+    .map((f) => f.path)
+    .sort();
+
+  if (writers.length === 1 && writers[0] === AUTHORIZATION_DECISION_WRITER) return [];
+  return [
+    {
+      rule: "authorization-decision-has-one-writer",
+      message:
+        `authorization_decision is written from [${writers.join(", ") || "nothing"}]; the only ` +
+        `writer may be ${AUTHORIZATION_DECISION_WRITER} (054 §4.4). A second writer can record a ` +
+        `decision no decision function took, and 019 T35 makes what this table holds ` +
+        `non-waivable — an audit of authority with two authors is not an audit.`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Rule 4 — 042 I22(a): a fixed lock acquisition order in every mutating handler.
 // ---------------------------------------------------------------------------
 
@@ -882,6 +926,7 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkSelectStar(files),
     ...checkRouteDbAccess(files),
     ...checkCostLogWriters(files),
+    ...checkAuthorizationDecisionWriters(files),
     ...checkLockOrder(files),
     ...checkScanSessionStatusWriters(files),
     ...checkSupersedesWriters(files),

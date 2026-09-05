@@ -1,4 +1,4 @@
-// THE AUTHENTICATION HOOK — one `onRequest`, four steps, in a fixed order.
+// THE AUTHENTICATION HOOK — one `onRequest`, six steps, in a fixed order.
 //
 //   1. `Sec-Fetch-Site: same-origin` (Origin allowlist fallback) on every
 //      non-`GET`/`HEAD` route — 048 §5.1 (R9), checked BEFORE anything is read;
@@ -7,7 +7,9 @@
 //   3. the session read, and the two-cookie pairing check — §3.6 (R1);
 //   4. the rate class — 048 R14, for the ANONYMOUS routes, before the
 //      short-circuit that used to skip it;
-//   5. the tenant, resolved MEMBERSHIP-FIRST from the session — §6.1 (R13).
+//   5. the tenant, resolved MEMBERSHIP-FIRST from the session — §6.1 (R13);
+//   6. the PERMISSION the route declares, decided against the grants that tenant
+//      resolution just read — E03-B03 / 054 §3.
 //
 // **The order is the security property, not a style.** Steps 1 and 2 are one
 // header lookup each and touch no disk, no database and no session, so the
@@ -16,21 +18,27 @@
 // I6(b) asserts the ordering rather than the presence, because a check in the
 // right place and a check in the wrong place return the same code.
 //
-// **It fails closed on a route it has never heard of.** The required principal
-// is `device+operator` unless the AUTH allowlist says otherwise — so a route
-// registered next year is behind the strongest requirement by DEFAULT, and its
-// author has to write a row to loosen it. A route added outside the tenant
+// **It fails closed on a route it has never heard of, TWICE.** The required
+// principal is `device+operator` unless the AUTH allowlist says otherwise — so a
+// route registered next year is behind the strongest requirement by DEFAULT, and
+// its author has to write a row to loosen it. A route added outside the tenant
 // plugin is exactly how `GET /api/v1/shops` happened (048 E3), and the fix for
-// that class is a default, not a reminder.
+// that class is a default, not a reminder. E03-B03 adds the second: a
+// tenant-prefixed route whose route-table row declares no `requires` is REFUSED,
+// so a new shop-scoped route does not inherit "anyone with a membership" by
+// saying nothing.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { LongboxError } from "../../contracts/v1/errors.js";
-import { authRowFor, routeSpecFor, type AuthPrincipal } from "../../contracts/v1/routes.js";
+import { authRowFor, routeSpecFor, type AuthPrincipal, type RouteSpec } from "../../contracts/v1/routes.js";
 import { TENANT_PREFIX } from "../../contracts/v1/schemas.js";
 import { withTransaction, type Tx } from "../../db.js";
 import type { ShopRateLimiter } from "../rateLimit.js";
 import type { AppConfig } from "../../config.js";
-import { membershipAt, type Role } from "./memberships.js";
+import { highestRole, membershipsAt, type MembershipRow, type Role } from "./memberships.js";
+import { isPrivileged } from "../../contracts/v1/permissions.js";
+import { PERMISSION_MATRIX_VERSION, authorize } from "./permissions.js";
+import { recordAuthorizationDecision, shouldRecord } from "./authorizationAudit.js";
 import {
   DEVICE_COOKIE,
   OPERATOR_COOKIE,
@@ -49,8 +57,27 @@ export interface RequestAuth {
   /** 048 §6.1 — the ONLY source of `shop_id` for a request. */
   shopId?: string;
   locationId?: string;
-  /** 034 §3.1's "highest role held at this scope". It GRANTS nothing (E03-B03's). */
+  /**
+   * 034 §3.1's "highest role held at this scope". **It still GRANTS nothing** —
+   * E03-B03 put the granting in `authorize()`, which reads the individual
+   * memberships rather than this collapsed answer, and this stays what the
+   * request context always was: what this person is, here.
+   */
   role?: Role;
+  /**
+   * The membership grant the permission decision was taken against (E03-B03).
+   * Present only on a request that was ALLOWED, and recorded on the
+   * `authorization_decision` row: it is the AUTHORITY the act was taken under,
+   * which a role name cannot identify when a person holds two grants.
+   */
+  membershipId?: string;
+  /**
+   * TRUE once the authentication hook has taken this shop's `ordinary` token
+   * (054 §4.3, F4), so the tenant plugin's hook does not take a second one for
+   * the same request. Two takes would halve every shop's declared budget, which
+   * is a rate limit nobody wrote down.
+   */
+  ordinaryTokenTaken?: boolean;
   /**
    * 048 §6.3 — every write records this and sets `actor_verified = true`, and
    * NEITHER is ever accepted from a request body.
@@ -263,12 +290,28 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
         // commonest wrong-tenant case reads nothing — which is R13's timing half
         // before the query that is R13's timing half.
         if (urlShopId !== operator.shop_id) throw new LongboxError("SHOP_NOT_FOUND");
-        const scope = await membershipAt(deps.pool, operator.app_user_id!, operator.shop_id);
+        const memberships = await membershipsAt(deps.pool, operator.app_user_id!, operator.shop_id);
         // A membership can be revoked while a session is live (048 §2.3, §3.4).
         // The session is not evidence of a membership; it is evidence of who is
         // asking, and the membership is checked every request.
-        if (!scope) throw new LongboxError("SHOP_NOT_FOUND");
-        req.auth.role = scope.role;
+        if (memberships.length === 0) throw new LongboxError("SHOP_NOT_FOUND");
+        // `memberships` is non-empty here (the line above refuses otherwise), so
+        // this is always a role; the local keeps `exactOptionalPropertyTypes`
+        // honest rather than asserting past it.
+        const held = highestRole(memberships);
+        if (held !== undefined) req.auth.role = held;
+
+        // ---- 6. the PERMISSION (E03-B03, 054 §3) ------------------------
+        //
+        // ⚠ **AUTHORIZATION IS HERE, IN THE HOOK, AND IN NO HANDLER.** The
+        // reason is the one 048 R10 gives for moving `Idempotency-Key` out of
+        // fourteen handlers: a rule enforced by fourteen copies is a rule with
+        // thirteen places to be forgotten. It runs AFTER the tenant is resolved
+        // and BEFORE any handler, so no route can read a row it was not
+        // permitted to ask for, and it is driven off the route table's
+        // `requires` column so adding a route means declaring a permission
+        // rather than remembering a check.
+        await enforcePermission(req, deps, { url, spec, operator, memberships });
       }
     }
 
@@ -291,6 +334,137 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
     flushCookies(req, reply);
     return payload;
   });
+}
+
+/**
+ * **THE PERMISSION CHECK, AND THE AUDIT ROW IT LEAVES** (E03-B03; 054 §3, §4).
+ *
+ * One function, called from one place, for every shop-scoped request.
+ *
+ * **It fails closed on a route with no declared permission.** A tenant-prefixed
+ * route absent from the route table, or present with `requires: null`, is
+ * REFUSED — not permitted. That is the same construction the principal already
+ * uses (`device+operator` unless a row says otherwise) and it is the half that
+ * matters: a shop-scoped route added next year without a `requires` does not
+ * quietly inherit "anyone with a membership", it fails until its author decides
+ * what it needs. The refusal is `PERMISSION_DENIED` rather than a 500 because
+ * from the caller's side it is exactly what it says it is.
+ *
+ * **The two refusals answer differently, on purpose** (054 §3.3):
+ *   * `refused_role` → `PERMISSION_DENIED` (403). A fact about the caller's own
+ *     role, which they can read off their own screen.
+ *   * `refused_scope` → `SHOP_NOT_FOUND` (404), **byte-identical to the answer a
+ *     caller with no membership at all gets** — no `details`, same code, same
+ *     shape. 019 T24 and 048 §6.5: a person standing at the wrong counter must
+ *     not learn that the right counter exists, and a location-scoped grant is
+ *     precisely the case where they might.
+ *
+ * **One consequence of failing closed on the table, stated because it is a
+ * behaviour change and not a bug:** Fastify auto-registers a `HEAD` for every
+ * `GET`, the route table declares only `GET` and `POST` (042 §3.1), so a `HEAD`
+ * on a shop-scoped route now answers `403` where it previously reached the
+ * handler. Nothing in this repository issues one — the phone client does not,
+ * and the route walk already filters `HEAD` out — and a `HEAD` answers the same
+ * existence question a `GET` does, so refusing an undeclared method is the right
+ * side to fail on. The tenancy answer is unaffected: a wrong shop is still
+ * `SHOP_NOT_FOUND` from step 5, before this function runs.
+ *
+ * **The audit write is fail-closed for an allowance and best-effort for a
+ * refusal**, which is not an inconsistency but the only coherent pair. If the
+ * decision row cannot be written for an act we are about to PERMIT, we do not
+ * permit it — otherwise "every authorized mutation has a decision record" is a
+ * sentence no artifact may say (021 discipline). If it cannot be written for an
+ * act we are REFUSING, the refusal still stands: turning a refusal into a
+ * different refusal buys nothing, and turning it into a 500 would tell a caller
+ * that their probe hit something.
+ */
+async function enforcePermission(
+  req: FastifyRequest,
+  deps: AuthHookDeps,
+  ctx: {
+    url: string;
+    spec: RouteSpec | undefined;
+    operator: SessionRow;
+    memberships: readonly MembershipRow[];
+  }
+): Promise<void> {
+  const permission = ctx.spec?.requires ?? null;
+  if (permission === null) {
+    // Fail closed: a shop-scoped route that declares no permission is refused.
+    // See the header — this is the default that makes the column mandatory.
+    throw new LongboxError("PERMISSION_DENIED");
+  }
+
+  // ---- the ORDINARY bucket, taken HERE and not in the tenant plugin --------
+  //
+  // ⚠ **THIS MOVED, AND THE FINDING IS THE SECURITY LENS'S F4.** The audit
+  // INSERT below runs in an `onRequest` hook on the ROOT instance, and the
+  // tenant plugin's rate bucket runs in a plugin-level hook that fires AFTER
+  // it — so one enrolled phone could drive unbounded `authorization_decision`
+  // INSERTs by holding a live session and hammering a route it is refused,
+  // never reaching the limiter at all. A table whose growth is bounded by
+  // "requests that reach a live grant" is only bounded if something bounds
+  // those.
+  //
+  // The bucket is therefore taken at the earliest point where the shop is
+  // KNOWN — immediately after tenant resolution, which is where 042 §8.1 wanted
+  // it anyway ("per shop, never per IP") — and `app.ts`'s plugin hook skips when
+  // this one has already taken it, so a request still spends exactly one token.
+  // A throttled request records NO decision, which is correct: no decision was
+  // taken.
+  const decision = deps.limiter.takeOrdinary(ctx.operator.shop_id);
+  req.auth.ordinaryTokenTaken = true;
+  if (!decision.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: decision.retryAfterSeconds });
+  }
+
+  const verdict = authorize(ctx.memberships, permission, {
+    atLocation: ctx.operator.location_id,
+    now: new Date(),
+  });
+
+  if (
+    shouldRecord(verdict, {
+      mutating: ctx.spec?.mutating ?? true,
+      privileged: isPrivileged(permission),
+    })
+  ) {
+    const record = {
+      shopId: ctx.operator.shop_id,
+      routeMethod: req.method.toUpperCase(),
+      // The TEMPLATE Fastify registered, never `req.url` (054 §4.2).
+      routePath: ctx.url,
+      permission,
+      matrixVersion: PERMISSION_MATRIX_VERSION,
+      matrixCommit: deps.config.buildCommit ?? "unknown",
+      membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+      role: verdict.role ?? null,
+      sessionChainId: ctx.operator.chain_id,
+      decision: verdict.kind === "allowed" ? ("allowed" as const) : ("refused" as const),
+      refusalReason:
+        verdict.kind === "allowed"
+          ? null
+          : verdict.kind === "refused_role"
+            ? ("role" as const)
+            : ("scope" as const),
+    };
+    try {
+      await recordAuthorizationDecision(deps.pool, record);
+    } catch (err) {
+      if (verdict.kind === "allowed") {
+        req.log.error({ err }, "authorization decision could not be recorded; refusing the request");
+        throw new LongboxError("INTERNAL_ERROR");
+      }
+      req.log.error({ err }, "authorization refusal could not be recorded");
+    }
+  }
+
+  if (verdict.kind === "allowed") {
+    req.auth.membershipId = verdict.membershipId;
+    return;
+  }
+  if (verdict.kind === "refused_scope") throw new LongboxError("SHOP_NOT_FOUND");
+  throw new LongboxError("PERMISSION_DENIED");
 }
 
 function headerOf(req: FastifyRequest, name: string): string | undefined {

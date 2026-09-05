@@ -5,37 +5,52 @@
 // never the tenant itself.** That is 034 §3.1's `RequestContext` finally having
 // something trustworthy to fill in, and it is the sentence 046 §9.2 put on this
 // bead.
+import { outranks, type RoleName } from "../../contracts/v1/permissions.js";
 import type { Queryable, Tx } from "../../db.js";
 import { retireOperatorPins } from "./pin.js";
 import { revokeSessionsOf } from "./sessions.js";
 
 /**
- * 034 §2.6's four roles, ranked for RESOLUTION only.
+ * 034 §2.6's four roles.
  *
- * "The highest role held at that scope" (034 §3.1) needs an order, and this is
- * it. **It grants nothing.** Which role may do what — the matrix, its positive
- * and negative tests, the T24 runtime assertion — is E03-B03's (048 §12.3), and
- * a rank here that started deciding permissions would be that bead's decision
- * made from a lookup table.
+ * **DERIVED, not re-spelled** (054 §2.2 K3): the closed enum and its rank live
+ * in `src/contracts/v1/permissions.ts`, because the same four names are the
+ * `membership.role` CHECK, the `authorization_decision.role` CHECK and the
+ * vocabulary the matrix is keyed on. This alias exists so the many callers that
+ * import `Role` from the identity module keep working; it is the same type.
  *
- * `support_break_glass` sits below `owner`/`manager` on purpose: it is a
- * DISTINCT named role and never a policy overlay on an admin session (034 §2.6,
- * 022 P3), so ranking it at the top would quietly make it a super-admin — the
- * exact thing 022 P7 says does not exist here.
+ * The rank this module uses for *"the highest role held at that scope"* (034
+ * §3.1) is now the SAME constant `authorize()` uses to choose which grant an
+ * audit row names. They were two identical tables with a comment explaining why,
+ * and a comment is not a mechanism.
  */
-const ROLE_RANK: Record<string, number> = {
-  owner: 4,
-  manager: 3,
-  support_break_glass: 2,
-  operator: 1,
-};
-
-export type Role = "owner" | "manager" | "operator" | "support_break_glass";
+export type Role = RoleName;
 
 export interface MembershipScope {
   shopId: string;
   role: Role;
   locationId: string | null;
+}
+
+/**
+ * ONE live grant, in the shape the permission decision reads (E03-B03).
+ *
+ * It carries the grant's `id` because that is what an `authorization_decision`
+ * row names — the AUTHORITY the act was taken under, which a role name alone
+ * cannot identify when a person holds two — and its `scopeKind` / `locationId`
+ * because 054 §3's scope rule is a property of the grant rather than of the
+ * person. `effectiveUntil` and `reason` are here for one role only: 034 §2.7
+ * requires a `support_break_glass` grant to carry both, and `authorize()` checks
+ * that in code as well as in the database's CHECK (034 §3.2's "each layer fails
+ * differently" — a CHECK cannot notice its own removal).
+ */
+export interface MembershipRow {
+  id: string;
+  role: Role;
+  scopeKind: "organization" | "shop" | "location";
+  locationId: string | null;
+  effectiveUntil: Date | null;
+  reason: string | null;
 }
 
 /**
@@ -58,8 +73,38 @@ export async function membershipAt(
   appUserId: string,
   shopId: string
 ): Promise<MembershipScope | undefined> {
+  const rows = await membershipsAt(db, appUserId, shopId);
+  if (rows.length === 0) return undefined;
+  const best = rows.reduce((a, b) => (outranks(b.role, a.role) ? b : a));
+  return { shopId, role: best.role, locationId: best.locationId };
+}
+
+/**
+ * **EVERY live grant this person holds at this shop** — the query above, widened
+ * from one row to all of them (E03-B03).
+ *
+ * `membershipAt` answers 034 §3.1's *"the highest role held at this scope"*,
+ * which is the right answer for a request context and the WRONG input to a
+ * permission decision. A person can hold two grants at one shop — 034 §2.7's
+ * *"a role change is two rows"* makes that a normal state during a handover, and
+ * a location-scoped manager who also holds a shop-scoped operator grant is a
+ * shape the schema allows today. Collapsing those to one role before deciding
+ * throws away the SCOPE that decides, and it can throw away the grant that would
+ * have allowed the act while keeping the one that does not.
+ *
+ * So the decision reads all of them and `authorize()` picks (054 §3). The SQL is
+ * unchanged in every property that matters: ONE query, ROOTED AT `membership`,
+ * joining `shop` rather than starting from it, so a shop this person holds no
+ * grant at is a shop whose row this request never loads (048 R13's
+ * membership-first EXECUTION, and its timing half).
+ */
+export async function membershipsAt(
+  db: Queryable,
+  appUserId: string,
+  shopId: string
+): Promise<MembershipRow[]> {
   const res = await db.query(
-    `SELECT m.role, m.shop_id, m.location_id
+    `SELECT m.id, m.role, m.scope_kind, m.location_id, m.effective_until, m.reason
        FROM membership m
        JOIN shop s ON s.id = m.shop_id
       WHERE m.app_user_id = $1
@@ -70,10 +115,37 @@ export async function membershipAt(
               SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)`,
     [appUserId, shopId]
   );
-  const rows = res.rows as Array<{ role: Role; shop_id: string; location_id: string | null }>;
-  if (rows.length === 0) return undefined;
-  const best = rows.reduce((a, b) => ((ROLE_RANK[b.role] ?? 0) > (ROLE_RANK[a.role] ?? 0) ? b : a));
-  return { shopId: best.shop_id, role: best.role, locationId: best.location_id };
+  return (
+    res.rows as Array<{
+      id: string;
+      role: Role;
+      scope_kind: MembershipRow["scopeKind"];
+      location_id: string | null;
+      effective_until: Date | string | null;
+      reason: string | null;
+    }>
+  ).map((r) => ({
+    id: r.id,
+    role: r.role,
+    scopeKind: r.scope_kind,
+    locationId: r.location_id,
+    effectiveUntil: r.effective_until === null ? null : new Date(r.effective_until),
+    reason: r.reason,
+  }));
+}
+
+/**
+ * 034 §3.1's *"the highest role held at this scope"*, over rows already read.
+ *
+ * It is what fills `RequestContext.role`, and — as ever — **it grants nothing**:
+ * `authorize()` reads the individual grants, not this. The two exist together
+ * because they answer different questions, and the request context's question
+ * ("what is this person here?") has an answer even when the permission
+ * question's answer is no.
+ */
+export function highestRole(memberships: readonly MembershipRow[]): Role | undefined {
+  if (memberships.length === 0) return undefined;
+  return memberships.reduce((a, b) => (outranks(b.role, a.role) ? b : a)).role;
 }
 
 export interface ShopSummary {

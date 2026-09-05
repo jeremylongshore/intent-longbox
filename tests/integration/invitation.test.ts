@@ -458,7 +458,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(over).toEqual({ ok: false, refusal: "too_many_outstanding" });
   });
 
-  it("refuses to issue for a shop the inviter holds no live membership at", async () => {
+  it("refuses to issue for a shop the inviter holds no live grant at", async () => {
     const out = await withTransaction(pool, async (tx) =>
       issueInvitation(tx, {
         shopId: otherShopId,
@@ -469,7 +469,146 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
         now: new Date(),
       })
     );
-    expect(out).toEqual({ ok: false, refusal: "not_a_member" });
+    // E03-B03 renamed the refusal: the test is a ROLE and a SCOPE, not a
+    // membership, and the two causes deliberately share one name so a caller
+    // cannot walk the ladder to learn which roles exist above them.
+    expect(out).toEqual({ ok: false, refusal: "not_permitted" });
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-B03 — THE ESCALATION THIS SERVICE SHIPPED WITH, AND ITS NEGATIVES.
+  //
+  // `issueInvitation` checked that the inviter held SOME live membership and
+  // nothing else, so an OPERATOR could invite an OWNER. It was reachable from
+  // `scripts/issue-invitation.ts` by anyone who could run it, and the route
+  // table's own comment claimed the service "checks the role". The cases below
+  // were never written because nobody looked; they are written now.
+  // -------------------------------------------------------------------------
+
+  async function decisionCount(): Promise<number> {
+    const res = await pool.query(`SELECT count(*)::int AS n FROM authorization_decision`);
+    return (res.rows[0] as { n: number }).n;
+  }
+
+  async function decisionsSince(mark: number): Promise<
+    Array<{
+      route_method: string;
+      route_path: string;
+      permission: string;
+      session_chain_id: string | null;
+      decision: string;
+      role: string | null;
+      refusal_reason: string | null;
+    }>
+  > {
+    const res = await pool.query(
+      `SELECT route_method, route_path, permission, session_chain_id, decision, role, refusal_reason
+         FROM authorization_decision ORDER BY decided_at, id OFFSET $1`,
+      [mark]
+    );
+    return res.rows as Awaited<ReturnType<typeof decisionsSince>>;
+  }
+
+  it("refuses an OPERATOR issuing any invitation at all (054 §3)", async () => {
+    for (const role of ["owner", "manager", "operator"] as const) {
+      const out = await withTransaction(pool, async (tx) =>
+        issueInvitation(tx, {
+          shopId,
+          appUserId: await newcomer(),
+          role,
+          invitedBy: identity.operatorId,
+          now: new Date(),
+        })
+      );
+      expect(out, `an operator issued a ${role} invitation`).toEqual({
+        ok: false,
+        refusal: "not_permitted",
+      });
+    }
+  });
+
+  it("refuses a MANAGER inviting a manager or an owner, and allows them an operator (054 §5)", async () => {
+    const manager = await insertUser(pool, `mgr-${randomUUID().slice(0, 8)}@example.invalid`, "Person Mgr");
+    await pool.query(
+      `INSERT INTO membership (app_user_id, shop_id, scope_kind, role) VALUES ($1,$2,'shop','manager')`,
+      [manager, shopId]
+    );
+    for (const role of ["owner", "manager"] as const) {
+      const refused = await withTransaction(pool, async (tx) =>
+        issueInvitation(tx, {
+          shopId,
+          appUserId: await newcomer(),
+          role,
+          invitedBy: manager,
+          now: new Date(),
+        })
+      );
+      expect(refused, `a manager issued a ${role} invitation`).toEqual({
+        ok: false,
+        refusal: "not_permitted",
+      });
+    }
+    const allowed = await withTransaction(pool, async (tx) =>
+      issueInvitation(tx, {
+        shopId,
+        appUserId: await newcomer(),
+        role: "operator",
+        invitedBy: manager,
+        now: new Date(),
+      })
+    );
+    expect(allowed.ok).toBe(true);
+  });
+
+  it("RECORDS its authorization decision, allowed and refused, from a surface with no route (S5′)", async () => {
+    // 054 §4.3: a PRIVILEGED act records its decision whatever surface it was
+    // reached from. Inviting a person is one of the two, and it is reached from
+    // a script — so under the first version of the recording rule, which keyed
+    // on whether a ROUTE mutated, the most privileged act in the system recorded
+    // nothing at all. The row names the SCRIPT and carries a null session,
+    // because a CLI has neither a route template nor a session.
+    const before = await decisionCount();
+    await withTransaction(pool, async (tx) =>
+      issueInvitation(tx, {
+        shopId,
+        appUserId: await newcomer(),
+        role: "operator",
+        invitedBy: identity.ownerId,
+        now: new Date(),
+      })
+    );
+    await withTransaction(pool, async (tx) =>
+      issueInvitation(tx, {
+        shopId,
+        appUserId: await newcomer(),
+        role: "owner",
+        invitedBy: identity.operatorId,
+        now: new Date(),
+      })
+    );
+    const rows = await decisionsSince(before);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.route_method).toBe("CLI");
+      expect(row.route_path).toBe("scripts/issue-invitation.ts");
+      expect(row.permission).toBe("membership.invite");
+      expect(row.session_chain_id).toBeNull();
+    }
+    expect(rows[0]).toMatchObject({ decision: "allowed", role: "owner", refusal_reason: null });
+    expect(rows[1]).toMatchObject({ decision: "refused", role: "operator", refusal_reason: "role" });
+  });
+
+  it("lets an OWNER name a second owner — 048 §8.2's recovery nomination needs it", async () => {
+    const out = await withTransaction(pool, async (tx) =>
+      issueInvitation(tx, {
+        shopId,
+        appUserId: await newcomer(),
+        role: "owner",
+        invitedBy: identity.ownerId,
+        now: new Date(),
+      })
+    );
+    expect(out.ok).toBe(true);
   });
 
   it("refuses a PIN the policy forbids WITHOUT spending the invitation", async () => {

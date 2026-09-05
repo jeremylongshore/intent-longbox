@@ -29,6 +29,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
+  AUTHORIZATION_DECISION_WRITER,
+  checkAuthorizationDecisionWriters,
   checkCostLogWriters,
   checkIdentityFunctionSeparation,
   checkIdentityPairEdit,
@@ -271,10 +273,14 @@ describe("the non-graph rules, against the real tree", () => {
     expect(files.map((f) => f.path)).toContain("src/routes/scanSessions.ts");
   });
 
-  it("finds no violation of any of the six rules", () => {
+  it("finds no violation of any of the seven rules", () => {
     expect(checkSelectStar(files)).toEqual([]);
     expect(checkRouteDbAccess(files)).toEqual([]);
     expect(checkCostLogWriters(files)).toEqual([]);
+    // E03-B03's rule 3b, asserted against the REAL tree for the same reason the
+    // `cost_log` one is: the single writer is a property of the tree, not of a
+    // comment on the writer.
+    expect(checkAuthorizationDecisionWriters(files)).toEqual([]);
     expect(checkLockOrder(files)).toEqual([]);
     expect(checkScanSessionStatusWriters(files)).toEqual([]);
     expect(checkSupersedesWriters(files)).toEqual([]);
@@ -394,6 +400,26 @@ describe("the non-graph rules, against fixtures that violate them", () => {
 
   it("029 §2.8: cost_log with NO writer is also a violation — the rule is an equality", () => {
     expect(checkCostLogWriters([{ path: "src/services/costLog.ts", text: "nothing" }])).toHaveLength(1);
+  });
+
+  it("054 §4.4: a second writer of authorization_decision is a violation", () => {
+    // The negative direction, because a rule that has never failed is
+    // indistinguishable from one that cannot. A handler appending its own
+    // decision row would be recording an authorization no decision function took.
+    const findings = checkAuthorizationDecisionWriters([
+      { path: AUTHORIZATION_DECISION_WRITER, text: "INSERT INTO authorization_decision (a)" },
+      { path: "src/routes/scanSessions.ts", text: "INSERT INTO authorization_decision (a)" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/routes/scanSessions.ts");
+  });
+
+  it("054 §4.4: the audit table with NO writer is also a violation — the rule is an equality", () => {
+    // The failure that matters more in practice: a refactor that quietly stops
+    // recording decisions leaves an empty audit behind a green gate.
+    expect(
+      checkAuthorizationDecisionWriters([{ path: AUTHORIZATION_DECISION_WRITER, text: "nothing" }])
+    ).toHaveLength(1);
   });
 
   it("041 §3.3: a second writer of supersedes_id is a violation", () => {

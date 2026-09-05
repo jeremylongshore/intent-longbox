@@ -214,6 +214,16 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
       "derivation and by an audited break-glass query; any other read is an architecture-gate " +
       "failure. An event about a failed PIN is, by construction, one of those other reads.",
   },
+  {
+    table: "authorization_decision",
+    rule:
+      "E03-B03 / 054 §4: the SAME rule one step further — an authorization fact is not a subject " +
+      "of the session event stream, and this one would be the worst offender of the set. Every " +
+      "row names a membership and a session chain, so publishing it would put the authority " +
+      "structure of every shop on a bus whose consumers are, by design, many (019 T35 " +
+      "non-waivable; 022 P3). It has exactly two readers by construction: the retention sweep " +
+      "(E03-B09) and an audited review, and neither is a consumer.",
+  },
 
   // ---------------------------------------------------------------------------
   // E03-D07 — INVITATIONS, DEVICE ENROLLMENT AND THE PIN RETIREMENT (048 §7,

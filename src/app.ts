@@ -210,6 +210,18 @@ export async function buildApp(
         // after this bead means a route the auth allowlist exempted. 042 §8.1's
         // rule is "per shop, never per IP"; what ran before was "per
         // shop-id-string a caller chose", which is not the same rule.
+        // E03-B03 (054 §4.3, F4): the AUTHENTICATION hook now takes this token
+        // itself, immediately after tenant resolution and BEFORE it writes an
+        // authorization-decision row — because this hook runs after that one, and
+        // an audit INSERT reachable before any limiter is an unbounded write path
+        // for anybody holding a live session. When it has taken the token, this
+        // hook takes none: two takes for one request would halve every shop's
+        // declared budget, which is a rate limit nobody wrote down.
+        //
+        // It stays here rather than being deleted, because it is the site for any
+        // request the authentication hook did not bucket — and "which requests
+        // those are" is a property of the auth allowlist, which changes.
+        if (req.auth?.ordinaryTokenTaken === true) return;
         const shopId = req.auth?.shopId ?? (req.params as { shopId?: string } | undefined)?.shopId;
         if (!shopId) return;
         const decision = deps.limiter.takeOrdinary(shopId);

@@ -93,6 +93,25 @@ export interface AppConfig {
    * limit". The default is the safe value, so an omission tightens.
    */
   spendCeilings?: SpendCeilings;
+  /**
+   * **The build's commit SHA, stamped on every `authorization_decision` row**
+   * (E03-B03, 054 §4.2; the consistency lens's K2).
+   *
+   * `matrix_version` is a semver over `ROLE_GRANTS`, and a semver names a
+   * CONSTANT rather than a row: two deployments can both say `1.0.0` while one
+   * of them carries an edit nobody bumped. K2's ruling is that the cheap half of
+   * the fix ships now — record the commit the decision was taken under, so a
+   * past row resolves to bytes rather than to a version somebody maintained by
+   * hand. The expensive half, an immutable `permission_matrix_version` snapshot
+   * table the row points at, is **E03-D16**.
+   *
+   * OPTIONAL and defaulted to `"unknown"` rather than fail-closed, deliberately:
+   * a deployment that does not set it records an honest `unknown`, and a server
+   * that refused to boot without a build stamp would make every local `pnpm dev`
+   * a configuration exercise for a column that improves an audit rather than
+   * enforcing a control. `.env.example` names it; the deploy sets it.
+   */
+  buildCommit?: string;
 }
 
 /** Paid identify calls per shop per day, by whose money pays (050 §6.4). */
@@ -105,6 +124,21 @@ export interface SpendCeilings {
 
 /** The env var naming the deployment's public origin(s), comma-separated. */
 export const PUBLIC_ORIGIN_ENV = "LONGBOX_PUBLIC_ORIGIN";
+
+/** The env var carrying the deployed commit (E03-B03 / 054 §4.2, K2). */
+export const BUILD_COMMIT_ENV = "LONGBOX_BUILD_SHA";
+
+/**
+ * The commit this process was built from, or `"unknown"`.
+ *
+ * `"unknown"` is a VALUE and not an absence: an audit row that says it does not
+ * know which build decided is a better artifact than one with a null nobody can
+ * tell from a column that was added later.
+ */
+export function buildCommit(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (env[BUILD_COMMIT_ENV] ?? "").trim();
+  return raw.length === 0 ? "unknown" : raw.slice(0, 40);
+}
 
 export function publicOrigins(env: NodeJS.ProcessEnv = process.env): readonly string[] {
   return (env[PUBLIC_ORIGIN_ENV] ?? "")
@@ -269,6 +303,7 @@ export function loadConfig(): AppConfig {
     // seal any install completed in that process under a key it cannot restore.
     connectorKeys: requireConnectorKey(),
     publicOrigins: publicOrigins(),
+    buildCommit: buildCommit(),
     spendCeilings: assertSpendCeilingsOrThrow(
       {
         shop: num(SPEND_CEILING_ENV.shop, PROVISIONAL_SHOP_METERED_BUDGET),

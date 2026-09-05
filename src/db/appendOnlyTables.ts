@@ -676,6 +676,24 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: false,
   },
   {
+    table: "authorization_decision",
+    trigger: "authorization_decision_append_only",
+    since: "028_authorization_decision.sql",
+    // E03-B03 / 054 §4. A decision is a thing that HAPPENED: which permission a
+    // route asked for, which grant answered, and whether the act was permitted.
+    // It is never corrected and never re-decided in place — when the matrix
+    // changes, the OLD rows keep the old `matrix_version` and stay true, which is
+    // the whole reason that column exists.
+    //
+    // Not an external observation: the decision is Longbox's own act, so
+    // `observed_at` would order nothing (041 §2.5). Not session-scoped: it
+    // carries no `scan_session_id` and deliberately never will, because a
+    // decision joinable to an item is a record of what a person did to that item
+    // (022 P3, 054 §4.2).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "vertical_pack_version",
     trigger: "vertical_pack_version_append_only",
     since: "016_catalog_core.sql",

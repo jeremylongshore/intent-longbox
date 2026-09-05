@@ -61,6 +61,10 @@
 import type { Queryable, Tx } from "../../db.js";
 import { digestOf, mintEnrollmentCode } from "./codes.js";
 import { ENROLLMENT_TTL_MS, MAX_OUTSTANDING_ENROLLMENT_CODES_PER_SHOP } from "./policy.js";
+import { membershipsAt } from "./memberships.js";
+import { buildCommit } from "../../config.js";
+import { recordAuthorizationDecision } from "./authorizationAudit.js";
+import { PERMISSION_MATRIX_VERSION, authorize } from "./permissions.js";
 import { recordFailure } from "./pin.js";
 import { redemptionWait } from "./invitations.js";
 import { mintDeviceCredential } from "./devices.js";
@@ -74,7 +78,12 @@ export interface IssuedEnrollmentCode {
   expiresAt: Date;
 }
 
-export type EnrollmentIssueRefusal = "too_many_outstanding" | "not_a_member" | "unknown_location";
+/**
+ * `not_permitted` replaces `not_a_member` (E03-B03): the test is a ROLE and a
+ * SCOPE, not a membership, and a refusal name that describes the wrong test is
+ * how `issueInvitation`'s missing role check survived review next door.
+ */
+export type EnrollmentIssueRefusal = "too_many_outstanding" | "not_permitted" | "unknown_location";
 
 /**
  * Issue an enrollment code.
@@ -104,17 +113,34 @@ export async function issueEnrollmentCode(
     now: Date;
   }
 ): Promise<{ ok: true; enrollment: IssuedEnrollmentCode } | { ok: false; refusal: EnrollmentIssueRefusal }> {
-  const issuer = await tx.query(
-    `SELECT m.id FROM membership m
-      WHERE m.app_user_id = $1 AND m.shop_id = $2
-        AND m.role IN ('owner','manager')
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
-      LIMIT 1`,
-    [args.issuedBy, args.shopId]
-  );
-  if (issuer.rows.length === 0) return { ok: false, refusal: "not_a_member" };
+  // E03-B03: the role list that was spelled here in SQL — `role IN
+  // ('owner','manager')` — is now read off the matrix, so there is ONE statement
+  // of who may equip a store and the CLI, the (pending) route and the tests all
+  // read it. `device.enrollment.issue` is LOCATION-scoped: a manager granted at
+  // one storefront may set up a phone AT THAT STOREFRONT and nowhere else, which
+  // the old query could not express because it never looked at the scope.
+  const memberships = await membershipsAt(tx, args.issuedBy, args.shopId);
+  const verdict = authorize(memberships, "device.enrollment.issue", {
+    atLocation: args.locationId,
+    now: args.now,
+  });
+  // 054 §4.3 (S5′): the second of the two privileged acts, recorded on the same
+  // terms as the first — the surface is the script, the chain is null, and the
+  // row rides the issuance transaction because a CLI has none to be outside of.
+  await recordAuthorizationDecision(tx, {
+    shopId: args.shopId,
+    routeMethod: "CLI",
+    routePath: "scripts/issue-enrollment-code.ts",
+    permission: "device.enrollment.issue",
+    matrixVersion: PERMISSION_MATRIX_VERSION,
+    matrixCommit: buildCommit(),
+    membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+    role: verdict.role ?? null,
+    sessionChainId: null,
+    decision: verdict.kind === "allowed" ? "allowed" : "refused",
+    refusalReason: verdict.kind === "allowed" ? null : verdict.kind === "refused_scope" ? "scope" : "role",
+  });
+  if (verdict.kind !== "allowed") return { ok: false, refusal: "not_permitted" };
 
   const location = await tx.query(`SELECT l.id FROM location l WHERE l.id = $1 AND l.shop_id = $2`, [
     args.locationId,

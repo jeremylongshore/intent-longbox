@@ -21,6 +21,7 @@
 // row may exist at G2.
 import type { ZodTypeAny } from "zod";
 import type { ErrorCode } from "./errors.js";
+import type { Permission } from "./permissions.js";
 import * as s from "./schemas.js";
 
 export type RouteKind = "exemption" | "defect";
@@ -232,6 +233,23 @@ export interface AuthAllowlistRow {
    */
   readonly pending?: true;
   readonly closingBead?: string;
+  /**
+   * The permission a PENDING privileged route will require when it lands
+   * (E03-B03, 054 §3.4).
+   *
+   * It is here rather than on the route table because a pending route has no row
+   * there — `ROUTES` generates the OpenAPI document, and a route in the document
+   * that the server does not serve is a lie in a published artifact. The
+   * permission is still decided NOW, by the bead that owns the matrix, so that
+   * E03-D11 inherits an answer instead of choosing one — the same construction
+   * this row's `principal` already uses, and the same reason.
+   *
+   * The permission is already ENFORCED on the CLI path E03-D07 built
+   * (`issueInvitation` / `issueEnrollmentCode` call the same decision function),
+   * so the route landing later does not change who may do the thing; it changes
+   * only how they reach it.
+   */
+  readonly requires?: Permission;
 }
 
 export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
@@ -353,6 +371,7 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     path: "/api/v1/invitations",
     principal: "device+operator",
     kind: "route",
+    requires: "membership.invite",
     pending: true,
     closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
@@ -431,6 +450,7 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     path: "/api/v1/device-enrollment-codes",
     principal: "device+operator",
     kind: "route",
+    requires: "device.enrollment.issue",
     pending: true,
     closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
@@ -525,6 +545,26 @@ export interface RouteSpec {
   readonly mutating: boolean;
   /** 042 §8.2 — only `identify` spends money. */
   readonly rateClass: RateClass;
+  /**
+   * **The permission this route requires (E03-B03, 054 §3).**
+   *
+   * `null` ONLY for a route outside the tenant prefix. That is not a category of
+   * route that skips authorization — it is the set of routes for which no role
+   * has been resolved yet, because a role is a property of a MEMBERSHIP AT A
+   * SHOP and those routes are exactly the ones that establish the shop (the
+   * probe, the two credential exchanges, the picker, *my shops*, the two
+   * redemptions). They are constrained by their PRINCIPAL instead, on the auth
+   * allowlist, which is the other of 048 R12's two lists.
+   *
+   * **Every tenant-prefixed route declares a non-null permission, and the hook
+   * fails closed on one that does not** — a shop-scoped route added without a
+   * `requires` is refused, not permitted. `tests/contract/permission-enforcement.test.ts`
+   * asserts the rule in both directions AND asserts the hook actually calls the
+   * decision function, on the same evidence standard
+   * `rate-class-enforcement.test.ts` had to learn: a declaration whose
+   * enforcement nobody proved reachable is a declaration, not a control.
+   */
+  readonly requires: Permission | null;
   readonly request: ZodTypeAny | null;
   /**
    * The QUERY schema, for a route whose input arrives in the query string
@@ -579,6 +619,13 @@ const COMMON: readonly ErrorCode[] = [
   // have.
   "SESSION_REQUIRED",
   "OPERATOR_REQUIRED",
+  // E03-B03, and it belongs in COMMON for exactly the reason SESSION_REQUIRED
+  // does: the refusal comes from the HOOK, over a `requires` every shop-scoped
+  // route declares, so it is total by construction. `COMMON` is spread only into
+  // the tenant-prefixed rows (the sessionless routes spell their own lists), so
+  // adding it here declares it precisely where a role can be refused and nowhere
+  // else — `/healthz` does not grow a 403.
+  "PERMISSION_DENIED",
   "VALIDATION_FAILED",
   "SESSION_NOT_FOUND",
   "RATE_LIMITED",
@@ -598,6 +645,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: "/healthz",
     pluginPath: null,
+    requires: null,
     mutating: false,
     rateClass: "none",
     request: null,
@@ -610,6 +658,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: `${s.API_PREFIX}/shops`,
     pluginPath: null,
+    requires: null,
     mutating: false,
     // 048 R14's device class, for the same reason `GET /api/v1/operators` carries
     // it: an authenticated read outside the tenant plugin has no ordinary bucket
@@ -630,6 +679,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/device-sessions`,
     pluginPath: null,
+    requires: null,
     mutating: true,
     rateClass: "device",
     request: s.deviceSessionRequest,
@@ -642,6 +692,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: `${s.API_PREFIX}/operators`,
     pluginPath: null,
+    requires: null,
     mutating: false,
     rateClass: "device",
     request: null,
@@ -654,6 +705,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/operator-sessions`,
     pluginPath: null,
+    requires: null,
     mutating: true,
     rateClass: "device",
     request: s.operatorSessionRequest,
@@ -673,6 +725,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/operator-sessions/end`,
     pluginPath: null,
+    requires: null,
     mutating: true,
     rateClass: "device",
     request: s.endOperatorSessionRequest,
@@ -706,6 +759,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/invitations/redemptions`,
     pluginPath: null,
+    requires: null,
     mutating: true,
     rateClass: "ordinary",
     request: s.invitationRedemptionRequest,
@@ -731,6 +785,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/device-enrollments`,
     pluginPath: null,
+    requires: null,
     mutating: true,
     rateClass: "ordinary",
     request: s.deviceEnrollmentRequest,
@@ -759,6 +814,11 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: `${s.API_PREFIX}/connectors/shopify/callback`,
     pluginPath: null,
+    // E03-B03: outside the tenant prefix, so no membership is resolved and no
+    // permission can be evaluated. This route's caller is a PROVIDER, not a
+    // person — it authenticates by signature (or by the state it was issued),
+    // which is a different question from what a role may do.
+    requires: null,
     mutating: true,
     // `ordinary`, keyed on the shop the STATE names (048 R14's shape). The
     // hook takes the route's aggregate bucket because the shop is unknown until
@@ -790,6 +850,11 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/connectors/shopify/webhooks`,
     pluginPath: null,
+    // E03-B03: outside the tenant prefix, so no membership is resolved and no
+    // permission can be evaluated. This route's caller is a PROVIDER, not a
+    // person — it authenticates by signature (or by the state it was issued),
+    // which is a different question from what a role may do.
+    requires: null,
     mutating: true,
     // `ordinary`, keyed on the shop the SIGNED DOMAIN names — taken in
     // `receiveWebhook` after the HMAC, for the same reason as the callback.
@@ -813,6 +878,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions`,
     pluginPath: "/scan-sessions",
+    requires: "scan.session.open",
     mutating: true,
     rateClass: "ordinary",
     request: s.createSessionRequest,
@@ -825,6 +891,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id`,
     pluginPath: "/scan-sessions/:id",
+    requires: "scan.session.read",
     mutating: false,
     rateClass: "ordinary",
     request: null,
@@ -837,6 +904,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/photos`,
     pluginPath: "/scan-sessions/:id/photos",
+    requires: "scan.photo.write",
     mutating: true,
     rateClass: "ordinary",
     request: null,
@@ -854,6 +922,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "GET",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/photos/:photoId`,
     pluginPath: "/scan-sessions/:id/photos/:photoId",
+    requires: "scan.photo.read",
     mutating: false,
     rateClass: "ordinary",
     request: null,
@@ -869,6 +938,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/identify`,
     pluginPath: "/scan-sessions/:id/identify",
+    requires: "scan.identify",
     mutating: true,
     rateClass: "metered",
     request: s.identifyRequest,
@@ -881,6 +951,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/confirm`,
     pluginPath: "/scan-sessions/:id/confirm",
+    requires: "scan.confirm",
     mutating: true,
     rateClass: "ordinary",
     request: s.confirmRequest,
@@ -893,6 +964,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/condition`,
     pluginPath: "/scan-sessions/:id/condition",
+    requires: "condition.record",
     mutating: true,
     rateClass: "ordinary",
     request: s.conditionRequest,
@@ -905,6 +977,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/price`,
     pluginPath: "/scan-sessions/:id/price",
+    requires: "pricing.request",
     mutating: true,
     rateClass: "ordinary",
     request: s.priceRequest,
@@ -917,6 +990,7 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.TENANT_PREFIX}/scan-sessions/:id/draft`,
     pluginPath: "/scan-sessions/:id/draft",
+    requires: "listing.draft.request",
     mutating: true,
     rateClass: "ordinary",
     request: s.draftRequest,

@@ -100,8 +100,10 @@ async function main(): Promise<void> {
 
     if (!out.ok) {
       throw new Error(
-        out.refusal === "not_a_member"
-          ? "the inviter holds no live membership at that shop (048 §7.1)"
+        out.refusal === "not_permitted"
+          ? "the inviter's live role at that shop may not issue this invitation — either it does " +
+              "not carry `membership.invite` (owner or manager, shop-scoped) or it may not hand out " +
+              "the role asked for (048 §7.1, 054 §3, §5)"
           : "that shop already has the maximum number of outstanding invitations (048 §7.1a). " +
               "Let one expire or wait for it to be redeemed."
       );

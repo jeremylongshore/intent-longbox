@@ -15,7 +15,7 @@ import {
   readDraftFacts,
   setSessionStatus,
 } from "../src/services/scanSession.js";
-import { fakePool } from "./fakes.js";
+import { fakePool, witnessed } from "./fakes.js";
 
 /** The writing helpers take the held connection; the pool fake stands in for it. */
 const asTx = (pool: unknown): Tx => pool as Tx;
@@ -159,6 +159,9 @@ describe("insertHumanConfirmation", () => {
       source: "one_tap",
       outcome: "confirm",
       sessionSeq: 1,
+      // E02-D11: REQUIRED, and `null` is 042 §6.5's counted fallback — the
+      // client sent no reference, so both columns take NULL rather than a guess.
+      against: null,
     });
     expect(row.outcome).toBe("confirm");
     expect(calls[0]?.text).toMatch(/INSERT INTO human_confirmation/);
@@ -175,7 +178,31 @@ describe("insertHumanConfirmation", () => {
       1,
       // 048 §6.3's `operator_id`, NULL when the caller passes none.
       null,
+      // E02-D11 / 041 §3.5: the causal reference, whole or absent. A caller with
+      // no witnessed reference writes NULL to BOTH columns — migration `030`'s
+      // `human_confirmation_reference_is_whole` makes half of one impossible.
+      null,
+      null,
     ]);
+  });
+
+  it("carries a WITNESSED reference into the columns, and only that (E02-D11)", async () => {
+    const { pool, calls } = fakePool(() => ({ rows: [{ id: "c-1", created_at: "t", outcome: "confirm" }] }));
+    // The value a caller may pass is the one `assertWorldViewIsCurrent` returned.
+    // The brand is a compile-time construction with no runtime shape, so a test
+    // asserts what reaches the parameters; `tests/integration/stale-world-view.test.ts`
+    // is where the value's PROVENANCE is proved end to end.
+    await insertHumanConfirmation(asTx(pool), {
+      sessionId: "s-1",
+      shopId: "shop-1",
+      confirmedIssue: { title: "Hulk", issue: "181" },
+      source: "grid_pick",
+      outcome: "confirm",
+      sessionSeq: 2,
+      against: witnessed("llm_rerank", "11111111-1111-4111-8111-111111111111"),
+    });
+    expect(calls[0]?.text).toMatch(/against_table, against_id/);
+    expect(calls[0]?.values?.slice(-2)).toEqual(["llm_rerank", "11111111-1111-4111-8111-111111111111"]);
   });
 });
 

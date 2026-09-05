@@ -62,6 +62,10 @@ const confirmationRow = {
     confirmedIssue: { title: "X" },
     source: "owner_review",
     outcome: "correct",
+    // E02-D11. `null` is 042 §6.5's counted fallback and stores NULL for both
+    // columns. Only `assertWorldViewIsCurrent` can produce a non-null value, so
+    // a test cannot fabricate one — which is the property, not an inconvenience.
+    against: null,
   },
 };
 
@@ -170,16 +174,42 @@ describe("supersede()", () => {
   });
 
   // The union is the point of the typed helper: each table's INSERT names its own
-  // columns, in its own order, `supersedes_id` is second-from-last and
-  // `operator_id` is last (048 §6.3, E03-D09).
+  // columns, in its own order, with `supersedes_id` then `operator_id` at the end
+  // (048 §6.3, E03-D09) and — on the two tables migration `030` gave them to —
+  // `against_table` / `against_id` after that (E02-D11, 041 §3.5).
+  //
+  // `trailing` is how many parameters sit AFTER `operator_id`: two for a table
+  // that carries the causal reference, zero for `pricing_snapshot`, which is
+  // machine-authored and deliberately does not.
   it.each([
+    [
+      "human_confirmation",
+      {
+        table: "human_confirmation" as const,
+        values: {
+          confirmedIssue: { title: "X" },
+          source: "owner_review",
+          outcome: "correct",
+          against: null,
+        },
+      },
+      10,
+      2,
+    ],
     [
       "condition_assessment",
       {
         table: "condition_assessment" as const,
-        values: { gradeRangeLow: "VG", gradeRangeHigh: "FN", defects: ["spine_ticks"], notes: null },
+        values: {
+          gradeRangeLow: "VG",
+          gradeRangeHigh: "FN",
+          defects: ["spine_ticks"],
+          notes: null,
+          against: null,
+        },
       },
-      9,
+      11,
+      2,
     ],
     [
       "pricing_snapshot",
@@ -195,22 +225,33 @@ describe("supersede()", () => {
         },
       },
       11,
+      0,
     ],
-  ])("writes %s with its own column list", async (table, row, argc) => {
+  ])("writes %s with its own column list", async (table, row, argc, trailing) => {
     const { tx, calls } = fakeTx([priorRow(), noSuccessor, seqRead, inserted]);
     await supersede(tx, { shopId: SHOP, sessionId: SESSION, priorId: PRIOR, row });
     const insert = calls.find((c) => /INSERT INTO/.test(c.text))!;
     expect(insert.text).toContain(`INSERT INTO ${table as SupersedableTable}`);
     expect(insert.values).toHaveLength(argc);
-    // 048 §6.3, E03-D09: `operator_id` is the LAST parameter on all three
-    // successors and `actor_verified` is derived from it in the statement. A
-    // correction is an act by a person too, and a successor that dropped the
-    // attribution its predecessor carried would make "who fixed this"
-    // unanswerable at exactly the moment 022 P1 needs it answered.
-    expect(insert.values?.[argc - 1]).toBe(null);
+    // 048 §6.3, E03-D09: `operator_id` and `actor_verified` are derived from one
+    // parameter in the statement. A correction is an act by a person too, and a
+    // successor that dropped the attribution its predecessor carried would make
+    // "who fixed this" unanswerable at exactly the moment 022 P1 needs it
+    // answered.
+    expect(insert.values?.[argc - 1 - trailing]).toBe(null);
     expect(insert.text).toContain("actor_verified");
-    expect(insert.values?.[argc - 2]).toBe(PRIOR);
-    expect(insert.values?.[argc - 3]).toBe(5);
+    expect(insert.values?.[argc - 2 - trailing]).toBe(PRIOR);
+    expect(insert.values?.[argc - 3 - trailing]).toBe(5);
+    // E02-D11: the causal reference is present exactly on the tables 041 §3.5
+    // names, and `pricing_snapshot`'s statement does not mention it at all —
+    // which is what makes "the columns are not on machine-authored tables" a
+    // property of the writer and not only of the schema.
+    if (trailing === 2) {
+      expect(insert.text).toContain("against_table, against_id");
+      expect(insert.values?.slice(argc - 2)).toEqual([null, null]);
+    } else {
+      expect(insert.text).not.toContain("against_");
+    }
   });
 
   it("sends jsonb payloads as strings, not as objects", async () => {

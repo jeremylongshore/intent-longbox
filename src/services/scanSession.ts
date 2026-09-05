@@ -9,6 +9,7 @@
 import type { Queryable, Tx } from "../db.js";
 import { SESSION_SEQ_TABLE_NAMES } from "../db/appendOnlyTables.js";
 import { assertSafeIdentifier } from "../db/appRoleGrants.js";
+import type { WitnessedReference } from "./witnessedReference.js";
 
 /**
  * THE PROJECTION, NOT THE ROW (042 §3.3, 040 A8).
@@ -355,13 +356,26 @@ export async function insertHumanConfirmation(
     sessionSeq: number;
     /** 048 §6.3 — from the session. Never from the body; `confirmed_by` stays unwritten. */
     operatorId?: string | null;
+    /**
+     * 040 A1 / 041 §3.5 — THE CAUSAL REFERENCE, and it is REQUIRED here rather
+     * than optional (E02-D11, migration `030`).
+     *
+     * The type is `WitnessedReference`, which only `assertWorldViewIsCurrent`
+     * can produce, so the value in the column is the one the check read from the
+     * named table inside this transaction — never a request body. `null` is 042
+     * §6.5's counted fallback and stores NULL for both columns. It is required
+     * because a caller that forgets it would silently record "the person was
+     * shown nothing", which is a claim rather than an omission.
+     */
+    against: WitnessedReference | null;
   }
 ): Promise<HumanConfirmationRow> {
   const res = await tx.query(
     `INSERT INTO human_confirmation
        (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq,
-        operator_id, actor_verified)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$7::uuid IS NOT NULL) RETURNING id, created_at, outcome, session_seq`,
+        operator_id, actor_verified, against_table, against_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$7::uuid IS NOT NULL,$8,$9)
+     RETURNING id, created_at, outcome, session_seq`,
     [
       args.sessionId,
       args.shopId,
@@ -370,6 +384,8 @@ export async function insertHumanConfirmation(
       args.outcome,
       args.sessionSeq,
       args.operatorId ?? null,
+      args.against?.table ?? null,
+      args.against?.id ?? null,
     ]
   );
   return res.rows[0] as HumanConfirmationRow;

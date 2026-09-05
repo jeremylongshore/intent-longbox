@@ -15,16 +15,31 @@
 // the exact moment two operators are already confused. The client fetches the
 // other answer through the ordinary, tenancy-scoped read path.
 //
-// WHAT THIS FILE DOES NOT DO. It does not PERSIST the reference.
-// `human_confirmation.against_table` / `against_id` are 041 §10 row 2's columns
-// and no migration has created them; E02-D08 wires the wire shape and the
-// refusal, and the column pair stays open work. The consequence, stated so it is
-// not discovered: the check is enforced at write time and is not reconstructable
-// from the log afterwards.
+// IT ALSO PERSISTS IT, SINCE E02-D11 — and only by way of this file. 041 §10
+// row 2's columns exist on `human_confirmation` and `condition_assessment`
+// (migration `030`), and the ONLY value that may reach them is the one
+// `assertWorldViewIsCurrent` returns: a `WitnessedReference`, which is this
+// module's `Against` under a brand no other module can construct. A caller that
+// hands a request body straight to an INSERT does not compile. That is the whole
+// mechanism behind 041 §3.5's requirement that the stored reference be the
+// CHECKED one — a rule enforced by review would be a rule until the first hurry.
+//
+// WHAT IS STORED IS WHAT THE ACTOR SAW, NOT WHAT IS CURRENT NOW. The reference
+// is written once, inside the transaction that checked it, and never revisited:
+// a row that names a record something later supersedes keeps naming it. That is
+// the point rather than a limitation — 040 §3.4 clause 2 asks what world a
+// decision was made against, and a reference silently advanced to the winner
+// would answer a question nobody asked.
 import type { Queryable, Tx } from "../db.js";
 import { assertSafeIdentifier } from "../db/appRoleGrants.js";
 import { LongboxError } from "../contracts/v1/errors.js";
 import type { Against } from "../contracts/v1/schemas.js";
+// The brand lives in a leaf with no imports because the contract layer imports
+// `GRADE_LABELS` from `src/services/condition.ts`, so a shared type that reached
+// the contract layer would close a cycle for every writer. See that file.
+import type { WitnessedReference } from "./witnessedReference.js";
+
+export type { WitnessedReference };
 
 /**
  * 040 §3.2's implied ladder. `llm_rerank` shares rung 2 with `candidate_set` by
@@ -228,18 +243,26 @@ export function isStale(check: CurrencyCheck): boolean {
 }
 
 /**
- * Refuse a write whose world-view has moved (042 §6.1). Call under the anchor
- * lock, after `lockScanSession` and after the idempotency INSERT.
+ * Refuse a write whose world-view has moved (042 §6.1), and RETURN the reference
+ * it accepted. Call under the anchor lock, after `lockScanSession` and after the
+ * idempotency INSERT.
+ *
+ * The return value is the seam E02-D11 needed: a caller that wants to persist
+ * what the actor was looking at takes it from here, so the value in the column
+ * is by construction the value this function read out of the named table in this
+ * transaction. `null` means 042 §6.5's counted fallback — no reference was sent,
+ * nothing is refused, and the row stores NULL for both columns rather than a
+ * reference somebody guessed.
  */
 export async function assertWorldViewIsCurrent(
   tx: Tx,
   shopId: string,
   sessionId: string,
   against: Against | undefined
-): Promise<void> {
+): Promise<WitnessedReference | null> {
   if (!against) {
     againstFallback.count += 1;
-    return;
+    return null;
   }
 
   const view = CURRENT_VIEWS[against.table];
@@ -258,7 +281,10 @@ export async function assertWorldViewIsCurrent(
     impliedRung: impliedRung(flagsOf(ids)),
     rowIsCurrent: res.rows.length > 0,
   };
-  if (!isStale(check)) return;
+  // The brand is applied HERE and nowhere else: the value returned is the one
+  // just proved to name a live row of `against.table` in this shop and this
+  // session, read inside this transaction under the anchor lock.
+  if (!isStale(check)) return against as WitnessedReference;
 
   throw new LongboxError("STALE_WORLD_VIEW", { current: currentReference(ids) });
 }

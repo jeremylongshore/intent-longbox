@@ -4455,6 +4455,27 @@
                                   }
                                 ]
                               },
+                              "against_table": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "against_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "created_at": {
                                 "type": "string"
                               }
@@ -4464,6 +4485,8 @@
                               "source",
                               "outcome",
                               "supersedes_id",
+                              "against_table",
+                              "against_id",
                               "created_at"
                             ]
                           }
@@ -4510,6 +4533,27 @@
                                   }
                                 ]
                               },
+                              "against_table": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "against_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "created_at": {
                                 "type": "string"
                               }
@@ -4521,6 +4565,8 @@
                               "defects",
                               "notes",
                               "supersedes_id",
+                              "against_table",
+                              "against_id",
                               "created_at"
                             ]
                           }

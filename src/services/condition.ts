@@ -9,6 +9,7 @@
 // supplies the two halves that writer needs: the first append, and the read of the
 // row a correction replaces.
 import type { Tx } from "../db.js";
+import type { WitnessedReference } from "./witnessedReference.js";
 
 export const GRADE_LABELS = ["PR", "FR", "GD", "VG", "FN", "VF", "NM"] as const;
 export type GradeLabel = (typeof GRADE_LABELS)[number];
@@ -113,13 +114,24 @@ export async function insertConditionAssessment(
      * human, verified.
      */
     operatorId?: string | null;
+    /**
+     * 040 A1 / 041 §3.5 — the causal reference, REQUIRED (E02-D11, migration
+     * `030`). Only `assertWorldViewIsCurrent` can produce a
+     * `WitnessedReference`, so what lands in the column is what the check read
+     * inside this transaction; `null` is 042 §6.5's counted fallback. On this
+     * table it records the record the person was looking at when they called the
+     * condition — ordinarily the confirmation — and it says nothing about the
+     * call itself, which stays a grade RANGE plus defect callouts (037).
+     */
+    against: WitnessedReference | null;
   }
 ): Promise<{ id: string; created_at: string; session_seq: string | number }> {
   const res = await tx.query(
     `INSERT INTO condition_assessment
        (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq,
-        operator_id, actor_verified)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
+        operator_id, actor_verified, against_table, against_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL,$9,$10)
+     RETURNING id, created_at, session_seq`,
     [
       args.sessionId,
       args.shopId,
@@ -129,6 +141,8 @@ export async function insertConditionAssessment(
       args.notes,
       args.sessionSeq,
       args.operatorId ?? null,
+      args.against?.table ?? null,
+      args.against?.id ?? null,
     ]
   );
   return res.rows[0] as { id: string; created_at: string; session_seq: string | number };

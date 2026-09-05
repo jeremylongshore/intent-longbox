@@ -242,12 +242,23 @@ export const eventDtos = {
     created_at: timestamp,
   }),
   // No `confirmed_by` (019 T35 non-waivable).
+  //
+  // `against_table` / `against_id` ARE published, and the reason is that they are
+  // the same kind of field as `supersedes_id` beside them: a REFERENCE to another
+  // record of this session, carrying no confidence, no provider, no cost and no
+  // person (042 I9, 019 T35). They answer 022 P8's decision strip — what the
+  // person was looking at when they decided — from the trail the client already
+  // reads, rather than by a second query nobody would write. Both are `null`
+  // together or present together (migration `030`'s whole-or-absent CHECK), and
+  // `null` means 042 §6.5's counted fallback or a row older than that migration.
   human_confirmation: z.object({
     id: uuid,
     confirmed_issue: z.unknown(),
     source: z.string(),
     outcome: z.string().nullable(),
     supersedes_id: uuid.nullable(),
+    against_table: z.string().nullable(),
+    against_id: uuid.nullable(),
     created_at: timestamp,
   }),
   condition_assessment: z.object({
@@ -257,6 +268,8 @@ export const eventDtos = {
     defects: z.array(z.string()),
     notes: z.string().nullable(),
     supersedes_id: uuid.nullable(),
+    against_table: z.string().nullable(),
+    against_id: uuid.nullable(),
     created_at: timestamp,
   }),
   pricing_snapshot: z.object({

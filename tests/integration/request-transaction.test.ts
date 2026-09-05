@@ -121,6 +121,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "one_tap",
           outcome: "confirm",
           sessionSeq: 1,
+          // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+          against: null,
         });
         await setSessionStatus(tx, shopId, sessionId, "confirmed");
         throw boom; // anything downstream: a provider 500, a bug, a crash
@@ -143,6 +145,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
         source: "one_tap",
         outcome: "confirm",
         sessionSeq: 2,
+        // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+        against: null,
       });
       await setSessionStatus(tx, shopId, sessionId, "confirmed");
     });
@@ -181,6 +185,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           // the reason the assignment belongs inside the transaction rather than at
           // the call site.
           sessionSeq: await assignSessionSeq(tx, shopId, sessionId),
+          // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+          against: null,
         });
         order.push(`${tag}:committed`);
         return prior.rowCount ?? 0;
@@ -321,6 +327,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "one_tap",
           outcome: "confirm",
           sessionSeq: 6,
+          // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+          against: null,
         });
         if (attemptsSeen === 1) {
           const err = new Error("simulated serialization failure") as Error & { code: string };
@@ -355,6 +363,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
           source: "one_tap",
           outcome: "not_a_valid_outcome", // trips the CHECK: 23514, not retryable
           sessionSeq: 7,
+          // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+          against: null,
         });
       })
     ).rejects.toMatchObject({ code: "23514" });

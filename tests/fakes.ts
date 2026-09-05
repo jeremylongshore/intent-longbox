@@ -2,7 +2,23 @@
 // function under test is always the real implementation.
 import type pg from "pg";
 import type { Queryable } from "../src/db.js";
+import type { Against } from "../src/contracts/v1/schemas.js";
+import type { WitnessedReference } from "../src/services/witnessedReference.js";
 import type { DraftProductInput, ShopifyClient, ShopifyDraftResult } from "../src/services/shopify.js";
+
+/**
+ * A `WitnessedReference` for a unit test (E02-D11).
+ *
+ * In `src/` the brand can only be produced by `assertWorldViewIsCurrent`, which
+ * is the whole point: a request body cannot reach a column. The brand has no
+ * runtime shape, so this cast is the ONE place a test may mint one, and it is
+ * here rather than inline so the exception is visible and countable. What a
+ * stored reference's PROVENANCE actually is gets proved against a database in
+ * `tests/integration/stale-world-view.test.ts`, not here.
+ */
+export function witnessed(table: Against["table"], id: string): WitnessedReference {
+  return { table, id } as WitnessedReference;
+}
 
 export interface QueryCall {
   text: string;

@@ -200,6 +200,142 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
     expect((rows.rows[0] as { n: number }).n).toBe(1);
   });
 
+  // ---------------------------------------------------------------------
+  // E02-D11 — the reference is STORED, and what is stored is what the actor saw.
+  // ---------------------------------------------------------------------
+
+  it("STORES the checked reference on the row the write appends (041 §3.5)", async () => {
+    const sid = await newSession();
+    const first = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Hulk", issue: "180" },
+      source: "grid_pick",
+    });
+    const confirmationId = (first.json() as { confirmation: { id: string } }).confirmation.id;
+
+    const condition = await post(`${base}/${sid}/condition`, {
+      grade_range_low: "FN",
+      grade_range_high: "VF",
+      defects: [],
+      against: { table: "human_confirmation", id: confirmationId },
+    });
+    expect(condition.statusCode).toBe(201);
+
+    // E03-B04: the read-back goes through the SHOP'S context, exactly as the
+    // running system does. A bare `pool.query` on this least-privileged role is
+    // subject to every policy and would return zero rows — which would read as
+    // "the column was not written" rather than as "the reader had no tenant".
+    const stored = await shopQuery(
+      `SELECT against_table, against_id FROM condition_assessment WHERE id = $1`,
+      [(condition.json() as { assessment: { id: string } }).assessment.id]
+    );
+    // EXACTLY the pair the check accepted. Not the newest witness, not the row
+    // the session is on now — the record this operator was looking at.
+    expect(stored.rows[0]).toEqual({
+      against_table: "human_confirmation",
+      against_id: confirmationId,
+    });
+  });
+
+  it("stores NULL for both columns when the client sends no reference", async () => {
+    const sid = await newSession();
+    const confirmation = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Bone", issue: "1" },
+      source: "grid_pick",
+    });
+    const stored = await shopQuery(`SELECT against_table, against_id FROM human_confirmation WHERE id = $1`, [
+      (confirmation.json() as { confirmation: { id: string } }).confirmation.id,
+    ]);
+    // 042 §6.5's counted fallback, written honestly: the row says nothing about
+    // what was on the screen, because nothing said what was on the screen.
+    expect(stored.rows[0]).toEqual({ against_table: null, against_id: null });
+  });
+
+  it("keeps naming the SUPERSEDED record after the world moves on (040 §3.4 clause 2)", async () => {
+    // The whole point of the column, and the one property a write-time check
+    // alone cannot give: the stored reference is a statement about the past, so
+    // it must not follow the present. If it advanced to the winner, the audit
+    // answer to "what were they looking at when they decided that?" would become
+    // "whatever is current now", which is not an answer.
+    const sid = await newSession();
+    const first = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Hulk", issue: "180" },
+      source: "grid_pick",
+    });
+    const witness = (first.json() as { confirmation: { id: string } }).confirmation.id;
+
+    // The condition call is made against the confirmation that is current NOW.
+    const condition = await post(`${base}/${sid}/condition`, {
+      grade_range_low: "FN",
+      grade_range_high: "VF",
+      defects: [],
+      against: { table: "human_confirmation", id: witness },
+    });
+    expect(condition.statusCode).toBe(201);
+    const assessmentId = (condition.json() as { assessment: { id: string } }).assessment.id;
+
+    // …and then the owner corrects the identification, so that witness is
+    // superseded and no longer current.
+    const corrected = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Hulk", issue: "181" },
+      source: "owner_review",
+      against: { table: "condition_assessment", id: assessmentId },
+    });
+    expect(corrected.statusCode).toBe(201);
+    const successor = (corrected.json() as { confirmation: { id: string } }).confirmation.id;
+    expect(successor).not.toBe(witness);
+
+    const stored = await shopQuery(
+      `SELECT against_table, against_id FROM condition_assessment WHERE id = $1`,
+      [assessmentId]
+    );
+    // Still the superseded row. The successor exists, the session has moved, and
+    // the record of what the first operator saw is unchanged — because nothing
+    // ever edits an append-only row, and because nobody wrote a second value.
+    expect(stored.rows[0]).toEqual({ against_table: "human_confirmation", against_id: witness });
+
+    // And it is READABLE through the ordinary trail, so 022 P8's decision strip
+    // can be built without a second query nobody would write.
+    const detail = await inject({ method: "GET", url: `${base}/${sid}` });
+    const events = detail.json() as {
+      events: { condition_assessment: Array<{ id: string; against_table: string; against_id: string }> };
+    };
+    expect(events.events.condition_assessment.find((r) => r.id === assessmentId)).toMatchObject({
+      against_table: "human_confirmation",
+      against_id: witness,
+    });
+  });
+
+  it("carries the reference onto a CORRECTION, which sees its own world", async () => {
+    // A superseding row is an act by a second person against a state of their
+    // own. Copying the predecessor's reference forward would attribute the first
+    // actor's view to the second.
+    const sid = await newSession();
+    const first = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Bone", issue: "1" },
+      source: "grid_pick",
+    });
+    const witness = (first.json() as { confirmation: { id: string } }).confirmation.id;
+    const corrected = await post(`${base}/${sid}/confirm`, {
+      issue: { title: "Bone", issue: "2" },
+      source: "owner_review",
+      against: { table: "human_confirmation", id: witness },
+    });
+    const rows = await shopQuery(
+      `SELECT id, supersedes_id, against_table, against_id FROM human_confirmation
+        WHERE scan_session_id = $1 ORDER BY session_seq`,
+      [sid]
+    );
+    expect(rows.rows).toEqual([
+      { id: witness, supersedes_id: null, against_table: null, against_id: null },
+      {
+        id: (corrected.json() as { confirmation: { id: string } }).confirmation.id,
+        supersedes_id: witness,
+        against_table: "human_confirmation",
+        against_id: witness,
+      },
+    ]);
+  });
+
   it("still accepts a write with NO reference, and counts the fallback (042 §6.5, 040 I18)", async () => {
     const sid = await newSession();
     await post(`${base}/${sid}/confirm`, { issue: { title: "Bone", issue: "1" }, source: "grid_pick" });

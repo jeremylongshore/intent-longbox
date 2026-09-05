@@ -97,6 +97,8 @@ describe("the condition module's reads and writes", () => {
       defects: ["spine_ticks"],
       notes: null,
       sessionSeq: 1,
+      // E02-D11: no reference sent, so both causal columns take NULL (042 §6.5).
+      against: null,
     });
     expect(calls[0]!.text).toContain("INSERT INTO condition_assessment");
     expect(calls[0]!.text).not.toContain("supersedes_id");
@@ -104,7 +106,21 @@ describe("the condition module's reads and writes", () => {
     // 048 §6.3 stamps it from the session and never from a body, and
     // `actor_verified` is derived from it IN THE STATEMENT so the pair cannot
     // disagree.
-    expect(calls[0]!.values).toEqual(["session-1", "shop-1", "VG", "FN", ["spine_ticks"], null, 1, null]);
+    // …and the two AFTER it are 041 §3.5's causal reference, NULL together
+    // because this call carries none (E02-D11; `029`'s whole-or-absent CHECK
+    // makes half of one impossible).
+    expect(calls[0]!.values).toEqual([
+      "session-1",
+      "shop-1",
+      "VG",
+      "FN",
+      ["spine_ticks"],
+      null,
+      1,
+      null,
+      null,
+      null,
+    ]);
     expect(calls[0]!.text).toContain("actor_verified");
   });
 });

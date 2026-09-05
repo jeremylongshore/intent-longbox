@@ -506,6 +506,11 @@ describe("getSessionDetail", () => {
               source: "one_tap",
               outcome: "confirm",
               supersedes_id: null,
+              // E02-D11: the causal reference IS published — a reference to
+              // another record of this session, like `supersedes_id` beside it,
+              // carrying no confidence, provider, cost or person (042 I9).
+              against_table: "llm_rerank",
+              against_id: "33333333-3333-4333-8333-333333333333",
               created_at: "t",
               // The columns a star projection would have published:
               confirmed_by: "employee",
@@ -523,8 +528,24 @@ describe("getSessionDetail", () => {
     // 042 §3.3: a response body may contain no key its DTO does not declare —
     // and E16 is why that is a CLASS and not an instance.
     expect(Object.keys(detail.events.human_confirmation[0]!).sort()).toEqual(
-      ["confirmed_issue", "created_at", "id", "outcome", "source", "supersedes_id"].sort()
+      [
+        "against_id",
+        "against_table",
+        "confirmed_issue",
+        "created_at",
+        "id",
+        "outcome",
+        "source",
+        "supersedes_id",
+      ].sort()
     );
+    // And the value survives the projection, so 022 P8's decision strip can be
+    // built from the trail the client already reads rather than from a second
+    // query nobody would write.
+    expect(detail.events.human_confirmation[0]).toMatchObject({
+      against_table: "llm_rerank",
+      against_id: "33333333-3333-4333-8333-333333333333",
+    });
   });
 
   it("refuses a session that is not this shop's with SESSION_NOT_FOUND", async () => {

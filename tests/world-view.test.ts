@@ -113,12 +113,46 @@ describe("assertWorldViewIsCurrent", () => {
   it("counts the fallback when no reference is sent, and refuses nothing (040 I18, 042 §6.5)", async () => {
     const before = againstFallback.count;
     const { pool, calls } = fakePool();
-    await assertWorldViewIsCurrent(asTx(pool), "shop-1", "s-1", undefined);
+    const witnessed = await assertWorldViewIsCurrent(asTx(pool), "shop-1", "s-1", undefined);
     // `against` is OPTIONAL in v1 — making it required would 400 every replay
     // from a queue written by yesterday's client — but AN UNCOUNTED FALLBACK IS
     // A SILENT RETURN TO THE RULE IT REPLACED.
     expect(againstFallback.count).toBe(before + 1);
     expect(calls).toEqual([]);
+    // E02-D11: and the caller is told there is nothing to store, so the row it
+    // writes takes NULL for both columns rather than an invented reference.
+    expect(witnessed).toBeNull();
+  });
+
+  // E02-D11. The stored value's whole guarantee is that it came from HERE: the
+  // return is the reference this function just proved names a live row of that
+  // table, in this shop and this session, inside this transaction. A writer
+  // cannot obtain one any other way, because the brand has no other producer.
+  it("RETURNS the reference it accepted, so the column is written from the checked value", async () => {
+    const { pool } = fakePool((text) => {
+      if (isWitnessQuery(text)) return { rows: [{ ...noIds, confirmed: "c-1" }] };
+      if (text.includes("human_confirmation_current")) return { rows: [{ "?column?": 1 }] };
+      return undefined;
+    });
+    const witnessed = await assertWorldViewIsCurrent(asTx(pool), "shop-1", "s-1", {
+      table: "human_confirmation",
+      id: "c-1",
+    });
+    expect(witnessed).toEqual({ table: "human_confirmation", id: "c-1" });
+  });
+
+  it("returns NOTHING to store when it refuses — a refused write appends no row at all", async () => {
+    const { pool } = fakePool((text) => {
+      if (isWitnessQuery(text)) return { rows: [{ ...noIds, confirmed: "winner-1" }] };
+      if (text.includes("human_confirmation_current")) return { rows: [] };
+      return undefined;
+    });
+    // Stated as a test because the alternative — returning a value and letting
+    // the caller decide — would put the refusal's enforcement in six handlers
+    // instead of one.
+    await expect(
+      assertWorldViewIsCurrent(asTx(pool), "shop-1", "s-1", { table: "human_confirmation", id: "old" })
+    ).rejects.toMatchObject({ code: "STALE_WORLD_VIEW" });
   });
 
   it("checks a confirmation against the `_current` VIEW, not the raw table (041 §3.4)", async () => {

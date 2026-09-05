@@ -36,7 +36,7 @@ export interface IdentifyOutcome {
    *
    * Its absence was a response-shape defect that made a RATIFIED requirement
    * unsatisfiable: 040 A1 requires a confirmation to name the record the
-   * operator was shown, 041 §3.5 puts `against_table`/`against_id` on the row,
+   * operator was shown, 041 §3.5 puts `against_table`/`against_id` on the confirmation row,
    * and a client instructed to send the record it was shown had no id for it.
    * The failure would have surfaced as E05 sending a `candidate_set` id where a
    * rerank id belongs — which the comparison in 040 §3.4 accepts as a lower-rung

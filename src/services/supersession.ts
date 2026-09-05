@@ -36,6 +36,7 @@
 // survive a caller that does not use this file, and only the database does.
 import type { Tx } from "../db.js";
 import { assignSessionSeq } from "./scanSession.js";
+import type { WitnessedReference } from "./witnessedReference.js";
 
 /** The three tables that carry `supersedes_id` (003:84-86, 008, 013). */
 export const SUPERSEDABLE_TABLES = [
@@ -45,15 +46,32 @@ export const SUPERSEDABLE_TABLES = [
 ] as const;
 export type SupersedableTable = (typeof SUPERSEDABLE_TABLES)[number];
 
+/**
+ * 040 A1 / 041 §3.5 — the causal reference, on the two tables migration `030`
+ * gave the columns to (E02-D11).
+ *
+ * IT LIVES IN THE PER-TABLE VALUES AND NOT IN `SupersedeArgs`, and that placement
+ * is the enforcement. `pricing_snapshot` is machine-authored (041 §10.1) and 041
+ * §3.5 keeps the columns off it, so a field on the shared args would be a field
+ * this writer silently dropped for one of its three tables — the quiet-drop shape
+ * 041 §12.1 rejects. Here a caller that hands a price correction a world-view
+ * does not compile.
+ *
+ * A CORRECTION CARRIES ITS OWN REFERENCE, not its predecessor's. The person
+ * correcting was shown a world of their own, and copying the superseded row's
+ * value forward would attribute the first actor's view to the second.
+ */
+type CausalReference = { readonly against: WitnessedReference | null };
+
 /** A corrected identity (041 §3.3 case 2; 040 S15's undo is the same shape). */
-export interface HumanConfirmationValues {
+export interface HumanConfirmationValues extends CausalReference {
   readonly confirmedIssue: unknown;
   readonly source: string;
   readonly outcome: string;
 }
 
 /** A corrected condition call (037 §4.4 — the owner-review correction). */
-export interface ConditionAssessmentValues {
+export interface ConditionAssessmentValues extends CausalReference {
   readonly gradeRangeLow: string;
   readonly gradeRangeHigh: string;
   readonly defects: readonly string[];
@@ -150,14 +168,19 @@ const INSERT_SQL: Record<SupersedableTable, string> = {
   // an act by a person too, and a successor that dropped the attribution the
   // predecessor carried would make "who fixed this" unanswerable at exactly the
   // moment 022 P1 needs it answered.
+  // `against_table` / `against_id` are LAST on the two tables that carry them
+  // (030), and absent from `pricing_snapshot`'s statement because that table has
+  // no such columns — 041 §3.5 keeps them off machine-authored records.
   human_confirmation: `INSERT INTO human_confirmation
       (scan_session_id, shop_id, confirmed_issue, source, outcome, session_seq, supersedes_id,
-       operator_id, actor_verified)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
+       operator_id, actor_verified, against_table, against_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$8::uuid IS NOT NULL,$9,$10)
+    RETURNING id, created_at, session_seq`,
   condition_assessment: `INSERT INTO condition_assessment
       (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, notes, session_seq, supersedes_id,
-       operator_id, actor_verified)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::uuid IS NOT NULL) RETURNING id, created_at, session_seq`,
+       operator_id, actor_verified, against_table, against_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$9::uuid IS NOT NULL,$10,$11)
+    RETURNING id, created_at, session_seq`,
   pricing_snapshot: `INSERT INTO pricing_snapshot
       (scan_session_id, shop_id, source, query, comps, suggested_cents, override_cents, policy_id,
        session_seq, supersedes_id, operator_id, actor_verified)
@@ -180,6 +203,8 @@ function successorValues(
         sessionSeq,
         priorId,
         operatorId,
+        row.values.against?.table ?? null,
+        row.values.against?.id ?? null,
       ];
     case "condition_assessment":
       return [
@@ -190,6 +215,8 @@ function successorValues(
         sessionSeq,
         priorId,
         operatorId,
+        row.values.against?.table ?? null,
+        row.values.against?.id ?? null,
       ];
     case "pricing_snapshot":
       return [

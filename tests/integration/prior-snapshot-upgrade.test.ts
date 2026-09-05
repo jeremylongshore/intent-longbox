@@ -111,6 +111,16 @@ const SNAPSHOTS = [
   // half of `029`: a database that already has rows gets row-level security and a
   // policy on every shop-scoped table, applied by the runner's re-derived plan
   // (`src/db/rowLevelSecurity.ts`) rather than by the migration file alone.
+  //
+  // E02-D11's `030` upgrades from the SAME fixture and adds no new one: head is
+  // then 29 files, two past this row's 27, inside the limit the foot of this file
+  // asserts. It uses the row for a second property — that `030`'s columns arrive
+  // EMPTY on a row that predates them (041 §10.1's no-fabricated-observation
+  // rule) — which is why the `authored_by` case below now reads them too.
+  //
+  // `applied: 27` and not 28: the ledger counts FILES, and `027` was reserved by
+  // E03-B06 and never written, so the twenty-seven files up to and including
+  // `028` are what a database at that schema has applied.
   { name: "028", file: "tests/fixtures/schema/after-028.sql", applied: 27 },
 ] as const;
 
@@ -236,6 +246,18 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
           `SELECT count(*)::int AS n FROM human_confirmation WHERE session_seq IS NOT NULL`
         );
         expect((seq.rows[0] as { n: number }).n).toBe(0);
+
+        // E02-D11 / 029: and the causal reference is not backfilled either, for a
+        // stronger version of the same reason — nobody recorded what was on the
+        // screen, so a value invented on the upgrade path would be a fabricated
+        // observation about what a PERSON was looking at, in the one column that
+        // exists to answer that question. The columns arrive; they arrive empty.
+        const against = await p.query(
+          `SELECT count(*)::int AS rows,
+                  count(against_table)::int AS named
+             FROM human_confirmation`
+        );
+        expect(against.rows[0]).toEqual({ rows: 1, named: 0 });
       }, 120_000);
     });
   }
@@ -291,8 +313,9 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // added it; E06-D01 shipped `015`, which put head five past `010`, and added
     // `014`; E03-D09 shipped `019`/`020` and added `018`; E03-B05 shipped
     // `021`–`023` and added `020`; E03-D07 shipped `024` and added `023` rather than
-    // leave the set exactly at the limit; E03-B04 shipped `029` and added `028`.
-    // The next bead to push head past `032` adds the next one.
+    // leave the set exactly at the limit; E03-B04 shipped `029` and added `028`;
+    // E02-D11 shipped `030` and added NONE, because `028` still sits two behind
+    // head. The next bead to push head past `032` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

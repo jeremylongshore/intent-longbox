@@ -233,7 +233,18 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     // Without this the response grows a column on the day any migration adds one.
     for (const row of body.events.human_confirmation) {
       expect(Object.keys(row).sort()).toEqual(
-        ["confirmed_issue", "created_at", "id", "outcome", "source", "supersedes_id"].sort()
+        [
+          // E02-D11: the causal reference joins the projection — a pointer to
+          // another record of this session, like `supersedes_id` beside it.
+          "against_id",
+          "against_table",
+          "confirmed_issue",
+          "created_at",
+          "id",
+          "outcome",
+          "source",
+          "supersedes_id",
+        ].sort()
       );
     }
     for (const row of body.events.pricing_snapshot) {

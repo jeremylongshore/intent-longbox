@@ -21,7 +21,14 @@
 //      lock order: identity before subject);
 //   3. `lockScanSession` — the anchor (041 §4.2);
 //   4. `assertWorldViewIsCurrent` — the causal check, under that lock, which is
-//      what makes the refusal deterministic rather than racy (042 §6);
+//      what makes the refusal deterministic rather than racy (042 §6). Since
+//      E02-D11 it also RETURNS the reference it accepted, and the two handlers
+//      whose tables carry the columns (`confirm`, `assessCondition`) store that
+//      value — never `body.against`, which no longer type-checks at an INSERT.
+//      The other four handlers still run the check and store nothing, because
+//      041 §3.5 puts the columns only on the tables that record a human decision
+//      made against a displayed state: a photograph, a provider's proposal, a
+//      provider's comps and a job are none of those;
 //   5. the appends;
 //   6. the response, stored on the idempotency row in the same commit.
 import type pg from "pg";
@@ -604,7 +611,10 @@ export async function confirm(
 
   return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
     await lockOrRefuse(tx, ctx.shopId, session.id);
-    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    // E02-D11: the CHECKED reference, carried to the INSERT below. What is stored
+    // is what this transaction proved the person was looking at — never
+    // `body.against`, which the type system refuses at both call sites.
+    const witnessed = await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
 
     // 040 F3 / locked decision 7, as a CODE and not a sentence (042 §4.6). A
     // rejection whose only content is English prose is a UI convention with
@@ -658,7 +668,12 @@ export async function confirm(
           operatorId: ctx.operatorId ?? null,
           row: {
             table: "human_confirmation",
-            values: { confirmedIssue: body.issue, source: body.source, outcome },
+            values: {
+              confirmedIssue: body.issue,
+              source: body.source,
+              outcome,
+              against: witnessed,
+            },
           },
         })
       : await insertHumanConfirmation(tx, {
@@ -668,6 +683,7 @@ export async function confirm(
           source: body.source,
           outcome,
           operatorId: ctx.operatorId ?? null,
+          against: witnessed,
           sessionSeq: await assignSessionSeq(tx, ctx.shopId, session.id),
         });
     await setSessionStatus(tx, ctx.shopId, session.id, "confirmed");
@@ -714,13 +730,15 @@ export async function assessCondition(
 
   return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
     await lockOrRefuse(tx, ctx.shopId, session.id);
-    await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
+    // E02-D11, as in `confirm`: the reference stored is the one just checked.
+    const witnessed = await assertWorldViewIsCurrent(tx, ctx.shopId, session.id, body.against);
     const prior = await readCurrentConditionAssessment(tx, ctx.shopId, session.id);
     const values = {
       gradeRangeLow: body.grade_range_low,
       gradeRangeHigh: body.grade_range_high,
       defects: body.defects,
       notes: body.notes ?? null,
+      against: witnessed,
     };
     const row = prior
       ? await supersede(tx, {

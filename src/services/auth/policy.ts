@@ -287,6 +287,35 @@ export function redemptionWaitMs(args: { failures: number; lastFailureAgeMs: num
 }
 
 // ---------------------------------------------------------------------------
+// 048 §4.3, §8.1, §9.1 — the SECOND FACTOR's budget (E03-D06).
+// ---------------------------------------------------------------------------
+
+/**
+ * Failures a PERSON may make on their second factor before any wait at all.
+ *
+ * Keyed on `app_user_id` alone — 048 §9.1's own key "for a password" — and shared
+ * between TOTP and recovery codes, because they are two forms of one factor and
+ * two budgets would be one budget an attacker doubles by alternating.
+ *
+ * Three rather than the PIN's three-for-a-fat-fingered-operator: a six-digit TOTP
+ * code is read off a screen rather than remembered, so the honest-mistake rate is
+ * lower, and the population is `owner` / `manager` / `support_break_glass` rather
+ * than a queue at a till. **A PROVISIONAL floor** (042 A3), never quoted as a
+ * security property.
+ *
+ * **It never closes**, for 048 R5's reason: there is no state from which a correct
+ * code is refused, only a state in which it is refused *until*. A terminal lock on
+ * an owner's second factor is an outage whose only exit is 048 §8.2's break-glass
+ * runbook — a control whose failure mode is a support incident.
+ */
+export const SECOND_FACTOR_FREE_ATTEMPTS = 3;
+
+/** The wait a person must serve before another second-factor attempt is looked at. */
+export function secondFactorWaitMs(args: { failures: number; lastFailureAgeMs: number }): number {
+  return requiredWaitMs({ ...args, freeAttempts: SECOND_FACTOR_FREE_ATTEMPTS });
+}
+
+// ---------------------------------------------------------------------------
 // 048 §3.6 — the cookie, as a string this module owns end to end.
 // ---------------------------------------------------------------------------
 

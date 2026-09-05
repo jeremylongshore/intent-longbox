@@ -349,6 +349,12 @@ export type AuthMethod =
   | "session_token"
   | "password"
   | "totp"
+  // E03-D06 (`migrations/025` widens the CHECK). A recovery-code attempt is
+  // counted as ITSELF and not folded into `totp`: they share one budget (048
+  // §9.1's key "for a password", applied to two forms of one factor) and they are
+  // still two different failures, in the one table that exists to tell failures
+  // apart for an audited break-glass reader.
+  | "recovery_code"
   | "invitation"
   | "enrollment_code";
 

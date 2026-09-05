@@ -27,7 +27,9 @@ export {
   MAX_OUTSTANDING_ENROLLMENT_CODES_PER_SHOP,
   MAX_OUTSTANDING_INVITATIONS_PER_SHOP,
   SHOP_REDEMPTION_FREE_ATTEMPTS,
+  SECOND_FACTOR_FREE_ATTEMPTS,
   redemptionWaitMs,
+  secondFactorWaitMs,
   PIN_LENGTH,
   clearCookie,
   isSameOriginRequest,
@@ -43,6 +45,60 @@ export {
 export type { LivenessVerdict, PinRefusal, SessionTiming, SpentTokenVerdict } from "./policy.js";
 
 export { PIN_PEPPER_ENV, PepperConfigError, mintToken, requirePinPepper, tokenHash } from "./secrets.js";
+
+// E03-D06 — the second factor. The door is the same one, for the same reason:
+// `verifyTotp` is correct ONLY inside the transaction that holds its anchor lock
+// and that COMMITS whatever the verdict, and `redeemRecoveryCode` is correct only
+// when its caller has already verified a first factor (048 R20).
+export {
+  AUTHENTICATOR_KEY_BYTES,
+  AeadOpenError,
+  AuthenticatorKeyError,
+  authenticatorKeyEnv,
+  requireAuthenticatorKey,
+} from "./aead.js";
+export type { AuthenticatorKeyring, SealedSecret } from "./aead.js";
+
+export {
+  MFA_REQUIRED_ROLES,
+  RECOVERY_CODE_COUNT,
+  enrollAuthenticator,
+  issueRecoveryCodes,
+  liveAuthenticator,
+  mfaState,
+  retireAuthenticator,
+  secondFactorWait,
+  verifyTotp,
+} from "./authenticator.js";
+export type {
+  AuthenticatorRow,
+  EnrolledAuthenticator,
+  EnrollmentRefusal,
+  RetirementReason,
+  TotpVerdict,
+} from "./authenticator.js";
+
+export {
+  RecoveryCodeAlreadyUsed,
+  currentRecoveryNomination,
+  liveRecoveryCodeCount,
+  recordRecoveryNomination,
+  redeemRecoveryCode,
+} from "./recovery.js";
+export type { RecoveryNomination, RecoveryNominationKind, RecoveryVerdict } from "./recovery.js";
+
+export {
+  TOTP_DIGITS,
+  TOTP_PERIOD_SECONDS,
+  TOTP_SECRET_BYTES,
+  TOTP_STEP_WINDOW,
+  base32Encode,
+  mintTotpSecret,
+  otpauthUri,
+  stepAt,
+  totpCode,
+  verifyTotpCode,
+} from "./totp.js";
 
 export {
   chainHead,
@@ -79,9 +135,11 @@ export {
   CODE_ALPHABET,
   ENROLLMENT_CODE_LENGTH,
   INVITATION_CODE_LENGTH,
+  RECOVERY_CODE_LENGTH,
   digestOf,
   mintEnrollmentCode,
   mintInvitationCode,
+  mintRecoveryCode,
   normaliseCode,
 } from "./codes.js";
 
@@ -121,6 +179,7 @@ export type { Principal, PrincipalOutcome } from "./principal.js";
 
 export {
   liveMembershipShopIds,
+  liveRolesOf,
   membershipAt,
   revokeMembership,
   shopRoster,

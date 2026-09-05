@@ -420,6 +420,59 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     ordersByObservedAt: false,
     sessionSeq: false,
   },
+  // ---------------------------------------------------------------------------
+  // E03-D06's four (048 §4.2, §4.3, §8.1, §8.2 — `migrations/025`). The second
+  // factor's ENDINGS and ISSUANCES are facts; the authenticator ROW itself is a
+  // declared exemption below, because 048 R19's replay guard is the one column in
+  // that subsystem that has to move.
+  // ---------------------------------------------------------------------------
+  {
+    table: "user_authenticator_retirement",
+    trigger: "user_authenticator_retirement_append_only",
+    since: "025_authenticator_recovery_and_nomination.sql",
+    // The fourth grant/release pair in this schema, and here the ending carries
+    // real weight: 048 §8.1 makes a recovery-code use RETIRE the factor it
+    // substituted for, which is how "re-enrollment is forced" becomes a PREDICATE
+    // (no live authenticator + a use row) rather than a prompt somebody can skip.
+    // `UNIQUE (authenticator_id)`: at most one ending per factor, because a
+    // replacement is a NEW authenticator row rather than a second ending.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "recovery_code",
+    trigger: "recovery_code_append_only",
+    since: "025_authenticator_recovery_and_nomination.sql",
+    // An issuance fact. A code is never edited and never marked used — its use is
+    // a row in the table below, and its retirement-by-supersession is the arrival
+    // of a newer `batch_id` (048 §8.1's "superseding set"). Both are predicates,
+    // so there is no per-code status to leave stale after a re-enrollment.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "recovery_code_use",
+    trigger: "recovery_code_use_append_only",
+    since: "025_authenticator_recovery_and_nomination.sql",
+    // 048 §8.1 and §7.1's shared rule, for the third time: **single use is a
+    // constraint or it is a race.** `UNIQUE (code_id)` is what makes two
+    // concurrent redemptions of one code end with one use, decided by the
+    // database rather than by a read that both callers pass.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "shop_recovery_nomination",
+    trigger: "shop_recovery_nomination_append_only",
+    since: "025_authenticator_recovery_and_nomination.sql",
+    // 048 §8.2's answer, recorded rather than left blank — including `declined`,
+    // "because the difference between 'this owner has no second person' and
+    // 'nobody asked' is the difference between a known residual and a surprise
+    // during an outage". A shop that changes its mind appends; the newest row is
+    // the current answer, so a nomination has a when and a who.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
   {
     table: "outbox",
     trigger: "outbox_append_only",
@@ -601,6 +654,36 @@ export interface AppendOnlyExemption {
    * reason it was exempted.
    */
   readonly appGrant?: "full" | "none";
+  /**
+   * The columns the application may UPDATE — a FOURTH privilege class (E03-D06,
+   * from the invariant review of `faf105f`).
+   *
+   * When present the table gets `GRANT SELECT, INSERT` plus `GRANT UPDATE (cols)`
+   * and **no DELETE**, instead of `appGrant: "full"`'s table-level DML.
+   *
+   * **WHY THIS EXISTS, IN ONE REPRODUCTION.** `user_authenticator` is exempt
+   * because ONE column has to move — 048 R19's `last_used_step`. On the uniform
+   * full-DML grant, the app role could also rewrite `secret_ciphertext`,
+   * `secret_nonce` and `key_version`, move `last_used_step` BACKWARDS (5 → 0,
+   * which defeats the replay guard outright: the write is the check, and a check
+   * that can be reset is not one), and DELETE a live authenticator leaving no
+   * `user_authenticator_retirement` fact — all three reproduced as the app role.
+   * The exemption was for one column and the grant was for the table.
+   *
+   * The privilege is not the guarantee — 041 §9.2 item 1 ranks the trigger first
+   * and this table deliberately has none — but "the exemption names the column"
+   * and "the grant names the table" disagreeing is exactly the drift
+   * `appGrant` was added to stop, one level down. A row that declares
+   * `updateColumns` says which column its exemption was actually for.
+   *
+   * ⚠ `operator_pin` carries the same table-level grant on E03-D09's precedent
+   * and is NOT changed here: narrowing it is a change to another bead's control
+   * surface, it needs that bead's `pepper_version`/`pin_hash`/`updated_at` set
+   * argued rather than guessed, and widening this fix-up's scope to reach it
+   * would be the thing this note exists to refuse. It is stated so the next
+   * reader sees a decision rather than an oversight.
+   */
+  readonly updateColumns?: readonly string[];
 }
 
 /**
@@ -714,6 +797,29 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
       "`auth_attempt` row (048 §9.1), and the row is also the LOCKOUT ANCHOR, taken " +
       "`SELECT … FOR UPDATE` before the window count and held through the verify and the failure " +
       "INSERT (048 R5), which needs the UPDATE privilege this exemption's full DML already grants.",
+  },
+  {
+    table: "user_authenticator",
+    kind: "permanent",
+    // THE EXEMPTION IS FOR ONE COLUMN, SO THE GRANT IS FOR ONE COLUMN (E03-D06,
+    // invariant review). `last_used_step` moves by 048 R19's conditional UPDATE
+    // and `updated_at` moves with it; the sealed secret, its nonce and its
+    // `key_version` are written once at enrollment and never again, and an
+    // ending is a `user_authenticator_retirement` row rather than a DELETE.
+    updateColumns: ["last_used_step", "updated_at"],
+    reason:
+      "048 §10.1 lists it as config beside `user_credential` and `operator_pin`, and E03-D06's " +
+      "migration argues the one column that makes it so. **`last_used_step` is a MONOTONE " +
+      "REPLAY GUARD, not a fact.** 048 R19 moves it by a conditional `UPDATE … WHERE " +
+      "last_used_step < $new` whose affected-row count IS the authorization, and 034 §4.2's " +
+      "split allows exactly that: it is a statement about the present (the highest step this " +
+      "factor has spent), it destroys no history — 048 R16 rules that a SUCCESSFUL verification " +
+      "is deliberately recorded nowhere — and making it append-only would mean one row per " +
+      "successful sign-in, which is the per-operator log 022 P3 forbids and R16 struck. What " +
+      "DOES happen to this row is recorded elsewhere: a failure is an `auth_attempt` row, an " +
+      "ending is a `user_authenticator_retirement` row, and a replacement is a new row. The " +
+      "exemption's full DML is also what lets the verification take `SELECT … FOR UPDATE` on " +
+      "this row as its anchor (048 §9.1's construction, mirrored from `operator_pin`).",
   },
   {
     table: "shop_credentials",

@@ -268,6 +268,51 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   },
 
   // ---------------------------------------------------------------------------
+  // E03-D06 — THE SECOND FACTOR (048 §4, §8), landed by migration 025. Four
+  // tables, under the SAME rule the twelve above state:
+  //
+  //   AN AUTHENTICATION FACT IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // What is worth adding once, here, is that these four are the WORST fit in the
+  // cluster rather than merely a poor one: an event about any of them would tell
+  // every consumer in the registry that a NAMED PERSON'S second factor was
+  // enrolled, spent, lost or recovered — which is not only 019 T35's per-operator
+  // surface arriving through the outbox, it is a live map of which owners
+  // currently cannot get in.
+  // ---------------------------------------------------------------------------
+  {
+    table: "user_authenticator_retirement",
+    rule:
+      "048 §4.3 / §8.1: an authentication fact with no scan_session_id. It takes effect by " +
+      "DERIVATION at the next verification — liveness is a predicate over this table " +
+      "(`src/services/auth/authenticator.ts`) — so there is no sweep to trigger and no event to " +
+      "trigger it, and an event would announce that a named person's second factor is gone.",
+  },
+  {
+    table: "recovery_code",
+    rule:
+      "048 §8.1: an issuance fact about a credential shown once. Its only reader is the " +
+      "redemption path, and an event about it would carry a person past the audited accessor " +
+      "(034 §3.3, 019 T35 non-waivable) to tell a consumer about codes it must never see.",
+  },
+  {
+    table: "recovery_code_use",
+    rule:
+      "As `recovery_code`. Its EFFECT — the retirement that forces re-enrollment — is written in " +
+      "the SAME transaction (048 §8.1), so there is nothing eventual to react to; and the event " +
+      "would say 'this named owner has lost their phone', which is the one fact an attacker " +
+      "watching a bus would most want.",
+  },
+  {
+    table: "shop_recovery_nomination",
+    rule:
+      "048 §8.2: a statement about a shop's people, read by E11-B09's break-glass runbook out of " +
+      "band and by nothing in the pipeline. It carries no scan_session_id, and a named contact is " +
+      "not a credential — publishing one to every consumer would widen a personal datum's " +
+      "audience for no consumer that wants it.",
+  },
+
+  // ---------------------------------------------------------------------------
   // E03-B05 — THE CREDENTIAL LIFECYCLE (050 §4), landed by migrations 021/022.
   // Two tables, ONE rule:
   //

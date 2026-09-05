@@ -167,6 +167,32 @@ export async function liveMembershipShopIds(db: Queryable, appUserId: string): P
   return (res.rows as Array<{ shop_id: string }>).map((r) => r.shop_id);
 }
 
+/**
+ * Every role this person holds live, anywhere (E03-D06).
+ *
+ * It exists for 048 §4.1's question — *does this person need a second factor?* —
+ * which is a property of the PERSON across every scope and not of one shop: an
+ * owner at one shop who is an operator at another is still an owner, and the
+ * factor they hold is theirs rather than a shop's.
+ *
+ * ⚠ **It grants nothing.** 048 §12.3 assigns the permission matrix to E03-B03, and
+ * this returns a set to be tested against a REQUIREMENT (may this person enrol a
+ * second factor at all), never against a permission.
+ */
+export async function liveRolesOf(db: Queryable, appUserId: string): Promise<Role[]> {
+  const res = await db.query(
+    `SELECT DISTINCT m.role
+       FROM membership m
+      WHERE m.app_user_id = $1
+        AND m.effective_from <= now()
+        AND (m.effective_until IS NULL OR m.effective_until > now())
+        AND NOT EXISTS (
+              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)`,
+    [appUserId]
+  );
+  return (res.rows as Array<{ role: Role }>).map((r) => r.role);
+}
+
 export interface RosterEntry {
   id: string;
   display_name: string;

@@ -16,6 +16,7 @@ describe("planAppRoleGrants", () => {
       appendOnly: ["cost_log", "pricing_snapshot"],
       mutable: [],
       noGrant: [],
+      columnScoped: [],
     });
   });
 
@@ -24,6 +25,7 @@ describe("planAppRoleGrants", () => {
       appendOnly: [],
       mutable: ["scan_session", "shop"],
       noGrant: [],
+      columnScoped: [],
     });
   });
 
@@ -36,6 +38,7 @@ describe("planAppRoleGrants", () => {
       appendOnly: [],
       mutable: ["shop"],
       noGrant: ["schema_migrations"],
+      columnScoped: [],
     });
   });
 
@@ -79,7 +82,12 @@ describe("planAppRoleGrants", () => {
 });
 
 describe("buildGrantStatements", () => {
-  const plan = { appendOnly: ["cost_log"], mutable: ["shop"], noGrant: ["schema_migrations"] };
+  const plan = {
+    appendOnly: ["cost_log"],
+    mutable: ["shop"],
+    noGrant: ["schema_migrations"],
+    columnScoped: [],
+  };
 
   it("emits no GRANT at all for a no-grant table — the opening REVOKE ALL is its whole story", () => {
     const sql = buildGrantStatements(plan, "longbox_app", ["v"]).join("\n");
@@ -88,9 +96,9 @@ describe("buildGrantStatements", () => {
   });
 
   it("still validates a no-grant identifier, so the class cannot smuggle one past the check", () => {
-    expect(() => buildGrantStatements({ appendOnly: [], mutable: [], noGrant: ["bad name"] }, "app")).toThrow(
-      /unsafe table/
-    );
+    expect(() =>
+      buildGrantStatements({ appendOnly: [], mutable: [], noGrant: ["bad name"], columnScoped: [] }, "app")
+    ).toThrow(/unsafe table/);
   });
 
   it("revokes before granting, so the step is corrective and not merely additive", () => {
@@ -115,11 +123,60 @@ describe("buildGrantStatements", () => {
     expect(sql).not.toMatch(/ALL PRIVILEGES|CREATE ON SCHEMA|ALTER|TRIGGER/);
   });
 
+  // THE FOURTH CLASS (E03-D06, from the invariant review of `faf105f`). It exists
+  // because `user_authenticator`'s exemption is for ONE column — 048 R19's
+  // `last_used_step` — while its grant was for the whole table, so the app role
+  // could rewrite the sealed secret, move the replay guard BACKWARDS, and DELETE a
+  // live authenticator with no retirement fact. All three were reproduced.
+  const scopedPlan = {
+    appendOnly: [],
+    mutable: [],
+    noGrant: [],
+    columnScoped: [{ table: "user_authenticator", columns: ["last_used_step", "updated_at"] }],
+  };
+
+  it("grants a column-scoped table SELECT+INSERT and UPDATE on the NAMED COLUMNS only", () => {
+    const statements = buildGrantStatements(scopedPlan, "longbox_app");
+    expect(statements).toContain("GRANT SELECT, INSERT ON user_authenticator TO longbox_app");
+    expect(statements).toContain(
+      "GRANT UPDATE (last_used_step, updated_at) ON user_authenticator TO longbox_app"
+    );
+  });
+
+  it("never grants DELETE or table-wide UPDATE on a column-scoped table", () => {
+    const sql = buildGrantStatements(scopedPlan, "longbox_app").join("\n");
+    // The two shapes that would undo the class: a bare table-level UPDATE, and any
+    // DELETE at all. An ending on this table is a `user_authenticator_retirement`
+    // row, so DELETE has no legitimate caller.
+    expect(sql).not.toMatch(/GRANT[^\n(]*UPDATE[^\n(]*ON user_authenticator/);
+    expect(sql).not.toMatch(/DELETE/);
+  });
+
+  it("validates a column name, so the class cannot smuggle one past the check", () => {
+    expect(() =>
+      buildGrantStatements(
+        { ...scopedPlan, columnScoped: [{ table: "t", columns: ["ok", "bad name"] }] },
+        "app"
+      )
+    ).toThrow(/unsafe column/);
+  });
+
+  it("classifies the declared column-scoped exemption BEFORE the plain-exempt branch", () => {
+    // Order matters: reaching `mutable` first would silently restore the
+    // table-level DML this class exists to remove, and every other assertion here
+    // would still pass.
+    const plan = planAppRoleGrants(["user_authenticator", "shop"]);
+    expect(plan.mutable).toEqual(["shop"]);
+    expect(plan.columnScoped).toEqual([
+      { table: "user_authenticator", columns: ["last_used_step", "updated_at"] },
+    ]);
+  });
+
   it("refuses an identifier it would have to interpolate unsafely", () => {
     expect(() => buildGrantStatements(plan, 'app"; DROP DATABASE x; --')).toThrow(/unsafe role/);
-    expect(() => buildGrantStatements({ appendOnly: ["a b"], mutable: [], noGrant: [] }, "app")).toThrow(
-      /unsafe table/
-    );
+    expect(() =>
+      buildGrantStatements({ appendOnly: ["a b"], mutable: [], noGrant: [], columnScoped: [] }, "app")
+    ).toThrow(/unsafe table/);
   });
 });
 
@@ -139,7 +196,12 @@ describe("applyAppRoleGrants", () => {
   it("applies every statement in the plan", async () => {
     const { client, executed } = fakeClient(["cost_log", "shop"], ["shop_current"]);
     const result = await applyAppRoleGrants(client, "longbox_app");
-    expect(result.plan).toEqual({ appendOnly: ["cost_log"], mutable: ["shop"], noGrant: [] });
+    expect(result.plan).toEqual({
+      appendOnly: ["cost_log"],
+      mutable: ["shop"],
+      noGrant: [],
+      columnScoped: [],
+    });
     expect(executed).toContain("GRANT SELECT, INSERT ON cost_log TO longbox_app");
     expect(executed).toContain("GRANT SELECT ON shop_current TO longbox_app");
   });

@@ -73,6 +73,15 @@ export const APP_LOCKABLE_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.fi
 /** Privileges a declared-exempt (deliberately mutable) table grants the app role. */
 export const MUTABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE";
 
+/**
+ * Privileges a COLUMN-SCOPED exemption grants, beside its `GRANT UPDATE (cols)`.
+ *
+ * The same pair an append-only table gets, and deliberately so: a table whose
+ * exemption is for named columns is append-only in every other respect, so its
+ * ending is a fact row rather than a DELETE (E03-D06).
+ */
+export const COLUMN_SCOPED_PRIVILEGES = "SELECT, INSERT";
+
 /** Default role name; overridable so a deployment may name its roles differently. */
 export const DEFAULT_APP_ROLE = "longbox_app";
 
@@ -90,6 +99,15 @@ export interface GrantPlan {
    * of leaving a reader to infer it from a table that is simply missing.
    */
   readonly noGrant: readonly string[];
+  /**
+   * Declared exemptions whose UPDATE is scoped to named columns (E03-D06).
+   *
+   * A FOURTH class rather than a flag on `mutable`, for `noGrant`'s reason: the
+   * grant step's output and its test should be able to say "this table's UPDATE
+   * is two columns wide" rather than leaving a reader to infer it from an absence
+   * in the full-DML list.
+   */
+  readonly columnScoped: ReadonlyArray<{ table: string; columns: readonly string[] }>;
 }
 
 /**
@@ -115,6 +133,18 @@ export class UndeclaredTableError extends Error {
 const EXEMPT_TABLE_NAMES: readonly string[] = APPEND_ONLY_EXEMPTIONS.map((e) => e.table);
 
 /**
+ * Declared exemptions whose UPDATE is scoped to named columns (E03-D06).
+ *
+ * Derived from the same declaration list as everything else in this module, so a
+ * table cannot enter or leave the class by being edited here.
+ */
+const COLUMN_SCOPED_EXEMPTIONS: ReadonlyArray<{ table: string; columns: readonly string[] }> =
+  APPEND_ONLY_EXEMPTIONS.filter((e) => e.updateColumns !== undefined && e.appGrant !== "none").map((e) => ({
+    table: e.table,
+    columns: e.updateColumns!,
+  }));
+
+/**
  * Declared exemptions the application role may NOT touch at all
  * (`appGrant: "none"` — the third privilege class, declared as a row, not a list).
  *
@@ -137,17 +167,23 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
   const appendOnly: string[] = [];
   const mutable: string[] = [];
   const noGrant: string[] = [];
+  const columnScoped: Array<{ table: string; columns: readonly string[] }> = [];
   const undeclared: string[] = [];
 
   for (const table of [...liveTables].sort()) {
+    const scoped = COLUMN_SCOPED_EXEMPTIONS.find((e) => e.table === table);
     if (APPEND_ONLY_TABLE_NAMES.includes(table)) appendOnly.push(table);
     else if (NO_APP_GRANT_TABLE_NAMES.includes(table)) noGrant.push(table);
+    // BEFORE the plain-exempt branch: a row carrying `updateColumns` is a
+    // narrower class, and reaching the wider one first would silently restore
+    // the table-level DML this class exists to remove.
+    else if (scoped) columnScoped.push({ table, columns: scoped.columns });
     else if (EXEMPT_TABLE_NAMES.includes(table)) mutable.push(table);
     else undeclared.push(table);
   }
 
   if (undeclared.length > 0) throw new UndeclaredTableError(undeclared);
-  return { appendOnly, mutable, noGrant };
+  return { appendOnly, mutable, noGrant, columnScoped };
 }
 
 /** Postgres identifiers we are willing to interpolate: lowercase, unquoted, no injection surface. */
@@ -171,7 +207,13 @@ export function assertSafeIdentifier(name: string, what: string): string {
  */
 export function buildGrantStatements(plan: GrantPlan, role: string, views: readonly string[] = []): string[] {
   assertSafeIdentifier(role, "role name");
-  for (const t of [...plan.appendOnly, ...plan.mutable, ...plan.noGrant, ...views]) {
+  for (const t of [
+    ...plan.appendOnly,
+    ...plan.mutable,
+    ...plan.noGrant,
+    ...plan.columnScoped.map((c) => c.table),
+    ...views,
+  ]) {
     assertSafeIdentifier(t, "table name");
   }
 
@@ -192,6 +234,16 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
   }
   if (plan.mutable.length > 0) {
     statements.push(`GRANT ${MUTABLE_PRIVILEGES} ON ${plan.mutable.join(", ")} TO ${role}`);
+  }
+  // THE COLUMN-SCOPED CLASS (E03-D06). `SELECT, INSERT` at the table, `UPDATE` on
+  // the named columns only, and NO DELETE — so a table exempted because ONE column
+  // has to move cannot have its other columns rewritten or its rows removed by the
+  // application. Emitted as two statements because PostgreSQL has no single form
+  // that mixes table-level and column-level privileges.
+  for (const { table, columns } of plan.columnScoped) {
+    for (const column of columns) assertSafeIdentifier(column, "column name");
+    statements.push(`GRANT ${COLUMN_SCOPED_PRIVILEGES} ON ${table} TO ${role}`);
+    statements.push(`GRANT UPDATE (${columns.join(", ")}) ON ${table} TO ${role}`);
   }
   if (views.length > 0) {
     // Views are read models over the tables above (`*_current`). SELECT only —

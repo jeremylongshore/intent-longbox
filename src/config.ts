@@ -1,6 +1,7 @@
 // Central env-derived config. Secrets stay in process.env; this module never
 // logs or re-exports raw key values beyond handing them to transport code.
 import "dotenv/config";
+import { requireAuthenticatorKey, type AuthenticatorKeyring } from "./services/auth/aead.js";
 import { requirePinPepper } from "./services/auth/secrets.js";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./services/media.js";
 import {
@@ -37,6 +38,24 @@ export interface AppConfig {
    * (048 §12.4 row 3).
    */
   pinPepper: string;
+  /**
+   * 048 §4.2 (R18) — the AEAD key ring every TOTP secret is sealed under
+   * (E03-D06).
+   *
+   * OPTIONAL in the type and ALWAYS set by `loadConfig`, which is `media`'s and
+   * `spendCeilings`' reasoning with one difference worth stating: those two
+   * default to a SAFE value when a test omits them, and this one has no safe
+   * default at all. A config without a ring cannot decrypt anything, which is the
+   * correct behaviour for a config that was never given a key — the alternative
+   * would be a ring generated on the spot, which encrypts every enrollment made in
+   * that process and opens none of them after a restart.
+   *
+   * The BOOT REFUSAL is `loadConfig` calling `requireAuthenticatorKey`, exactly as
+   * it calls `requirePinPepper`: a server with no key does not start, rather than
+   * discovering the absence at the first enrollment. Its custody — SOPS as the
+   * source, a mode-0600 tmpfs `EnvironmentFile` as the form — is 050 §3's.
+   */
+  authenticatorKeys?: AuthenticatorKeyring;
   /**
    * 048 §5.1 (R9) — the origin(s) this deployment answers on.
    *
@@ -222,6 +241,10 @@ export function loadConfig(): AppConfig {
     // are: a check that only bites in production is a check no developer ever
     // sees fail.
     pinPepper: requirePinPepper(),
+    // The same fail-closed posture, for the same reason (048 §4.2, E03-D06): a
+    // server that starts without the authenticator key is a server that will
+    // refuse every second factor it holds, at the moment somebody needs one.
+    authenticatorKeys: requireAuthenticatorKey(),
     publicOrigins: publicOrigins(),
     spendCeilings: assertSpendCeilingsOrThrow(
       {

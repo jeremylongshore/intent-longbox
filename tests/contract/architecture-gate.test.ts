@@ -524,6 +524,67 @@ describe("042 I22 — the fixed lock order", () => {
     expect(findings[0]!.message).toContain("the app_session lock BEFORE its request_idempotency INSERT");
   });
 
+  // THE FOURTH POSITION (E03-D06, 048 §4.3/§9.1). Nothing in the tree matches
+  // `AUTHENTICATOR_LOCK` today — the second factor has no route — so these three
+  // fixtures are the ONLY evidence the position works at all. A rule added ahead
+  // of its first caller and never exercised is a rule that will be wrong the day
+  // it fires, which is precisely how the position before it earned its fixtures.
+  it("passes when the authenticator lock sits between the session lock and the anchor", () => {
+    expect(
+      checkLockOrder([
+        {
+          path: "src/services/mfaApi.ts",
+          text:
+            "export async function verify(deps, ctx, body) {\n" +
+            "  return runIdempotent(deps.pool, idem, async (tx) => {\n" +
+            "    await lockAndRotate(tx, ctx.session, new Date());\n" +
+            "    await verifyTotp(tx, { appUserId: ctx.operatorId, code: body.code });\n" +
+            "    await lockScanSession(tx, s, i);\n" +
+            "    return { status: 200 };\n" +
+            "  });\n" +
+            "}\n",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("fails on a handler that verifies a second factor BEFORE its idempotency INSERT", () => {
+    const findings = checkLockOrder([
+      {
+        path: "src/services/mfaApi.ts",
+        text:
+          "export async function verify(deps, ctx, body) {\n" +
+          "  await verifyTotp(tx, { appUserId: ctx.operatorId, code: body.code });\n" +
+          "  return runIdempotent(deps.pool, idem, async (tx) => ({ status: 200 }));\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain(
+      "the user_authenticator lock BEFORE its request_idempotency INSERT"
+    );
+  });
+
+  it("fails on a handler that takes the scan_session anchor BEFORE the authenticator lock", () => {
+    // The pair that matters operationally: a handler holding a book's anchor
+    // through an argon2id verification is a lock held for the length of a KDF.
+    const findings = checkLockOrder([
+      {
+        path: "src/services/mfaApi.ts",
+        text:
+          "export async function verify(deps, ctx, body) {\n" +
+          "  return runIdempotent(deps.pool, idem, async (tx) => {\n" +
+          "    await lockScanSession(tx, s, i);\n" +
+          "    await redeemRecoveryCode(tx, { appUserId: ctx.operatorId, code: body.code });\n" +
+          "    return { status: 200 };\n" +
+          "  });\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the scan_session anchor lock BEFORE the user_authenticator lock");
+  });
+
   it("fails on a handler that takes the scan_session anchor BEFORE the session lock (048 K1)", () => {
     const findings = checkLockOrder([
       {

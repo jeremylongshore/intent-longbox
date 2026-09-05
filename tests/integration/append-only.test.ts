@@ -127,6 +127,25 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     return (r.rows[0] as { id: string }).id;
   }
 
+  /**
+   * A fresh authenticator row, for the retirement recipe (E03-D06).
+   *
+   * The sealed columns hold obviously-synthetic bytes rather than a real AEAD
+   * envelope: this suite tests the TRIGGER, not the cryptography, and 048 I9's
+   * fixture rule is that nothing here may carry anything a real secret could be
+   * confused with. `id` is supplied because the column has no default — it is the
+   * AAD, so the application mints it (`migrations/025`).
+   */
+  async function freshAuthenticator(): Promise<string> {
+    const r = await pool.query(
+      `INSERT INTO user_authenticator
+         (id, app_user_id, kind, secret_ciphertext, secret_nonce, key_version)
+       VALUES (gen_random_uuid(), $1, 'totp', '\\x00', '\\x00', 1) RETURNING id`,
+      [await freshUser()]
+    );
+    return (r.rows[0] as { id: string }).id;
+  }
+
   /** A fresh phone, for the recipes whose row hangs off one. */
   async function freshDevice(): Promise<string> {
     const r = await pool.query(
@@ -689,6 +708,45 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
              FROM operator_pin p WHERE p.id = $2
            RETURNING id`,
           [shopId, row.id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      // E03-D06's four (`migrations/025`). The authenticator ROW is not here: it
+      // is a declared exemption, because 048 R19's `last_used_step` is the one
+      // column in this subsystem that has to move.
+      case "user_authenticator_retirement": {
+        const r = await pool.query(
+          `INSERT INTO user_authenticator_retirement (app_user_id, authenticator_id, reason)
+           VALUES ($1,$2,'lost_authenticator') RETURNING id`,
+          [await freshUser(), await freshAuthenticator()]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "recovery_code": {
+        const r = await pool.query(
+          `INSERT INTO recovery_code (app_user_id, batch_id, code_hash)
+           VALUES ($1, gen_random_uuid(), 'not-a-hash') RETURNING id`,
+          [await freshUser()]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "recovery_code_use": {
+        const person = await freshUser();
+        const code = await pool.query(
+          `INSERT INTO recovery_code (app_user_id, batch_id, code_hash)
+           VALUES ($1, gen_random_uuid(), 'not-a-hash') RETURNING id`,
+          [person]
+        );
+        const r = await pool.query(
+          `INSERT INTO recovery_code_use (app_user_id, code_id) VALUES ($1,$2) RETURNING id`,
+          [person, (code.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "shop_recovery_nomination": {
+        const r = await pool.query(
+          `INSERT INTO shop_recovery_nomination (shop_id, kind) VALUES ($1,'declined') RETURNING id`,
+          [shopId]
         );
         return (r.rows[0] as { id: string }).id;
       }

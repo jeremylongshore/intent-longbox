@@ -297,10 +297,19 @@ describe.skipIf(!dbUp)("003 principle slots", () => {
     await pool.query(sql);
 
     const slug = `via-script-${randomUUID()}`.slice(0, 40);
-    await execFileAsync("pnpm", ["exec", "tsx", "scripts/register-shop.ts", "--name", slug, "--slug", slug], {
-      cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: dbUrl },
-    });
+    // `--no-recovery-contact` is REQUIRED from E03-D06 (048 §8.2): the recovery
+    // nomination is asked at registration and may be DECLINED, but it may not be
+    // skipped — the difference between "this owner has no second person" and
+    // "nobody asked" is the difference between a known residual and a surprise
+    // during an outage. A fixture shop declines, explicitly.
+    await execFileAsync(
+      "pnpm",
+      ["exec", "tsx", "scripts/register-shop.ts", "--name", slug, "--slug", slug, "--no-recovery-contact"],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: dbUrl },
+      }
+    );
 
     const rowsFor = async (where: string, param: string): Promise<unknown[]> =>
       (

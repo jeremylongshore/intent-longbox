@@ -43,6 +43,11 @@ import { setCredentialOverlapSink } from "../../src/providers/credentialVersions
 import { buildUserText } from "../../src/providers/shared.js";
 import { IDENTIFY_PROMPT } from "../../src/providers/types.js";
 import { fakeResponse, fakeTxPool, type FakeTxPool, type QueryCall } from "../fakes.js";
+import { open, requireAuthenticatorKey, seal } from "../../src/services/auth/aead.js";
+import type { AuthenticatorKeyring } from "../../src/services/auth/aead.js";
+import { enrollAuthenticator, verifyTotp } from "../../src/services/auth/index.js";
+import { base32Encode, stepAt, totpCode } from "../../src/services/auth/totp.js";
+import type { Queryable, Tx } from "../../src/db.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const SHOP = "11111111-1111-1111-1111-111111111111";
@@ -272,6 +277,57 @@ async function runPipeline(p: FakeTxPool): Promise<string> {
   return JSON.stringify(seen);
 }
 
+/**
+ * A scripted connection for the stream-sink case: it answers the membership read,
+ * remembers the id `enrollAuthenticator` minted (which is the AEAD's AAD, so the
+ * test cannot seal a matching row without it), and serves the authenticator row
+ * back to `verifyTotp`.
+ */
+function scriptedDb(): {
+  db: Tx & Queryable;
+  lastInsert?: string;
+  rowFor?: Record<string, unknown>;
+} {
+  const state: { db: Tx & Queryable; lastInsert?: string; rowFor?: Record<string, unknown> } = {
+    db: null as unknown as Tx & Queryable,
+  };
+  state.db = {
+    async query(text: string, values?: unknown[]) {
+      if (text.includes("FROM membership m")) return { rows: [{ role: "owner" }], rowCount: 1 };
+      // A regex, not a substring: the statement wraps after the table name, and
+      // `INSERT INTO user_authenticator_retirement` contains the same prefix.
+      if (/INSERT INTO user_authenticator\s*\(/.test(text)) {
+        state.lastInsert = values?.[0] as string;
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.includes("FROM user_authenticator a")) {
+        return { rows: state.rowFor ? [state.rowFor] : [], rowCount: state.rowFor ? 1 : 0 };
+      }
+      if (text.includes("FROM auth_attempt")) return { rows: [{ failures: 0, age: null }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+  } as unknown as Tx & Queryable;
+  return state;
+}
+
+/** The row `verifyTotp` reads back, sealed under the id the INSERT actually used. */
+function enrolledRow(id: string, secret: Buffer, ring: AuthenticatorKeyring): Record<string, unknown> {
+  const sealed = seal(ring, secret, id);
+  return {
+    id,
+    app_user_id: "person-1",
+    kind: "totp",
+    secret_ciphertext: sealed.ciphertext,
+    secret_nonce: sealed.nonce,
+    key_version: sealed.keyVersion,
+    digits: 6,
+    period_seconds: 30,
+    algorithm: "SHA1",
+    last_used_step: null,
+    enrolled_at: new Date(),
+  };
+}
+
 describe("019 T31's five uncovered surfaces, under a planted canary (050 §9 I1)", () => {
   it("runs the whole pipeline and leaks the value into NONE of them", async () => {
     const p = pipelinePool();
@@ -321,6 +377,146 @@ describe("019 T31's five uncovered surfaces, under a planted canary (050 §9 I1)
     // prompt, which is the branch a value could conceivably ride out on.
     expect(text).toContain("Amazing Spider-Man");
   });
+
+  // -------------------------------------------------------------------------
+  // E03-D06 — the SECOND FACTOR's material, on the same five surfaces.
+  //
+  // 048 §11 I9 extends this file by name: `user_authenticator`'s secret column is
+  // AEAD ciphertext with a per-row nonce, a `key_version` and the row id as AAD,
+  // and "a canary planted in a password, a PIN, a pepper and a TOTP secret
+  // appears in no log line, no error body, no `pg_dump` fixture and no test
+  // output". Two of those four already have coverage (the PIN in
+  // `operator-pin.test.ts`, the pepper here). These are the other two.
+  //
+  // The assertion is on the CANARY'S VALUE and never on a redaction rule, which
+  // is this file's own discipline: what is planted is a recognisable byte string
+  // INSIDE a real secret, sealed by the real function, and what is searched is
+  // everything the subsystem would hand to a database, a log or an error.
+  // -------------------------------------------------------------------------
+  it("a TOTP secret's plaintext reaches no column, no error and no key-ring message", () => {
+    const ring = requireAuthenticatorKey({
+      LONGBOX_AUTHENTICATOR_KEY_V1: Buffer.alloc(32, 0x11).toString("base64"),
+    });
+    const planted = Buffer.from("test-totp-canary-key", "utf8");
+    const rowId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const sealed = seal(ring, planted, rowId);
+
+    // Surface 1 — the COLUMNS. These three buffers are literally what the INSERT
+    // binds, so this is the database surface itself rather than a proxy for it.
+    const columns = Buffer.concat([sealed.ciphertext, sealed.nonce]).toString("binary");
+    expect(columns).not.toContain(planted.toString("binary"));
+
+    // Surfaces 3 and 4 — ERRORS. Every failure this envelope can produce, with
+    // its message and its stack: a wrong AAD, a wrong key, a truncated value, and
+    // a missing key version. None may quote the secret OR the key.
+    const key = Buffer.alloc(32, 0x11).toString("base64");
+    const failures: string[] = [];
+    const attempts: Array<() => unknown> = [
+      () => open(ring, { ...sealed, aad: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }),
+      () => open(ring, { ...sealed, ciphertext: Buffer.alloc(2), aad: rowId }),
+      () => open(ring, { ...sealed, keyVersion: 9, aad: rowId }),
+      () => requireAuthenticatorKey({ LONGBOX_AUTHENTICATOR_KEY_V1: "c2hvcnQ=" }),
+      () => requireAuthenticatorKey({}),
+    ];
+    for (const attempt of attempts) {
+      try {
+        attempt();
+      } catch (err) {
+        failures.push(`${(err as Error).message}\n${(err as Error).stack ?? ""}`);
+      }
+    }
+    expect(failures).toHaveLength(attempts.length);
+    const errorText = failures.join("\n");
+    expect(errorText).not.toContain(planted.toString("utf8"));
+    expect(errorText).not.toContain(key);
+    // …and they are real refusals rather than a silent pass: each named the
+    // problem in the terms an operator can act on.
+    expect(errorText).toContain("did not authenticate");
+    expect(errorText).toContain("LONGBOX_AUTHENTICATOR_KEY_V1");
+  });
+
+  // ⚠ THE RECOVERY-CODE HALF OF THE SAME RULE IS ASSERTED IN THE INTEGRATION
+  // LANE, DELIBERATELY (`tests/integration/recovery-codes.test.ts`). It needs
+  // argon2id at the parameters `secrets.ts` sets, and three of those runs is four
+  // seconds of one CPU — in a unit lane of seventy parallel files, adding that
+  // here made two unrelated suites time out. It is not a weaker assertion: the
+  // integration version reads the digests out of real rows written by the real
+  // enrollment, and additionally shows the digest does NOT verify against the code
+  // alone, which is the pepper doing its job.
+  it("ENROLL AND VERIFY WRITE NOTHING to any stream: the plaintext secret reaches no sink", async () => {
+    // ⚠ THE FINDING THIS CLOSES (invariant review of `faf105f`). A `console.log`
+    // of the DECRYPTED secret planted inside `aead.open()` passed the entire unit
+    // lane — 1367 of 1367 — because nothing in this file watched a stream while
+    // the real enrollment and the real verification ran. 019 T31's second surface
+    // is LOG LINES, and the assertion above only covers the ones the pipeline's
+    // own routes emit.
+    //
+    // So this captures every stream a Node process can write to — the five
+    // `console` methods AND `process.stdout.write` / `process.stderr.write`, which
+    // is where a `console.log` actually lands and where a hand-rolled debug line
+    // would go — around the two calls that hold a plaintext TOTP secret in memory.
+    const planted = Buffer.from("test-enrolled-totp-canary-key", "utf8");
+    const captured: string[] = [];
+    const writes: Array<[NodeJS.WriteStream, NodeJS.WriteStream["write"]]> = [];
+    for (const stream of [process.stdout, process.stderr]) {
+      const original = stream.write.bind(stream) as NodeJS.WriteStream["write"];
+      writes.push([stream, original]);
+      stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+        captured.push(typeof chunk === "string" ? chunk : String(chunk));
+        return (original as (...a: unknown[]) => boolean)(chunk, ...rest);
+      }) as NodeJS.WriteStream["write"];
+    }
+    for (const level of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        captured.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+      });
+    }
+
+    const ring = requireAuthenticatorKey({
+      LONGBOX_AUTHENTICATOR_KEY_V1: Buffer.alloc(32, 0x11).toString("base64"),
+    });
+    const now = new Date(1_700_000_000_000);
+    const db = scriptedDb();
+    try {
+      const enrolled = await enrollAuthenticator(db.db, {
+        appUserId: "person-1",
+        secret: planted,
+        confirmationCode: totpCode(planted, stepAt(now)),
+        keyring: ring,
+        pepper: TEST_PIN_PEPPER,
+        now,
+      });
+      expect(enrolled.ok).toBe(true);
+
+      const later = new Date(now.getTime() + 30_000);
+      db.rowFor = enrolledRow(db.lastInsert!, planted, ring);
+      expect(
+        await verifyTotp(db.db, {
+          appUserId: "person-1",
+          code: totpCode(planted, stepAt(later)),
+          keyring: ring,
+          now: later,
+        })
+      ).toEqual({ ok: true, step: stepAt(later) });
+
+      // THE SINK REALLY IS WATCHING. Without this the whole test passes when the
+      // capture is broken, which is the failure mode a canary test is most prone
+      // to — and is exactly how the planted `console.log` survived before.
+      console.log("sink-probe");
+      process.stdout.write("");
+    } finally {
+      for (const [stream, original] of writes) stream.write = original;
+      vi.restoreAllMocks();
+    }
+
+    const sunk = captured.join("\n");
+    expect(sunk).toContain("sink-probe");
+    // Every encoding a well-meaning debug line would reach for.
+    expect(sunk).not.toContain(planted.toString("utf8"));
+    expect(sunk).not.toContain(planted.toString("hex"));
+    expect(sunk).not.toContain(planted.toString("base64"));
+    expect(sunk).not.toContain(base32Encode(planted));
+  }, 30_000);
 
   it("the canary is shaped like a fixture credential, so the convention test governs it", () => {
     // E03-D04's rule: a value of this shape may live only under `tests/`. That

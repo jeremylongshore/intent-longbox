@@ -31,6 +31,16 @@ import { checkRoleSeparation, assertRoleSeparationOrThrow } from "../../src/serv
 
 const dbUp = await probeDb();
 
+/**
+ * Declared exemptions whose UPDATE is scoped to named columns (E03-D06).
+ *
+ * Read from the declaration rather than spelled here, so a table that gains or
+ * loses the class changes this suite's expectations without anybody editing it.
+ */
+const COLUMN_SCOPED = APPEND_ONLY_EXEMPTIONS.filter(
+  (e) => !e.pending && e.appGrant !== "none" && e.updateColumns !== undefined
+).map((e) => ({ table: e.table, columns: e.updateColumns! }));
+
 /** Declared-exempt tables that exist in the schema AND the app may touch. */
 const LIVE_EXEMPT = APPEND_ONLY_EXEMPTIONS.filter((e) => !e.pending && e.appGrant !== "none").map(
   (e) => e.table
@@ -257,11 +267,113 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
   it("every declared-exempt table present in the schema grants full DML", async () => {
     const grants = await privilegesByTable(ownerPool);
     for (const table of LIVE_EXEMPT) {
+      // A column-scoped exemption is a NARROWER class and is asserted below; a
+      // table that fell out of it would show up here as a full-DML row, which is
+      // the drift these two assertions bracket between them.
+      if (COLUMN_SCOPED.some((c) => c.table === table)) continue;
       expect({ table, privileges: grants.get(table) }).toEqual({
         table,
         privileges: ["DELETE", "INSERT", "SELECT", "UPDATE"],
       });
     }
+  });
+
+  // ============================================================================
+  // THE COLUMN-SCOPED CLASS (E03-D06, from the invariant review of `faf105f`)
+  // ============================================================================
+  //
+  // The finding, stated as the reproduction it was: `user_authenticator` is exempt
+  // from the append-only trigger because ONE column has to move — 048 R19's
+  // `last_used_step` — and its grant was for the whole table. As the app role, and
+  // with every other control in this repository in place, it was possible to
+  // rewrite `secret_ciphertext` / `secret_nonce` / `key_version`, to move
+  // `last_used_step` BACKWARDS (which defeats the replay guard outright: the write
+  // is the check, and a check that can be reset is not one), and to DELETE a live
+  // authenticator leaving no `user_authenticator_retirement` fact behind.
+  //
+  // The privilege was never the guarantee (041 §9.2 item 1 ranks the trigger
+  // first, and this table deliberately has none) — which is exactly why the grant
+  // has to carry the weight here, and why each of the three is asserted as a
+  // REFUSAL rather than as an absence in a plan.
+
+  it("a COLUMN-SCOPED exemption grants SELECT+INSERT and UPDATE on the named columns only", async () => {
+    expect(COLUMN_SCOPED.length).toBeGreaterThan(0);
+    const grants = await privilegesByTable(ownerPool);
+    const columns = await updatableColumns(ownerPool);
+    for (const { table, columns: declared } of COLUMN_SCOPED) {
+      // **NO table-level UPDATE at all**, which is the assertion that would fail
+      // the day somebody "simplifies" this back to `appGrant: "full"` —
+      // `role_table_grants` lists table-level privileges only, so a column grant
+      // is invisible here and a table grant is not. Verified on postgres:16 while
+      // writing this: the first draft expected `UPDATE` in this list and the
+      // database disagreed, which is the difference being real rather than assumed.
+      expect({ table, privileges: grants.get(table) }).toEqual({
+        table,
+        privileges: ["INSERT", "SELECT"],
+      });
+      // …and the UPDATE lives in `role_column_grants`, on exactly the declared
+      // columns and no others.
+      expect({ table, columns: columns.get(table) }).toEqual({
+        table,
+        columns: [...declared].sort(),
+      });
+    }
+  });
+
+  it("REFUSES the app role every write on `user_authenticator` except its declared columns", async () => {
+    // A row written by the OWNER, so the refusals below are about privilege and
+    // not about a row that was never there. The sealed columns hold obviously
+    // synthetic bytes: this suite tests grants, not cryptography.
+    const person = await ownerPool.query(
+      `INSERT INTO app_user (email, display_name) VALUES ($1,'Grant Person') RETURNING id`,
+      [`grant-${randomUUID()}@example.invalid`]
+    );
+    const id = randomUUID();
+    await ownerPool.query(
+      `INSERT INTO user_authenticator
+         (id, app_user_id, kind, secret_ciphertext, secret_nonce, key_version, last_used_step)
+       VALUES ($1,$2,'totp','\\x00','\\x00',1,5)`,
+      [id, (person.rows[0] as { id: string }).id]
+    );
+
+    // 1. THE SECRET, ITS NONCE AND ITS KEY VERSION are written once at enrollment
+    //    and never again. Each is refused by name, because a grant that covered
+    //    one of the three would pass a test that only tried another.
+    for (const column of ["secret_ciphertext", "secret_nonce", "key_version"]) {
+      await expect(
+        appPool.query(`UPDATE user_authenticator SET ${column} = $2 WHERE id = $1`, [
+          id,
+          column === "key_version" ? 2 : Buffer.from([0xff]),
+        ])
+      ).rejects.toThrow(/permission denied/);
+    }
+
+    // 2. THE REPLAY GUARD MAY MOVE — that is the whole reason this table is
+    //    exempt — and 048 R19's monotonicity is the SERVICE's rule rather than the
+    //    grant's, so what the grant has to allow is exactly this statement.
+    const moved = await appPool.query(`UPDATE user_authenticator SET last_used_step = 6 WHERE id = $1`, [id]);
+    // The affected-row count, not merely "it did not throw": 048 R19 makes that
+    // count the authorization, so a statement that touched zero rows would be a
+    // permitted UPDATE that changed nothing — which is not what the grant has to
+    // allow.
+    expect(moved.rowCount).toBe(1);
+
+    // 3. DELETE IS REFUSED. An ending on this table is a
+    //    `user_authenticator_retirement` row (048 §8.1's forced re-enrollment
+    //    reads it as a predicate); a DELETE would remove the factor AND the fact
+    //    that it ever existed, which no append-only sibling permits.
+    await expect(appPool.query(`DELETE FROM user_authenticator WHERE id = $1`, [id])).rejects.toThrow(
+      /permission denied/
+    );
+
+    // …and the row is still exactly what the owner wrote, apart from the one
+    // column the class permits.
+    const after = await ownerPool.query(
+      `SELECT key_version, last_used_step, length(secret_ciphertext) AS len
+         FROM user_authenticator WHERE id = $1`,
+      [id]
+    );
+    expect(after.rows[0]).toMatchObject({ key_version: 1, last_used_step: "6", len: 1 });
   });
 
   it("grants no privilege on any table outside the two granted classes", async () => {
@@ -303,6 +415,30 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
   });
 
   /** Every base-table privilege `longbox_app` holds, table → sorted privilege list. */
+  /**
+   * The columns the app role may UPDATE, per table (E03-D06).
+   *
+   * `role_table_grants` carries TABLE-level privileges only, so a column-scoped
+   * UPDATE does not appear there at all — which is what lets the assertion above
+   * demand its ABSENCE from the table list, and this one demand its PRESENCE on
+   * exactly the declared columns. Two views, two halves, and a widening back to a
+   * table-level grant fails both.
+   */
+  async function updatableColumns(pool: pg.Pool): Promise<Map<string, string[]>> {
+    const { rows } = await pool.query(
+      `SELECT g.table_name, g.column_name
+         FROM information_schema.role_column_grants g
+        WHERE g.grantee = $1 AND g.table_schema = 'public' AND g.privilege_type = 'UPDATE'`,
+      [APP_ROLE]
+    );
+    const byTable = new Map<string, string[]>();
+    for (const row of rows as Array<{ table_name: string; column_name: string }>) {
+      byTable.set(row.table_name, [...(byTable.get(row.table_name) ?? []), row.column_name]);
+    }
+    for (const [table, list] of byTable) byTable.set(table, [...new Set(list)].sort());
+    return byTable;
+  }
+
   async function privilegesByTable(pool: pg.Pool): Promise<Map<string, string[]>> {
     const { rows } = await pool.query(
       `SELECT g.table_name, g.privilege_type

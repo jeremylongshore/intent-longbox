@@ -326,6 +326,30 @@ const ANCHOR_LOCK = /(FROM\s+scan_session[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockScan
 const SESSION_LOCK =
   /(FROM\s+app_session[\s\S]{0,200}?FOR\s+NO\s+KEY\s+UPDATE)|\b(lockSession|lockAndRotate|sessionLock)\s*[(:]/i;
 
+/**
+ * The AUTHENTICATOR lock — the FOURTH position, added by E03-D06 (048 §4.3, R19).
+ *
+ * `verifyTotp` and `redeemRecoveryCode` take `SELECT … FOR UPDATE` on the live
+ * `user_authenticator` row as their lockout anchor (048 §9.1's construction,
+ * MIRRORED rather than extended, because an `operator_pin` row is keyed on a
+ * device a second factor does not have). It sits **after** the session lock and
+ * **before** the `scan_session` anchor, on the session lock's own reasoning one
+ * step further: the request's identity is recognised first, then the session that
+ * says who is asking, then the CREDENTIAL that says they are still who they claim,
+ * and only then the domain subject. A handler that locked a book before checking
+ * a second factor would hold domain state through an argon2id verification.
+ *
+ * ⚠ **NOTHING MATCHES IT TODAY**, and the rule is cheap precisely because of that:
+ * E03-D06 registers no route, so no transaction takes both this lock and either
+ * of the other three. It is added now, while the answer is obvious and free, so
+ * that E03-D11's route inherits the order instead of choosing one — which is the
+ * same reason 042 I22 existed before there were two handlers to deadlock.
+ * `tests/contract/architecture-gate.test.ts` asserts BOTH directions against
+ * synthetic handlers, so a rule that has never fired is still known to work.
+ */
+const AUTHENTICATOR_LOCK =
+  /(FROM\s+user_authenticator[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockLiveAuthenticator|verifyTotp|redeemRecoveryCode)\s*\(/i;
+
 /** The layers where a handler can live. A rule keyed on one layout goes blind on the next. */
 const HANDLER_LAYERS = ["src/routes/", "src/services/"];
 
@@ -344,35 +368,40 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
   for (const file of files) {
     if (!HANDLER_LAYERS.some((layer) => file.path.startsWith(layer))) continue;
     for (const [i, body] of splitMutatingHandlers(file.text).entries()) {
-      const insert = body.search(IDEMPOTENCY_INSERT);
-      const lock = body.search(ANCHOR_LOCK);
-      const session = body.search(SESSION_LOCK);
-      // THREE POSITIONS SINCE E03-D09 (048 K1), checked pairwise so a chunk that
-      // takes only two of the three is still policed:
+      // FOUR POSITIONS SINCE E03-D06, checked over every PAIR so a chunk that
+      // takes only two of the four is still policed:
       //   request_idempotency INSERT → app_session (FOR NO KEY UPDATE)
-      //     → scan_session anchor (FOR UPDATE)
+      //     → user_authenticator (FOR UPDATE) → scan_session anchor (FOR UPDATE)
+      const positions: Array<{ name: string; at: number }> = [
+        { name: "its request_idempotency INSERT", at: body.search(IDEMPOTENCY_INSERT) },
+        { name: "the app_session lock", at: body.search(SESSION_LOCK) },
+        { name: "the user_authenticator lock", at: body.search(AUTHENTICATOR_LOCK) },
+        { name: "the scan_session anchor lock", at: body.search(ANCHOR_LOCK) },
+      ].filter((p) => p.at !== -1);
+
       const violations: Array<[first: string, second: string]> = [];
-      if (insert !== -1 && lock !== -1 && insert > lock) {
-        violations.push(["the scan_session anchor lock", "its request_idempotency INSERT"]);
-      }
-      if (insert !== -1 && session !== -1 && insert > session) {
-        violations.push(["the app_session lock", "its request_idempotency INSERT"]);
-      }
-      if (session !== -1 && lock !== -1 && session > lock) {
-        violations.push(["the scan_session anchor lock", "the app_session lock"]);
+      for (let a = 0; a < positions.length; a += 1) {
+        for (let b = a + 1; b < positions.length; b += 1) {
+          // `positions` is in the DECLARED order, so an earlier entry appearing
+          // later in the body is the violation — whichever pair it is.
+          if (positions[a]!.at > positions[b]!.at) {
+            violations.push([positions[b]!.name, positions[a]!.name]);
+          }
+        }
       }
       for (const [first, second] of violations) {
         findings.push({
           rule: "fixed-lock-order",
           message:
             `${file.path}: mutating handler #${i + 1} takes ${first} BEFORE ` +
-            `${second} (042 §5.3(b) I22, extended to three positions by 048 K1). The fixed ` +
-            `order is request_idempotency INSERT, then the app_session row FOR NO KEY UPDATE, ` +
-            `then the scan_session anchor FOR UPDATE, in every handler, always — the ` +
-            `idempotency row is the request's IDENTITY, authentication is a precondition of ` +
-            `touching the SUBJECT at all, and the session is that subject. Two handlers with ` +
-            `opposite orders deadlock (40P01) intermittently, at a counter, reproducing on ` +
-            `nobody's laptop.`,
+            `${second} (042 §5.3(b) I22, extended to three positions by 048 K1 and to four by ` +
+            `E03-D06). The fixed order is request_idempotency INSERT, then the app_session row ` +
+            `FOR NO KEY UPDATE, then the user_authenticator row FOR UPDATE, then the ` +
+            `scan_session anchor FOR UPDATE, in every handler, always — the idempotency row is ` +
+            `the request's IDENTITY, the session says who is asking, the authenticator says ` +
+            `they are still who they claim, and only then is the domain subject touched. Two ` +
+            `handlers with opposite orders deadlock (40P01) intermittently, at a counter, ` +
+            `reproducing on nobody's laptop.`,
         });
       }
     }

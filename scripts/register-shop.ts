@@ -20,9 +20,66 @@ import type { Tx } from "../src/db.js";
 import {
   mintDeviceCredential,
   pinRefusal,
+  recordRecoveryNomination,
   requirePinPepper,
   setOperatorPin,
 } from "../src/services/auth/index.js";
+
+/** 048 §8.2's three answers, as the shape this script resolves its flags into. */
+type Nomination =
+  | { kind: "second_owner"; email: string; name: string }
+  | { kind: "named_contact"; name: string; note?: string }
+  | { kind: "declined" };
+
+/**
+ * **The ASK is mandatory; the NOMINATION is not** (048 §8.2, E03-D06).
+ *
+ * The record is explicit that "a shop that declines proceeds", so this never
+ * refuses a shop for having one person. What it refuses is SILENCE — a run with
+ * none of the three flags — and the reason is the sentence the whole clause exists
+ * for: *"the difference between 'this owner has no second person' and 'nobody
+ * asked' is the difference between a known residual and a surprise during an
+ * outage."* A flag that could be omitted would make every shop's row read "nobody
+ * asked", which is the blank field the record refuses.
+ *
+ * The CHARTER wording — how the question is put to an owner, and what they are
+ * told it is for — is E01-B05's (048 §12.4 row 4c) and is not invented here. This
+ * is the technical capture that wording will fill in.
+ */
+function nominationFrom(): Nomination {
+  const secondEmail = values["second-owner-email"];
+  const contact = values["recovery-contact"];
+  const declined = values["no-recovery-contact"] === true;
+  const chosen = [secondEmail !== undefined, contact !== undefined, declined].filter(Boolean).length;
+
+  if (chosen !== 1) {
+    console.error(
+      "048 §8.2: a shop's recovery nomination is ASKED at registration and may be DECLINED, but " +
+        "it may not be skipped. Pass exactly one of:\n" +
+        '  --second-owner-email <addr> --second-owner-name "<name>"   (the strictly better answer:\n' +
+        "        a second person with their own factors, who can restore the first without Longbox)\n" +
+        '  --recovery-contact "<name>" [--recovery-note "<how to reach them out of band>"]\n' +
+        "        (not a credential and grants nothing — the identity check E11-B09's break-glass\n" +
+        "        runbook performs against, so it stops being 'the person who emailed sounds right')\n" +
+        "  --no-recovery-contact\n" +
+        "        (a recorded DECLINE. The shop proceeds; the residual is known rather than a\n" +
+        "        surprise during an outage.)"
+    );
+    process.exit(1);
+  }
+
+  if (declined) return { kind: "declined" };
+  if (secondEmail !== undefined) {
+    const secondName = values["second-owner-name"];
+    if (!secondName) {
+      console.error("--second-owner-email also needs --second-owner-name");
+      process.exit(1);
+    }
+    return { kind: "second_owner", email: secondEmail, name: secondName };
+  }
+  const note = values["recovery-note"];
+  return { kind: "named_contact", name: contact!, ...(note === undefined ? {} : { note }) };
+}
 
 const { values } = parseArgs({
   options: {
@@ -36,6 +93,13 @@ const { values } = parseArgs({
     org: { type: "string" },
     "owner-email": { type: "string" },
     timezone: { type: "string", default: "UTC" },
+    // 048 §8.2 — the ASK is mandatory, the NOMINATION is not (E03-D06). Exactly
+    // one of these three is required; see `nominationFrom` below for the argument.
+    "second-owner-email": { type: "string" },
+    "second-owner-name": { type: "string" },
+    "recovery-contact": { type: "string" },
+    "recovery-note": { type: "string" },
+    "no-recovery-contact": { type: "boolean" },
   },
 });
 
@@ -48,6 +112,9 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  // 048 §8.2's ask, resolved BEFORE the database is touched: a shop that would be
+  // refused for silence should be refused before it half-exists.
+  const nomination = nominationFrom();
   // Onboarding is an operator act, not an application request: it seeds config
   // rows and (once E03-B04's RLS lands) writes rows no tenant context covers. It
   // connects as the schema owner for the same reason `migrate.ts` does — see
@@ -183,6 +250,39 @@ async function main(): Promise<void> {
         [shopId, policy.artifactClass, policy.anchor, policy.windowDays, policy.ceilingDays]
       );
     }
+    // 048 §8.2 — the answer, recorded as a fact including when it is "no".
+    //
+    // A SECOND OWNER is the strictly better answer and is the one this script can
+    // actually deliver: it is a person with their own factors who can restore the
+    // first without Longbox touching anything, and 034 §2.6's "the 19% with a
+    // second storefront" is about `manager`, not about whether a shop has a second
+    // human — a spouse, a partner or a business co-owner is not a storefront.
+    const nominatedBy = ownerId;
+    if (nomination.kind === "second_owner") {
+      const second = await client.query(
+        `INSERT INTO app_user (email, display_name) VALUES ($1,$2)
+         ON CONFLICT (email) DO UPDATE SET display_name = app_user.display_name
+         RETURNING id`,
+        [nomination.email.toLowerCase(), nomination.name]
+      );
+      const secondOwnerId = (second.rows[0] as { id: string }).id;
+      // A SECOND bootstrap grant, and the only other one this script writes. 034
+      // §2.7 permits `granted_by IS NULL` for a bootstrap; this one names the first
+      // owner instead, because there is somebody to name.
+      await client.query(
+        `INSERT INTO membership (app_user_id, shop_id, scope_kind, organization_id, role, granted_by)
+         VALUES ($1,$2,'organization',$3,'owner',$4)`,
+        [secondOwnerId, shopId, organizationId, ownerId]
+      );
+    }
+    await recordRecoveryNomination(client as unknown as Tx, {
+      shopId,
+      kind: nomination.kind,
+      contactName: nomination.kind === "named_contact" ? nomination.name : null,
+      contactNote: nomination.kind === "named_contact" ? (nomination.note ?? null) : null,
+      nominatedBy,
+    });
+
     const bootstrap = await bootstrapDevice(client, { shopId, locationId, ownerId, ownerEmail });
 
     await client.query("COMMIT");
@@ -190,6 +290,17 @@ async function main(): Promise<void> {
     console.log(`shop_id: ${shopId}`);
     console.log(`organization_id: ${organizationId}   location_id: ${locationId}`);
     console.log(`owner: ${ownerEmail} (${ownerId}) — membership: owner @ organization scope`);
+    console.log(
+      nomination.kind === "second_owner"
+        ? `recovery: a SECOND OWNER (${nomination.email}) holds their own factors and can restore ` +
+            `the first without Longbox touching anything (048 §8.2)`
+        : nomination.kind === "named_contact"
+          ? `recovery: a NAMED CONTACT is recorded. It is not a credential and grants nothing — it ` +
+            `is what E11-B09's break-glass runbook verifies against (048 §8.2)`
+          : `recovery: DECLINED, and recorded as a decline rather than a blank field. This shop has ` +
+            `one person; if they lose their factors and their codes, the only path is 048 §8.2's ` +
+            `Longbox-operated break-glass under E11-B09's runbook`
+    );
     if (bootstrap) {
       console.log("\n--- LOCAL BOOTSTRAP (development only) ---");
       console.log("One phone was enrolled and the owner given an operator PIN, so the local flow");

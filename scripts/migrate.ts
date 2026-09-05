@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     const { role, plan, views } = await applyAppRoleGrants(client);
     console.log(
       `grants  ${role}: ${plan.appendOnly.length} append-only (SELECT, INSERT), ` +
-        `${plan.mutable.length} exempt (full DML), ${plan.noGrant.length} exempt (no grant), ` +
+        `${plan.mutable.length} exempt (full DML), ${plan.columnScoped.length} exempt (SELECT, INSERT + UPDATE on named columns), ${plan.noGrant.length} exempt (no grant), ` +
         `${views.length} view(s) (SELECT)`
     );
   } finally {

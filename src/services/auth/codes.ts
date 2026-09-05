@@ -110,6 +110,32 @@ export function mintEnrollmentCode(): string {
 }
 
 /**
+ * 10 × 5 = 50 bits — a RECOVERY code (E03-D06, 048 §8.1).
+ *
+ * **Why not the enrollment code's 128 bits.** 048 §7.1a's rule governs redemption
+ * codes and its two conditions are about a code sitting live on a shop's door; a
+ * recovery code is a different object with a different threat model, and 048 §8
+ * fixes neither a length nor an alphabet — so the length is this bead's ruling,
+ * and it is made rather than defaulted. A recovery code is **printed and typed by
+ * one person under stress**, it is a SECOND factor that is worthless without the
+ * password (R20), it is single-use by constraint, it is stored under argon2id with
+ * the process pepper rather than a bare digest, and the online path it faces is
+ * bounded by the per-person delay of 048 §9.1. Fifty bits against a budget of a
+ * few attempts per fifteen minutes, behind a password, is not a keyspace anybody
+ * walks — and a 26-character string written on a slip in a drawer is a string that
+ * gets photographed instead, which is a worse custody story than four fewer bits.
+ *
+ * A **PROVISIONAL floor** (042 A3): stated with its derivation, no measurement
+ * behind it, and never quoted as a security property.
+ */
+export const RECOVERY_CODE_LENGTH = 10;
+
+/** One recovery code. Returned ONCE, at enrollment, and stored only as a digest. */
+export function mintRecoveryCode(): string {
+  return mint(RECOVERY_CODE_LENGTH);
+}
+
+/**
  * What a person typed, reduced to what was minted.
  *
  * Uppercases, drops every character outside the alphabet (so a hyphen, a space

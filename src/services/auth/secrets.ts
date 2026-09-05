@@ -124,14 +124,48 @@ export function requirePinPepper(env: NodeJS.ProcessEnv = process.env): string {
   return pepper;
 }
 
-/** `argon2id(pin ‖ pepper)`, encoded — salt, parameters and digest in one string. */
-export async function hashPin(pin: string, pepper: string): Promise<string> {
+/** `argon2id(secret ‖ pepper)`, encoded — salt, parameters and digest in one string. */
+export async function hashWithPepper(secret: string, pepper: string): Promise<string> {
   return argon2id({
-    password: `${pin}${pepper}`,
+    password: `${secret}${pepper}`,
     salt: randomBytes(16),
     outputType: "encoded",
     ...ARGON2_PARAMS,
   });
+}
+
+/** The PIN's name for it. Kept so a reader of `pin.ts` sees what is being hashed. */
+export async function hashPin(pin: string, pepper: string): Promise<string> {
+  return hashWithPepper(pin, pepper);
+}
+
+/**
+ * A RECOVERY CODE's name for it (E03-D06, 048 §8.1).
+ *
+ * 048 §8.1 says recovery codes are "stored with argon2id", and this is the one
+ * place in the system where that instruction runs against `codes.ts`'s argument
+ * that a machine-minted code deserves SHA-256 because the ENTROPY OF THE INPUT is
+ * what decides. **The record wins, and it is right for a reason `codes.ts` does not
+ * cover: lifetime.** An invitation code lives a day and an enrollment code fifteen
+ * minutes, so a dump that contains one contains something already dead. A recovery
+ * code sits in a drawer for a year, so its digest sits in every backup for a year —
+ * and the PEPPER, which only a KDF's shape gives us a natural place to mix in, is
+ * what keeps a stolen `pg_dump` from being an offline verifier for a value the
+ * owner still holds on paper.
+ *
+ * **The cost is stated rather than discovered**: verification tries the live codes
+ * of the newest batch in turn, so a wrong code costs the batch size in argon2id
+ * runs. That is bounded by `RECOVERY_CODE_COUNT`, by the per-person lockout (048
+ * §9.1), and today by there being no route at all — the flow is a CLI an operator
+ * runs. It is why the batch is eight and not forty.
+ */
+export async function hashRecoveryCode(code: string, pepper: string): Promise<string> {
+  return hashWithPepper(code, pepper);
+}
+
+/** Verify a recovery code against a stored digest. Same contract as `verifyPin`. */
+export async function verifyRecoveryCode(code: string, pepper: string, hash: string): Promise<boolean> {
+  return verifyPin(code, pepper, hash);
 }
 
 /**

@@ -314,15 +314,22 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     principal: "device+operator",
     kind: "route",
     pending: true,
-    closingBead: "E03-D06 (048 §4.1's privileged session)",
+    closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
       "DECLARED AND NOT REGISTERED. Issuing an invitation is an owner/manager act in a PRIVILEGED " +
-      "session (048 §4.1), and privileged sessions do not exist until E03-D06 lands TOTP and the " +
-      "freshness window. E03-D07 builds the service (`issueInvitation`, which checks the role) and " +
-      "reaches it from `scripts/issue-invitation.ts`, because a route that called itself " +
-      "privileged while nothing enforced privilege would be a worse artifact than an honest CLI. " +
-      "The row is here so the principal is a decision somebody already made rather than one " +
-      "inferred by whoever adds the handler. The walk asserts this path is ABSENT today.",
+      "session (048 §4.1), and privileged sessions still do not exist. **E03-D06 LANDED TOTP AND " +
+      "DID NOT CLOSE THIS ROW**, which is a finding rather than a slip: 048 §4.1 puts the second " +
+      "factor inside a session established by password + TOTP, the FIRST factor (`user_credential`) " +
+      "is 048 §10.1's M3 remainder that §10.2 assigned to NO BEAD, and 048 §3.1 ratifies two " +
+      "session kinds that are both bound to an enrolled phone by `app_session`'s CHECK and its " +
+      "composite foreign keys — so this schema has no row shape for a person on their own laptop. " +
+      "A route added now would be reachable only from an OPERATOR session on the shared counter " +
+      "phone, which 048 §4.1 refuses in its own words. E03-D07 builds the service " +
+      "(`issueInvitation`, which checks the role) and reaches it from `scripts/issue-invitation.ts`, " +
+      "because a route that called itself privileged while nothing enforced privilege would be a " +
+      "worse artifact than an honest CLI. The row is here so the principal is a decision somebody " +
+      "already made rather than one inferred by whoever adds the handler; E03-D11 lands it. " +
+      " The walk asserts this path is ABSENT today.",
   },
   {
     method: "POST",
@@ -330,12 +337,13 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     principal: "device+operator",
     kind: "route",
     pending: true,
-    closingBead: "E03-D06 (048 §4.1's privileged session)",
+    closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
       "DECLARED AND NOT REGISTERED, for the same reason as the row above: issuing an enrollment " +
-      "code is 048 §7.3's 'an owner or manager, IN A PRIVILEGED SESSION'. E03-D07 builds " +
-      "`issueEnrollmentCode` (role checked, location checked, ceiling enforced) and reaches it " +
-      "from `scripts/issue-enrollment-code.ts`.",
+      "code is 048 §7.3's 'an owner or manager, IN A PRIVILEGED SESSION', and the session that " +
+      "makes 'privileged' mean anything needs the first factor E03-D11 owns (048 §12.4 row 3a). " +
+      "E03-D07 builds `issueEnrollmentCode` (role checked, location checked, ceiling enforced) and " +
+      "reaches it from `scripts/issue-enrollment-code.ts`.",
   },
 ];
 

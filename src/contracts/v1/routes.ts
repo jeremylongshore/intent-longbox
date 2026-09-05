@@ -123,6 +123,51 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
       "holds no session by construction — that is what enrollment means — so it can name no " +
       "tenant; the shop and the location are properties of the CODE.",
   },
+  // E03-D11's four. The first two ESTABLISH a person (048 §4.1) and the second
+  // two are reached FROM that person's session — and all four are correct outside
+  // the tenant prefix for one reason: the shop is a property of the SESSION, so a
+  // `shopId` in the path would be a caller-asserted fourth answer to a question
+  // the session already answers. 048 §6.1 makes the URL's shop a value CHECKED
+  // against the session; on these routes there is no value to check and nothing
+  // to check it against, so there is no path parameter at all.
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions",
+    kind: "exemption",
+    reason:
+      "a person signs in with a password and a second factor (048 §4.1). It ESTABLISHES the " +
+      "tenant — the body names a shop and the shop is checked against the person's live " +
+      "memberships — so it cannot sit inside a prefix whose tenant it is being asked to supply.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions/end",
+    kind: "exemption",
+    reason:
+      "it revokes the privileged chain named by the cookie and touches no shop-scoped row beyond " +
+      "the revocation fact itself, so it has no tenant to be prefixed by — the same reason " +
+      "`POST /api/v1/operator-sessions/end` is exempt one class up.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/invitations",
+    kind: "exemption",
+    reason:
+      "an owner or manager invites a person (048 §7.1). The shop is the PRIVILEGED SESSION's and " +
+      "is stamped from it, never read from the URL or the body — so a `shopId` in the path would " +
+      "be exactly the caller-asserted tenant 048 §6.1 removed. Its sibling " +
+      "`/api/v1/invitations/redemptions` is exempt for the mirror reason (the caller has no " +
+      "tenant yet); this one is exempt because the caller's tenant is not the URL's to state.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/device-enrollment-codes",
+    kind: "exemption",
+    reason:
+      "an owner or manager equips a phone (048 §7.3). Same reason as the row above: the shop is " +
+      "the session's, and the LOCATION is a body field checked against that shop rather than a " +
+      "second path segment.",
+  },
   // E03-B06's two connector routes. Both are CORRECT outside the tenant prefix,
   // and for a reason neither of the two above has: their caller is not a Longbox
   // client at all. A `shopId` in either path would be a tenant asserted by
@@ -194,8 +239,17 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
 // express the PIN route.
 // ---------------------------------------------------------------------------
 
-/** 048 §6.2: the principal a route requires before it resolves anything. */
-export type AuthPrincipal = "none" | "device" | "device+operator";
+/**
+ * 048 §6.2: the principal a route requires before it resolves anything.
+ *
+ * `privileged` is E03-D11's (048 §4.1, §12.4 row 3a) and is NOT "device+operator
+ * plus something". It names a DIFFERENT COOKIE and a different chain: a route
+ * that requires it reads `__Host-lb_priv` and nothing else, so an operator
+ * session on a shared counter phone can never satisfy one — which is 048 §4.1's
+ * *"never an operator session on a shared phone"* made unconstructible rather
+ * than checked in a handler somebody has to remember to write.
+ */
+export type AuthPrincipal = "none" | "device" | "device+operator" | "privileged";
 
 export interface AuthAllowlistRow {
   readonly method: string;
@@ -250,6 +304,25 @@ export interface AuthAllowlistRow {
    * only how they reach it.
    */
   readonly requires?: Permission;
+  /**
+   * **A `privileged` route that acts on the CALLER'S OWN SESSION and nothing
+   * else, and therefore requires no permission** (E03-D11, 057 §4.4).
+   *
+   * It exists so the privileged branch of the authentication hook can fail
+   * CLOSED like the tenant branch does. There, a route that declares no
+   * `requires` is refused, because a shop-scoped route added next year must not
+   * inherit "anyone with a membership" by saying nothing. The same default is
+   * right here and has one genuine exception — signing yourself out — and the
+   * exception is a ROW with a reason rather than a name the hook special-cases,
+   * for 041 §9.2 item 4's rule: an absence is indistinguishable from an
+   * oversight, and a declared exemption is a decision a reviewer can argue with.
+   *
+   * There is exactly one member and there is no obvious second. A route that
+   * touches anything beyond the caller's own session — a membership, a device, a
+   * credential, a shop's configuration — is not self-service however it is
+   * spelled, and the permission it needs is a decision for 054's matrix.
+   */
+  readonly selfService?: true;
 }
 
 export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
@@ -366,29 +439,55 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
       "phone, is refused with §9.3's constant answer. `device` and not `device+operator`: the " +
       "person redeeming is not an operator yet, which is the whole point of the route.",
   },
+  // -------------------------------------------------------------------------
+  // E03-D11's two sign-in routes, and the two issuance rows they un-pend.
+  // -------------------------------------------------------------------------
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions",
+    principal: "none",
+    kind: "route",
+    reason:
+      "THE CREDENTIALS IN THE BODY ARE THE AUTHENTICATION, exactly as they are on " +
+      "`POST /api/v1/device-sessions` one class down. A person signing in holds no session — that " +
+      "is what signing in means — so the principal is `none` and the route's bounds are elsewhere: " +
+      "the aggregate route bucket the hook takes before any body parsing, a second bucket keyed on " +
+      "the digest of the SUBMITTED ADDRESS taken in the service (048 R14's shape, and never an IP " +
+      "— 042 §8.1), 048 §9.1's growing per-person delay under the `user_credential` anchor, and a " +
+      "budget SHARED with both second-factor methods so alternating between them does not double " +
+      "it (048 §4.3, applied to three forms of one thing). Every refusal — unknown address, wrong " +
+      "password, wrong code, no membership at the named shop, still inside the delay — answers " +
+      "`SESSION_REQUIRED` with no `details` (048 §9.3).",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions/end",
+    principal: "privileged",
+    kind: "route",
+    selfService: true,
+    reason:
+      "Ending the chain the `__Host-lb_priv` cookie names. `privileged` and not `none`: a caller " +
+      "with no privileged session has nothing to end, and answering 200 to one would be an oracle " +
+      "that says nothing useful and invites a client to treat sign-out as fire-and-forget.",
+  },
   {
     method: "POST",
     path: "/api/v1/invitations",
-    principal: "device+operator",
+    principal: "privileged",
     kind: "route",
     requires: "membership.invite",
-    pending: true,
-    closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
-      "DECLARED AND NOT REGISTERED. Issuing an invitation is an owner/manager act in a PRIVILEGED " +
-      "session (048 §4.1), and privileged sessions still do not exist. **E03-D06 LANDED TOTP AND " +
-      "DID NOT CLOSE THIS ROW**, which is a finding rather than a slip: 048 §4.1 puts the second " +
-      "factor inside a session established by password + TOTP, the FIRST factor (`user_credential`) " +
-      "is 048 §10.1's M3 remainder that §10.2 assigned to NO BEAD, and 048 §3.1 ratifies two " +
-      "session kinds that are both bound to an enrolled phone by `app_session`'s CHECK and its " +
-      "composite foreign keys — so this schema has no row shape for a person on their own laptop. " +
-      "A route added now would be reachable only from an OPERATOR session on the shared counter " +
-      "phone, which 048 §4.1 refuses in its own words. E03-D07 builds the service " +
-      "(`issueInvitation`, which checks the role) and reaches it from `scripts/issue-invitation.ts`, " +
-      "because a route that called itself privileged while nothing enforced privilege would be a " +
-      "worse artifact than an honest CLI. The row is here so the principal is a decision somebody " +
-      "already made rather than one inferred by whoever adds the handler; E03-D11 lands it. " +
-      " The walk asserts this path is ABSENT today.",
+      "REGISTERED BY E03-D11, AND THE PRINCIPAL CHANGED WHEN IT LANDED. This row previously read " +
+      "`device+operator` with `pending: true`, and the principal was wrong for the reason the row " +
+      "itself gave: 048 §4.1 puts issuance in a session established by password + TOTP, and " +
+      "`device+operator` is the PIN-derived session on the shared counter phone that §4.1 refuses " +
+      "in its own words. The old value was the closest the two ratified kinds could come; the " +
+      "third kind is what the row always wanted. **The permission is unchanged** — " +
+      "`membership.invite`, decided by E03-B03 (054 §3.4) precisely so this bead would inherit an " +
+      "answer instead of choosing one — and it is enforced at the hook's ONE site, against the " +
+      "memberships the session's shop resolves. `mayGrantRole` refuses handing out a role above " +
+      "the inviter's own rank, in the service, where the target role is known; " +
+      "`scripts/issue-invitation.ts` stays as the schema-owner path and reaches the same function.",
   },
   // -------------------------------------------------------------------------
   // E03-B06's connector rows. Both are `provider-callback`, and the kind is the
@@ -434,9 +533,14 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     pending: true,
     closingBead: "E10-B02 `longbox-e5b.10.2` (the Shopify app lifecycle and the unlisted app)",
     reason:
-      "DECLARED AND NOT REGISTERED, on the precedent the two rows below set. Starting an install " +
-      "is an OWNER act, 048 §7.3 puts owner acts in a privileged session, and privileged sessions " +
-      "still do not exist (048 §12.4 row 3a) — so E03-B06 builds the SERVICE (`mintInstallState`, " +
+      "DECLARED AND NOT REGISTERED. Starting an install is an OWNER act and 048 §7.3 puts owner " +
+      "acts in a privileged session. ⚠ **THE REASON THIS ROW GIVES HAS CHANGED, AND THE OLD ONE " +
+      "IS NOW FALSE**: it said privileged sessions 'still do not exist (048 §12.4 row 3a)', which " +
+      "E03-D11 made untrue — they exist, and the two rows below are registered behind them. What " +
+      "keeps THIS row pending is a different thing entirely: the route it describes is the " +
+      "merchant-facing landing an UNLISTED PUBLIC APP needs (Shopify's `app_url`), which is the " +
+      "distribution mode CLAUDE.md locked decision 3 makes the END STATE and not the pilot's. It " +
+      "waits on E10-B02 and on nothing in this bead. E03-B06 builds the SERVICE (`mintInstallState`, " +
       "which mints the state and the authorize URL) and reaches it from " +
       "`scripts/connector-install.ts`, exactly as E03-D07 reaches `issueInvitation` from a CLI. " +
       "The route this row describes is the merchant-facing landing an UNLISTED PUBLIC APP needs " +
@@ -448,17 +552,18 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
   {
     method: "POST",
     path: "/api/v1/device-enrollment-codes",
-    principal: "device+operator",
+    principal: "privileged",
     kind: "route",
     requires: "device.enrollment.issue",
-    pending: true,
-    closingBead: "E03-D11 `longbox-e5b.3.21` (048 §12.4 row 3a) — NOT E03-D06, which could not close it",
     reason:
-      "DECLARED AND NOT REGISTERED, for the same reason as the row above: issuing an enrollment " +
-      "code is 048 §7.3's 'an owner or manager, IN A PRIVILEGED SESSION', and the session that " +
-      "makes 'privileged' mean anything needs the first factor E03-D11 owns (048 §12.4 row 3a). " +
-      "E03-D07 builds `issueEnrollmentCode` (role checked, location checked, ceiling enforced) and " +
-      "reaches it from `scripts/issue-enrollment-code.ts`.",
+      "REGISTERED BY E03-D11, on the row above's reasoning verbatim: 048 §7.3 is 'an owner or " +
+      "manager, IN A PRIVILEGED SESSION', and that session now exists. **The one thing worth " +
+      "reading twice is the SCOPE**: `device.enrollment.issue` is LOCATION-scoped, and a " +
+      "privileged session stands nowhere by default — so a location-scoped manager reaches it " +
+      "only by naming their storefront at sign-in (`location_id` on the sign-in body, checked " +
+      "against the shop and against their own grant; 057 §4.4). A person who names none holds a " +
+      "session that reaches shop-scoped acts only, which is fail-closed and is the correct " +
+      "direction: a grant that is valid somewhere does not reach an act from nowhere.",
   },
 ];
 
@@ -720,6 +825,120 @@ export const ROUTES: readonly RouteSpec[] = [
       "INTERNAL_ERROR",
     ],
     summary: "Open an operator session with a PIN on this enrolled device.",
+  },
+  // -------------------------------------------------------------------------
+  // E03-D11 — the first factor, the privileged session, and the two issuance
+  // routes (000-docs/057; 048 §4.1, §7, §12.4 row 3a).
+  //
+  // ⚠ **THE LAST TWO CARRY A NON-NULL `requires` OUTSIDE THE TENANT PREFIX, AND
+  // THAT IS A CHANGE TO WHAT `requires: null` MEANS** (057 §4.4). The field's own
+  // documentation said null "ONLY for a route outside the tenant prefix", and the
+  // ground it gave is the real rule: those are the routes for which NO ROLE HAS
+  // BEEN RESOLVED YET, because a role is a property of a membership at a shop and
+  // they are the routes that establish the shop. A privileged session establishes
+  // the shop at SIGN-IN, so by the time these two are reached a role has been
+  // resolved — the ground does not apply to them, and the rule keyed on the
+  // prefix would have exempted the two most privileged acts in the system from
+  // the one enforcement site 054 §3 built. So the rule is restated as the ground
+  // always was: **a route whose caller has a resolved role declares the
+  // permission it requires; a route that has no role yet declares null.**
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/privileged-sessions`,
+    pluginPath: null,
+    requires: null,
+    mutating: true,
+    // The aggregate route bucket, taken in the hook before any body parsing
+    // (`rateClass !== "none"` on a sessionless route). The per-identifier bucket
+    // is taken in `openPrivilegedSession`, because the address is in the BODY and
+    // `onRequest` runs before the body is read — the same split
+    // `openDeviceSession` makes for the same mechanical reason.
+    rateClass: "device",
+    request: s.privilegedSessionRequest,
+    response: s.privilegedSessionResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "SESSION_REQUIRED",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Open a privileged session with a password and a second factor.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/privileged-sessions/end`,
+    pluginPath: null,
+    requires: null,
+    mutating: true,
+    // `ordinary` and NOT `device`: this route's caller holds a privileged
+    // session, which names a shop and names no device at all — so the shop is
+    // the only key available and it is the key 042 §8.1 asks for. The bucket is
+    // taken by the privileged branch of the hook at the earliest point the shop
+    // is known, which is the same place the two issuance routes take theirs.
+    rateClass: "ordinary",
+    request: s.endPrivilegedSessionRequest,
+    response: s.endPrivilegedSessionResponse,
+    successStatus: 200,
+    errors: ["PRIVILEGED_SESSION_REQUIRED", "IDEMPOTENCY_KEY_REQUIRED", "RATE_LIMITED", "INTERNAL_ERROR"],
+    summary: "End the privileged session named by its cookie.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/invitations`,
+    pluginPath: null,
+    requires: "membership.invite",
+    mutating: true,
+    // `ordinary`, keyed on the SESSION's shop — which the hook resolves before
+    // the permission decision, so unlike the redemption routes this bucket is
+    // taken in the hook and not in the service. There is no body field to wait
+    // for: the shop is the session's.
+    rateClass: "ordinary",
+    request: s.invitationRequest,
+    response: s.invitationResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "PRIVILEGED_SESSION_REQUIRED",
+      "MFA_REENROLLMENT_REQUIRED",
+      // 057 §4.4b: `role: "owner"` and no fresh code, or a code that did not
+      // verify. The only privileged act whose damage the session's expiry does
+      // not bound, so the factor is re-presented rather than inherited.
+      "FRESH_SECOND_FACTOR_REQUIRED",
+      "PERMISSION_DENIED",
+      "SHOP_NOT_FOUND",
+      "INVITATION_REFUSED",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Invite a person to this shop; the code is shown once.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/device-enrollment-codes`,
+    pluginPath: null,
+    requires: "device.enrollment.issue",
+    mutating: true,
+    rateClass: "ordinary",
+    request: s.enrollmentCodeRequest,
+    response: s.enrollmentCodeResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "PRIVILEGED_SESSION_REQUIRED",
+      "MFA_REENROLLMENT_REQUIRED",
+      "PERMISSION_DENIED",
+      "SHOP_NOT_FOUND",
+      "ENROLLMENT_CODE_REFUSED",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Issue a device enrollment code for one phone at one location.",
   },
   {
     method: "POST",

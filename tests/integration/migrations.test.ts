@@ -86,10 +86,13 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "028_authorization_decision.sql",
       "029_row_level_security.sql",
       "030_causal_reference_persistence.sql",
-      // E03-D14 took `032` while E03-D11 was building `031` on the same base —
-      // the SECOND gap in this list, and it is here for the same reason `027`
-      // is: the ledger keys on filename and applies unseen files in sorted
-      // order, so whichever branch merges second simply slots in.
+      // E03-D11's `031` and E03-D14's `032`/`033` were built on the SAME base,
+      // in that order of merge. `031` closes the gap 058 §10 warned this list
+      // would show while both were in flight, so `027` is once again the ONLY
+      // gap here — reserved by E03-B06 and never written. The ledger keys on
+      // FILENAME and applies unseen files in sorted order, which is why a branch
+      // that merges second simply slots in rather than renumbering.
+      "031_first_factor_and_privileged_session.sql",
       "032_longbox_origin_designation.sql",
       // `033` is `032`'s own follow-up, landing on the SAME branch: the cannon's
       // F1 found the asymmetry 058 §3(b) CLAIMED but did not enforce, and
@@ -179,15 +182,12 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  020_sessions_pin_and_auth_attempt.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
-    // (E03-B06 reserved `027` and never wrote it) plus E02-D11's `030` and
-    // E03-D14's `032`/`033` is 31, while the highest number is 033 — TWO gaps
-    // now, because E03-D11 is building `031` on this same base. The runner reads
-    // no contiguity, and this is the assertion that keeps saying so.
-    //
-    // ⚠ **E03-D11's `031` WILL TURN THIS LINE AND THE LIST ABOVE RED, BY DESIGN**
-    // (000-docs/058 §10). That is the assertion doing its job rather than
-    // breaking: add the filename to the list above and raise this number by one.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(31);
+    // (E03-B06 reserved `027` and never wrote it), plus E02-D11's `030`,
+    // E03-D11's `031` and E03-D14's `032`/`033`, is 32 — while the highest
+    // number is 033. ONE gap, not two: `031` landed and closed the second one.
+    // The runner reads no contiguity, and this is the assertion that keeps
+    // saying so.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(32);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

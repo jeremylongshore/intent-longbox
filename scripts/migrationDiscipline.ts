@@ -47,6 +47,39 @@ export function readMigrations(): Array<{ filename: string; sql: string }> {
     .map((filename) => ({ filename, sql: readFileSync(join(migrationsDir, filename), "utf8") }));
 }
 
+/**
+ * **Two migration files may not share a numeric prefix** (E03-D11, the
+ * consistency lens's K6; 041 §10, 044 §7).
+ *
+ * ⚠ **THIS IS A STRUCTURAL SAFEGUARD AND NOT A RESPONSE TO A BUG THAT HAPPENED.**
+ * 041 §10's rule is *"a file number is claimed when the file is written, never
+ * reserved in prose"*, which is right and which makes a collision the ordinary
+ * outcome of two branches in flight at once: each reads the tree, sees the same
+ * highest number, and takes the next one. Nothing downstream would say so — the
+ * runner's ledger keys on the FILENAME, so `031_a.sql` and `031_b.sql` are two
+ * distinct rows that both apply, in `readdirSync` order, with no complaint. The
+ * failure surfaces later as two databases with different schemas and the same
+ * ledger count, which is the shape of defect nobody debugs quickly.
+ *
+ * It is deliberately a check on the PREFIX and not on the whole name, because
+ * the prefix is the only part the runner and the fixtures agree on.
+ */
+export function findDuplicateMigrationNumbers(
+  filenames: readonly string[]
+): Array<{ prefix: string; files: string[] }> {
+  const byPrefix = new Map<string, string[]>();
+  for (const filename of filenames) {
+    const m = /^(\d+)/.exec(filename);
+    if (!m) continue;
+    const prefix = m[1]!;
+    byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), filename]);
+  }
+  return [...byPrefix.entries()]
+    .filter(([, files]) => files.length > 1)
+    .map(([prefix, files]) => ({ prefix, files: [...files].sort() }))
+    .sort((a, b) => a.prefix.localeCompare(b.prefix));
+}
+
 /** SHA-256 over the file's exact bytes, hex. The class is pinned the way 041 A5 pins `content_hash`. */
 export function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");

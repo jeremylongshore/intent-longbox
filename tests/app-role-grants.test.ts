@@ -198,6 +198,29 @@ describe("buildGrantStatements", () => {
     ]);
   });
 
+  it("gives the FIRST FACTOR a column-scoped grant too (E03-D11)", () => {
+    // `user_credential` is CONFIG (048 §10.1) and is still not a table anybody
+    // may rewrite: the password, its pepper version and `updated_at` move, and
+    // WHOSE credential it is does not. It lands column-scoped from day one
+    // rather than with the table-level DML `operator_pin` carries, because the
+    // gap E03-D06 left next door — a column-scoped grant with no matching
+    // trigger — is the residual this bead exists to close, and shipping the
+    // wider grant here would have been the same mistake one table over.
+    const plan = planAppRoleGrants(["user_credential"]);
+    expect(plan.mutable).toEqual([]);
+    expect(plan.columnScoped).toEqual([
+      { table: "user_credential", columns: ["password_hash", "pepper_version", "updated_at"] },
+    ]);
+    const sql = buildGrantStatements(plan, "longbox_app").join("\n");
+    expect(sql).toContain("GRANT SELECT, INSERT ON user_credential TO longbox_app");
+    expect(sql).toContain(
+      "GRANT UPDATE (password_hash, pepper_version, updated_at) ON user_credential TO longbox_app"
+    );
+    // No DELETE and no table-level UPDATE: an ending is a membership revocation,
+    // never the disappearance of the row an `auth_attempt` window is about.
+    expect(sql).not.toMatch(/GRANT[^\n(]*DELETE[^\n(]*ON user_credential/);
+  });
+
   it("refuses an identifier it would have to interpolate unsafely", () => {
     expect(() => buildGrantStatements(plan, 'app"; DROP DATABASE x; --')).toThrow(/unsafe role/);
     expect(() =>

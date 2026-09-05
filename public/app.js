@@ -130,6 +130,41 @@ const ERROR_COPY = {
   // what to do without disclosing anything. It does not list the rules — 048 §3.5
   // keeps the denylist at set time precisely so nobody can read it off a screen.
   PIN_REFUSED: "Choose a different PIN. Not repeated digits, not in order, and not the shop's own numbers.",
+  // E03-D11 (048 §4.1, §7, §8.1). FOUR CODES THIS CLIENT CAN RECEIVE AND NO
+  // SCREEN IN IT CAN CAUSE — and they are here anyway, deliberately.
+  //
+  // The privileged surface (signing in with a password and a second factor,
+  // inviting somebody, issuing a setup code) is E05's and does not exist yet.
+  // But the codes are declared operator-renderable NOW, because a person reads
+  // them, and 042 §4.2's declaration is only meaningful if a client honours it —
+  // a code marked renderable with nothing to render falls through to a generic
+  // sentence at the moment somebody needed a specific one. So the copy lands
+  // with the codes rather than being owed by whoever builds the screen.
+  //
+  // **The registered strings are E05's under 021's T26 pre-send and these are
+  // not them.** Each says what to do next and never what went wrong, which is
+  // 022 P6 and — for the sign-in codes — 048 §9.3's constant answer: this
+  // screen genuinely cannot tell a wrong password from a wrong code from a
+  // person who is not an owner here, and must not pretend to.
+  PRIVILEGED_SESSION_REQUIRED: "Sign in with your password and your authenticator to do that.",
+  // ⚠ THIS SENTENCE PROMISED A BUTTON THAT DOES NOT EXIST, and the security
+  // lens's F5 caught it. "Set up your authenticator again" reads as an
+  // instruction this screen can carry out; there is no enrollment route at all
+  // (057 §9 R2), so the person would tap nothing and get nowhere. The copy now
+  // names the step that is actually available — somebody with access to the
+  // system does it out of band — and says what the person can do meanwhile,
+  // which is the honest half. It stays soft and it does not diagnose.
+  MFA_REENROLLMENT_REQUIRED:
+    "Your authenticator needs setting up again before this will work. That is done for you — ask whoever looks after this system. You can keep working at the counter in the meantime.",
+  // 057 §4.4b. ONE sentence for a missing code and a wrong one, because the next
+  // action is the same and the caller already holds the session, so nothing is
+  // withheld by merging them.
+  FRESH_SECOND_FACTOR_REQUIRED:
+    "Adding an owner needs a fresh code from your authenticator. Open it and enter the current code.",
+  INVITATION_REFUSED:
+    "There are already as many unused invitations as this shop can have. Wait for one to be used, or let it expire.",
+  ENROLLMENT_CODE_REFUSED:
+    "That setup code wasn't issued. Check the counter you picked, or wait for an unused code to expire.",
   INTERNAL_ERROR: "Something went wrong on our side. Try again.",
 };
 const FALLBACK_COPY = "Something went wrong. Try again.";

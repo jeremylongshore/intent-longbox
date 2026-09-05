@@ -8,11 +8,19 @@
 //
 // The same shape as `issue-invitation`, one bead later, and for a reason that is
 // one layer deeper. 048 §4.1 puts the second factor in "a session established by
-// password + TOTP", and **neither half of that session exists**: `user_credential`
-// (the first factor) is 048 §10.1's M3 remainder that no bead in §10.2 owns, and
-// `app_session` (`migrations/020`) models exactly two kinds, both bound to an
-// enrolled phone by a CHECK and two composite foreign keys — there is no row shape
-// for a person on their own laptop.
+// password + TOTP", and when this script was written **neither half of that
+// session existed**: `user_credential` was 048 §10.1's M3 remainder that no bead in
+// §10.2 owned, and `app_session` modelled exactly two kinds, both bound to an
+// enrolled phone.
+//
+// ⚠ **E03-D11 BUILT BOTH, AND THIS SCRIPT IS STILL THE ONLY WAY TO ENROL** — for a
+// reason that is now narrower and sharper than the one above. There IS a privileged
+// session (`migrations/031`, 000-docs/057) and it would carry an enrollment route
+// perfectly well; what there is NOT is any way to provision the FIRST factor in a
+// running deployment, because `setPassword` has no production caller at all (057 §9
+// R2a). So the chain that would let a person enrol over HTTP does not close, and
+// this script is where an owner's second factor comes from. The bead that closes it
+// is E03-D24 `longbox-e5b.3.34`.
 //
 // A `POST /api/v1/mfa/enrollments` shipped by this bead would therefore be
 // reachable from exactly one place: an OPERATOR session on the shared counter

@@ -6,14 +6,33 @@
 // TOOL RATHER THAN A ROUTE (048 §8.1, R20).
 //
 // *"A recovery code is never accepted without the password, is never accepted on
-// its own, and is never accepted in place of the password."* This script cannot
-// enforce the first half, because `user_credential` does not exist in this tree —
-// so what stands in for the password is that running it requires the schema
-// owner's database URL and shell access to the host. That is a stronger check than
-// a password and a worse user experience, which is the correct trade for a flow
-// that runs when somebody's phone is at the bottom of a lake, and it is the reason
-// there is no route: a route would be the single-factor bearer credential R20
-// exists to forbid.
+// its own, and is never accepted in place of the password."* This script does not
+// enforce the first half. **The reason it gives used to be that `user_credential`
+// did not exist in this tree; E03-D11 built it, and the reason is now a different
+// and better one** — a shell tool has no session, no browser and no way to hold a
+// password-verification transaction open across the operator's own decision, so
+// asking for one here would be a check whose whole strength is that somebody typed
+// something into a terminal they were already trusted with. What stands in for the
+// password is that running this requires the schema owner's database URL AND shell
+// access on the host. That is a stronger access requirement than a password and a
+// worse user experience, which is the correct trade for a flow that runs when
+// somebody's phone is at the bottom of a lake, and it is the reason there is no
+// route: a route would be the single-factor bearer credential R20 exists to forbid.
+//
+// ⚠ **TWO CONSEQUENCES, BOTH RECORDED WHERE A READER WILL FIND THEM** (000-docs/057
+// §4.5, §9 R8/R9, and P9's own row in §7).
+//
+//   * **048 R20 is TRUE OF THE ROUTE and not of the system.** `POST
+//     /api/v1/privileged-sessions` refuses a recovery code without the password and
+//     refuses one in place of it, and that is what the invariant asserts. This file
+//     is the exception, and anybody quoting R20 — a C-row, a partner sentence, a
+//     support answer — carries the scope with it.
+//   * **It is the ONE path that holds a single lockout anchor.** `redeemRecoveryCode`
+//     takes `user_authenticator` and reads the per-person budget that 048 §4.3 now
+//     shares across all three factors, without taking `user_credential` — so it does
+//     not serialise against a concurrent password attempt. Accepted, because a
+//     network caller cannot reach it at all: the only race available is an operator
+//     racing themselves, over a budget that same operator can reset by hand.
 //
 // **Using a code retires the authenticator it substituted for**, in the same
 // transaction as the use. After this runs, `mfaState` reads `must_reenroll` and the

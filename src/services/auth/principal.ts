@@ -17,20 +17,22 @@
 // the single-cookie design could not express.
 import type pg from "pg";
 import { serviceDb, withTransaction } from "../../db.js";
-import { DEVICE_COOKIE, OPERATOR_COOKIE, readCookie } from "./policy.js";
+import { DEVICE_COOKIE, OPERATOR_COOKIE, PRIVILEGED_COOKIE, readCookie } from "./policy.js";
 import { recordFailure } from "./pin.js";
 import {
+  asDeviceBound,
   parentChainIsLive,
   resolveToken,
   revokeForReuse,
+  type DeviceBoundSession,
   type SessionRefusal,
   type SessionRow,
 } from "./sessions.js";
 
 /** What one request's cookies resolved to. */
 export interface Principal {
-  device: SessionRow;
-  operator?: SessionRow;
+  device: DeviceBoundSession;
+  operator?: DeviceBoundSession;
   /**
    * Tokens minted while resolving THIS request (the K2 grace path mints none).
    * They are set on the response by the `onSend` hook, never written here: a
@@ -72,24 +74,87 @@ export async function resolvePrincipal(
   const device = await resolveToken(db, deviceToken, now);
   if ("refusal" in device) return refuse(pool, device.refusal, device.row);
 
+  // ⚠ **THE COOKIE SLOT IS NOT THE KIND, AND THIS IS WHERE THAT IS CHECKED**
+  // (E03-D11, 057 §4.2). Every session in this system is one row in one table
+  // resolved by one digest, so a PRIVILEGED token pasted into `__Host-lb_device`
+  // resolves perfectly well — and would then be a "device session" whose
+  // `device_id`, `device_credential_id` and `location_id` are all NULL, with the
+  // tenant resolving, the rate bucket keying on `undefined`, and every fact
+  // downstream carrying a device that does not exist. `asDeviceBound` is the one
+  // narrowing, it checks the KIND and the three columns, and a row that fails it
+  // is 048 §9.3's constant refusal rather than a cast.
+  const deviceRow = asDeviceBound(device.row);
+  if (!deviceRow) return { kind: "refused", refusal: "unknown_token", clearCookies: true };
+
   const operatorToken = readCookie(cookieHeader, OPERATOR_COOKIE);
-  if (!operatorToken) return { kind: "resolved", device: device.row, cookies: [] };
+  if (!operatorToken) return { kind: "resolved", device: deviceRow, cookies: [] };
 
   const operator = await resolveToken(db, operatorToken, now);
   if ("refusal" in operator) return refuse(pool, operator.refusal, operator.row);
+  const operatorRow = asDeviceBound(operator.row);
+  if (!operatorRow) return { kind: "refused", refusal: "unknown_token", clearCookies: true };
 
   // The pairing check (R1). One comparison, not a state machine: the operator
   // row's parent chain must BE the device cookie's chain. K4's formula needs the
   // parent chain live anyway, and a matched pair makes that the same read.
-  if (operator.row.parent_chain_id !== device.row.chain_id) {
-    await recordPairMismatch(pool, operator.row);
+  if (operatorRow.parent_chain_id !== deviceRow.chain_id) {
+    await recordPairMismatch(pool, operatorRow);
     return { kind: "refused", refusal: "pair_mismatch", clearCookies: true };
   }
-  if (!(await parentChainIsLive(db, operator.row.parent_chain_id, now))) {
+  if (!(await parentChainIsLive(db, operatorRow.parent_chain_id, now))) {
     return { kind: "refused", refusal: "chain_revoked", clearCookies: true };
   }
 
-  return { kind: "resolved", device: device.row, operator: operator.row, cookies: [] };
+  return { kind: "resolved", device: deviceRow, operator: operatorRow, cookies: [] };
+}
+
+/** What the third cookie resolved to. Deliberately its own outcome type. */
+export type PrivilegedOutcome =
+  | { kind: "anonymous" }
+  | { kind: "refused"; refusal: SessionRefusal | "wrong_kind" }
+  | { kind: "resolved"; privileged: SessionRow };
+
+/**
+ * **Resolve the PRIVILEGED cookie, and only it** (048 §4.1, §12.4 row 3a).
+ *
+ * A separate function and a separate outcome type rather than a third branch of
+ * `resolvePrincipal`, and the separation is the control (057 §4.2):
+ *
+ *   * a privileged route reads THIS cookie and no other, so an operator session
+ *     on a shared counter phone can never satisfy one — which is 048 §4.1's
+ *     *"never an operator session on a shared phone"* made unconstructible
+ *     rather than checked;
+ *   * a device or operator route reads the other two and never this one, so an
+ *     owner who holds a live privileged cookie in the same browser does not
+ *     thereby acquire a device session, and the counter flow is untouched;
+ *   * there is no PAIR here and therefore no pair check. §3.6's mismatch rule
+ *     exists because an operator session sits on a device session; a privileged
+ *     session sits on nothing, and inventing a pairing for it would be a state
+ *     machine on the wire for no gain — §3.6's own words about the case it
+ *     refused.
+ *
+ * A token of the wrong KIND presented in this slot is refused, symmetrically
+ * with `asDeviceBound` above and for the same reason.
+ */
+export async function resolvePrivileged(
+  pool: pg.Pool,
+  cookieHeader: string | undefined,
+  now: Date
+): Promise<PrivilegedOutcome> {
+  const token = readCookie(cookieHeader, PRIVILEGED_COOKIE);
+  if (!token) return { kind: "anonymous" };
+
+  const db = serviceDb(pool, "session-resolution");
+  const resolved = await resolveToken(db, token, now);
+  if ("refusal" in resolved) {
+    // Reuse revokes the chain here exactly as it does for the other two — see
+    // `revokeForReuse`, whose test is `!== "device"` so this kind takes the
+    // revoking branch rather than the one that looks for children it has none of.
+    await refuse(pool, resolved.refusal, resolved.row);
+    return { kind: "refused", refusal: resolved.refusal };
+  }
+  if (resolved.row.kind !== "privileged") return { kind: "refused", refusal: "wrong_kind" };
+  return { kind: "resolved", privileged: resolved.row };
 }
 
 /**

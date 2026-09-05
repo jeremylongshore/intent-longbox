@@ -485,6 +485,173 @@ export const endOperatorSessionRequest = z.object({}).strict();
 export const endOperatorSessionResponse = z.object({ ended: z.literal(true) });
 
 // ---------------------------------------------------------------------------
+// E03-D11 — the first factor, the privileged session, and the two issuance
+// routes it un-pends (000-docs/057; 048 §4.1, §7, §12.4 row 3a).
+// ---------------------------------------------------------------------------
+
+/**
+ * Signing in as a person rather than as a phone (048 §4.1).
+ *
+ * **Three fields are a credential and one is a scope, and the scope is checked
+ * rather than trusted.**
+ *
+ *   * `email` is a LOGIN IDENTIFIER, never a delivery channel — 048 §7.2 records
+ *     that no mailer exists and that this system will not invent one;
+ *   * `password` and exactly one of `totp_code` / `recovery_code`. A recovery
+ *     code substitutes for the SECOND factor ONLY (048 R20): it is never
+ *     accepted without the password, never on its own, and never in place of the
+ *     password. `.strict()` plus the refinement below is where that stops being
+ *     a sentence in a record;
+ *   * `shop_id` names WHICH tenant this session is for, because a person may
+ *     hold memberships at several shops (034 §2.6) and 048 §6.1 requires the
+ *     session to be the only source of `shop_id`. It is a VALUE CHECKED against
+ *     the person's live memberships, exactly as a URL's `shopId` is checked
+ *     against the session one layer up — a shop they hold nothing at answers
+ *     the same refusal an unknown one does;
+ *   * `location_id` is OPTIONAL and names the storefront the person is acting
+ *     for, checked against the shop and against their own grant. Without it a
+ *     location-scoped manager could reach no location-scoped permission from a
+ *     desk at all (057 §4.4).
+ *
+ * **There is no `remember_me`, no `device_name` and no `stay_signed_in`.** The
+ * privileged session's whole point is that it is short (048 §4.1's freshness
+ * window), and a field that lengthens it is a field that removes the control.
+ */
+export const privilegedSessionRequest = z
+  .object({
+    email: z.string().min(3).max(320),
+    password: z.string().min(1).max(1024),
+    totp_code: z.string().min(1).max(16).optional(),
+    recovery_code: z.string().min(1).max(64).optional(),
+    shop_id: uuid,
+    location_id: uuid.optional(),
+  })
+  .strict()
+  .refine((v) => (v.totp_code === undefined) !== (v.recovery_code === undefined), {
+    message: "exactly one second factor",
+  });
+
+/**
+ * What a privileged sign-in returns.
+ *
+ * The person's own id and display name — which they just proved two factors for
+ * — the shop the session is scoped to, and `must_reenroll`, which is 048 §8.1's
+ * forced re-enrollment as a fact the client can render rather than a 403 it has
+ * to discover by trying something.
+ *
+ * **No role, no permission list and no expiry.** A role would be a per-operator
+ * datum on the wire (022 P3, 042 I7), a permission list would be a second
+ * spelling of `ROLE_GRANTS` that the client could act on while the server
+ * disagreed (054 §3), and an expiry would invite a client to schedule against a
+ * PROVISIONAL floor (042 A3, 021 B16).
+ */
+export const privilegedSessionResponse = z.object({
+  person: z.object({ id: uuid, display_name: z.string() }),
+  shop: z.object({ id: uuid, name: z.string() }),
+  must_reenroll: z.boolean(),
+});
+
+/** Ending a privileged session is a body-less act on the session the cookie names. */
+export const endPrivilegedSessionRequest = z.object({}).strict();
+export const endPrivilegedSessionResponse = z.object({ ended: z.literal(true) });
+
+/**
+ * Issuing an invitation (048 §7.1), which until now was `pnpm issue-invitation`.
+ *
+ * **No `shop_id`.** The shop is the session's (048 §6.1), and a body field
+ * naming one would be the path parameter the tenant plugin exists to make
+ * unrepresentable, arriving through the body instead.
+ *
+ * **No `invited_by`.** The inviter is the session's person, stamped from the
+ * session and never accepted from a body — 048 §6.3 and I8's rule, which the
+ * CLI could only satisfy by being run by a trusted operator and which a route
+ * satisfies structurally.
+ *
+ * `role` is a closed set that does NOT include `support_break_glass`: 034 §2.6
+ * says it *"is never granted at ratification and never grants itself"*, the
+ * database CHECK on `invitation.role` refuses it, `ROLE_GRANTABLE` refuses it,
+ * and this schema refuses it — three layers that fail differently (034 §3.2).
+ */
+export const invitationRequest = z
+  .object({
+    email: z.string().min(3).max(320),
+    display_name: z.string().min(1).max(200),
+    role: z.enum(["owner", "manager", "operator"]),
+    location_id: uuid.optional(),
+    /**
+     * **A FRESH second-factor code, REQUIRED when `role` is `owner`** (057 §4.4b).
+     *
+     * 048 §4.1 already puts every privileged act inside a session established by
+     * password + TOTP within a freshness window, and §4.3 makes that window the
+     * chain's absolute expiry — the right bound for an act whose damage the
+     * expiry bounds. **Naming a second OWNER is not such an act.** The membership
+     * it grants is permanent and carries the power to grant it again, so a copied
+     * cookie spent here outlives every session in the system. This one act
+     * therefore re-presents the factor instead of inheriting it.
+     *
+     * Optional in the SHAPE and mandatory in the RULE, deliberately: the service
+     * refuses `role: "owner"` without it, so the requirement is stated where the
+     * role is known rather than as a schema branch a reader has to unpick. It is
+     * spent exactly once by 048 R19's conditional UPDATE, like any other code.
+     */
+    totp_code: z.string().min(1).max(16).optional(),
+  })
+  .strict();
+
+/**
+ * What an issued invitation returns.
+ *
+ * ⚠ **`code` IS PRESENT ON THE FIRST RESPONSE AND ABSENT ON ITS REPLAY, AND
+ * THAT IS THE CONTRACT** (057 §4.8, and 042 §5.1's amend-by-a-row at v1.5.0).
+ * The code is shown ONCE and stored nowhere — `invitation` holds `sha256` and
+ * nothing else — so it cannot be part of the response body
+ * `request_idempotency` stores, for exactly the reason a `Set-Cookie` is not:
+ * storing it would put a live credential in a table, and NOT storing it while
+ * pretending the replay is byte-identical would be a lie in a generated
+ * artifact. A retry after a lost response therefore gets a truthful `201` with
+ * the invitation's id, its expiry and no code — and the owner issues another and
+ * lets the first expire, which is what `scripts/issue-invitation.ts` already
+ * tells them to do.
+ */
+export const invitationResponse = z.object({
+  invitation: z.object({
+    id: uuid,
+    role: z.enum(["owner", "manager", "operator"]),
+    expires_at: z.string(),
+    /** Present on the first response only. See the note above. */
+    code: z.string().optional(),
+  }),
+});
+
+/**
+ * Issuing a device enrollment code (048 §7.3), until now
+ * `pnpm issue-enrollment-code`.
+ *
+ * `location_id` is REQUIRED here where it is optional on the sign-in, and the
+ * difference is 034 I7: `device.location_id` is `NOT NULL`, so an enrollment
+ * names a location or it does not happen. It is checked against the session's
+ * shop by `issueEnrollmentCode` before anything is minted.
+ */
+export const enrollmentCodeRequest = z
+  .object({
+    location_id: uuid,
+    device_label: z.string().min(1).max(200),
+    device_kind: z.enum(["phone", "kiosk", "tablet"]).default("phone"),
+  })
+  .strict();
+
+/** Same shown-once contract as `invitationResponse`; the note there governs both. */
+export const enrollmentCodeResponse = z.object({
+  enrollment: z.object({
+    id: uuid,
+    location_id: uuid,
+    expires_at: z.string(),
+    /** Present on the first response only. */
+    code: z.string().optional(),
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // E03-B06 — the connector surface (000-docs/053 §8).
 // ---------------------------------------------------------------------------
 

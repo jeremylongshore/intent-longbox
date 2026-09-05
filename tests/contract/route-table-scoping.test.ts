@@ -182,9 +182,16 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
     for (const route of ROUTES) {
       expect(["metered", "ordinary", "device", "none"]).toContain(route.rateClass);
     }
-    // The FIVE routes that have no session-resolved shop to key on are keyed on
+    // The SIX routes that have no session-resolved shop to key on are keyed on
     // the DEVICE, never on an IP (042 §8.1 unchanged) and never on the person —
     // which would let a stranger exhaust a named person's budget.
+    //
+    // The sixth is `POST /api/v1/privileged-sessions` (E03-D11), and it is here
+    // for the FIRST reason rather than the fifth's: a person signing in with a
+    // password holds no session at all, so there is no shop the ordinary bucket
+    // could key on. Its sibling `POST …/privileged-sessions/end` is NOT here and
+    // must not be — that one runs on a resolved privileged session, which names
+    // a shop, so `ordinary` is available and is what 042 §8.1 asks for.
     //
     // The fifth is `GET /api/v1/shops` (E03-D08). It carried `none` while it was
     // a declared defect, which made the one route that leaked the `shop` table
@@ -199,6 +206,7 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
         "/api/v1/operator-sessions",
         "/api/v1/operator-sessions/end",
         "/api/v1/operators",
+        "/api/v1/privileged-sessions",
         "/api/v1/shops",
       ].sort()
     );

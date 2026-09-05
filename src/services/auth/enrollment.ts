@@ -111,6 +111,8 @@ export async function issueEnrollmentCode(
     deviceKind: DeviceKind;
     issuedBy: string;
     now: Date;
+    /** See `issueInvitation`'s identical field: E03-D11, 054 §4.3 S5′ and §4.5. */
+    audit?: { routeMethod: string; routePath: string; recordAllowance: boolean };
   }
 ): Promise<{ ok: true; enrollment: IssuedEnrollmentCode } | { ok: false; refusal: EnrollmentIssueRefusal }> {
   // E03-B03: the role list that was spelled here in SQL — `role IN
@@ -127,19 +129,26 @@ export async function issueEnrollmentCode(
   // 054 §4.3 (S5′): the second of the two privileged acts, recorded on the same
   // terms as the first — the surface is the script, the chain is null, and the
   // row rides the issuance transaction because a CLI has none to be outside of.
-  await recordAuthorizationDecision(tx, {
-    shopId: args.shopId,
-    routeMethod: "CLI",
-    routePath: "scripts/issue-enrollment-code.ts",
-    permission: "device.enrollment.issue",
-    matrixVersion: PERMISSION_MATRIX_VERSION,
-    matrixCommit: buildCommit(),
-    membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
-    role: verdict.role ?? null,
-    sessionChainId: null,
-    decision: verdict.kind === "allowed" ? "allowed" : "refused",
-    refusalReason: verdict.kind === "allowed" ? null : verdict.kind === "refused_scope" ? "scope" : "role",
-  });
+  // E03-D11: the route's ALLOWANCE is already recorded by the hook (054 §4.3's
+  // privileged rule), so a second row here would make one act two decisions. A
+  // REFUSAL is always recorded, from either surface — and this one is a decision
+  // nothing else has taken, because the hook decided the SESSION's scope and this
+  // decides the LOCATION the body named.
+  if (verdict.kind !== "allowed" || (args.audit?.recordAllowance ?? true)) {
+    await recordAuthorizationDecision(tx, {
+      shopId: args.shopId,
+      routeMethod: args.audit?.routeMethod ?? "CLI",
+      routePath: args.audit?.routePath ?? "scripts/issue-enrollment-code.ts",
+      permission: "device.enrollment.issue",
+      matrixVersion: PERMISSION_MATRIX_VERSION,
+      matrixCommit: buildCommit(),
+      membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+      role: verdict.role ?? null,
+      sessionChainId: null,
+      decision: verdict.kind === "allowed" ? "allowed" : "refused",
+      refusalReason: verdict.kind === "allowed" ? null : verdict.kind === "refused_scope" ? "scope" : "role",
+    });
+  }
   if (verdict.kind !== "allowed") return { ok: false, refusal: "not_permitted" };
 
   const location = await tx.query(`SELECT l.id FROM location l WHERE l.id = $1 AND l.shop_id = $2`, [

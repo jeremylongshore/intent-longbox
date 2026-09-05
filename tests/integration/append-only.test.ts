@@ -938,4 +938,78 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     const res = await pool.query(`SELECT status FROM scan_session WHERE id = $1`, [sessionId]);
     expect((res.rows[0] as { status: string }).status).toBe("confirmed");
   });
+
+  // =========================================================================
+  // E03-D11 — the FIRST factor is CONFIG, and config is not "anything goes".
+  //
+  // 048 §10.1 makes `user_credential` mutable because a password is CHANGED in
+  // place. That sentence licenses three columns and no others, and the licence
+  // is enforced by an `ENABLE ALWAYS` trigger as well as by a column-scoped
+  // grant — because a grant is not permanent the way a trigger is, and because
+  // shipping the grant WITHOUT the trigger is precisely the gap E03-D06 left on
+  // `user_authenticator` and this bead closes.
+  // =========================================================================
+  describe("user_credential is config for three columns and immutable for the rest", () => {
+    let personId: string;
+    let credentialId: string;
+
+    beforeAll(async () => {
+      const person = await pool.query(
+        `INSERT INTO app_user (email, display_name) VALUES ($1,'Credential Person') RETURNING id`,
+        [`credential-${Date.now()}@example.invalid`]
+      );
+      personId = (person.rows[0] as { id: string }).id;
+      const row = await pool.query(
+        `INSERT INTO user_credential (app_user_id, password_hash) VALUES ($1,'$argon2id$fixture')
+         RETURNING id`,
+        [personId]
+      );
+      credentialId = (row.rows[0] as { id: string }).id;
+    });
+
+    it("permits the three columns a password change moves", async () => {
+      const out = await pool.query(
+        `UPDATE user_credential SET password_hash = '$argon2id$second', pepper_version = 2,
+                updated_at = now() WHERE id = $1`,
+        [credentialId]
+      );
+      expect(out.rowCount).toBe(1);
+    });
+
+    it("REFUSES a change to whose credential it is, or when it was made", async () => {
+      for (const sql of [
+        `UPDATE user_credential SET app_user_id = id WHERE id = $1`,
+        `UPDATE user_credential SET created_at = now() WHERE id = $1`,
+        `UPDATE user_credential SET authored_by = 'system' WHERE id = $1`,
+      ]) {
+        await expect(pool.query(sql, [credentialId])).rejects.toThrow(
+          /only password_hash, pepper_version and updated_at/
+        );
+      }
+    });
+
+    it("REFUSES a DELETE, because a person leaving is a membership revocation", async () => {
+      // The row an `auth_attempt` window is derived from must not be removable by
+      // the path that would most like to remove it.
+      await expect(pool.query(`DELETE FROM user_credential WHERE id = $1`, [credentialId])).rejects.toThrow(
+        /never deleted/
+      );
+    });
+
+    it("holds ONE row per person, so the lockout anchor is one row (048 §9.1)", async () => {
+      await expect(
+        pool.query(`INSERT INTO user_credential (app_user_id, password_hash) VALUES ($1,'$argon2id$x')`, [
+          personId,
+        ])
+      ).rejects.toThrow(/user_credential_one_row_per_person|duplicate key/);
+    });
+
+    it("is ENABLE ALWAYS, so a replication role does not skip it", async () => {
+      const t = await pool.query(
+        `SELECT tgenabled FROM pg_trigger
+          WHERE tgrelid = 'user_credential'::regclass AND tgname = 'user_credential_scoped_mutation'`
+      );
+      expect(t.rows).toEqual([{ tgenabled: "A" }]);
+    });
+  });
 });

@@ -20,9 +20,12 @@
 // failure `checkLockOrder`'s history records.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readdirSync } from "node:fs";
 import {
   checkAuthorizationDecisionCountNouns,
   checkIdentityPairEdit,
+  checkMigrationNumbers,
+  checkNoFreshnessColumn,
   checkOriginDesignationWriters,
   checkServiceScopeSites,
   collectSources,
@@ -42,18 +45,26 @@ const files = collectSources(join(REPO_ROOT, "src"));
 // that no rule reads the filesystem itself (the invariant review's NOTE 5).
 const scriptFiles = collectSources(join(REPO_ROOT, "scripts"));
 const bothTrees = [...files, ...scriptFiles];
-// THREE rules span BOTH trees and are called from here rather than from inside
-// the rule set, so that no rule reads the filesystem itself (the invariant
-// review's NOTE 5): the scope inventory (three of the six scopes are named only
-// by CLIs); since 058 F6, the origin-designation single-writer rule, whose only
-// writers today are reached from `scripts/`; and, since 059 §5, rule 3d — a CLI
-// that printed "three acts" from the actor audit would be exactly as wrong as a
-// service that returned it.
+// E03-D11's freshness refusal reaches one tree further: a column arrives in a
+// MIGRATION before any TypeScript reads it, so the file that would introduce the
+// thing the rule refuses is the one the rule has to see.
+const migrationFiles = collectSources(join(REPO_ROOT, "migrations"), [".sql"]);
+// FIVE rules span more than `src/` and are called from here rather than from
+// inside the rule set, so that no rule reads the filesystem itself (the
+// invariant review's NOTE 5): the scope inventory (three of the six scopes are
+// named only by CLIs); since 058 F6, the origin-designation single-writer rule,
+// whose only writers today are reached from `scripts/`; since 059 §5, rule 3d —
+// a CLI that printed "three acts" from the actor audit would be exactly as wrong
+// as a service that returned it; and E03-D11's two — K3's freshness-column
+// refusal over all three trees, and K6's number-collision guard, which reads
+// FILENAMES rather than contents because the collision it refuses is in the name.
 const findings = [
   ...runArchitectureRules(files),
   ...checkServiceScopeSites(bothTrees),
   ...checkOriginDesignationWriters(bothTrees),
   ...checkAuthorizationDecisionCountNouns(bothTrees),
+  ...checkNoFreshnessColumn([...bothTrees, ...migrationFiles]),
+  ...checkMigrationNumbers(readdirSync(join(REPO_ROOT, "migrations")).filter((f) => f.endsWith(".sql"))),
 ];
 
 const changedPath = changedFilesPath();
@@ -65,7 +76,8 @@ if (changedPath !== null) {
 if (findings.length === 0) {
   console.log(
     `architecture gate: ok (${files.length} files, 11 tree rules over src/, ` +
-      `3 rules over src/ + scripts/` +
+      `4 rules over src/ + scripts/ (one of them also over migrations/), ` +
+      `1 rule over migrations/ filenames` +
       (changedPath === null
         ? `; paired-edit rule SKIPPED — no changed-file list supplied)`
         : `, plus the paired-edit rule over ${changedPath})`)

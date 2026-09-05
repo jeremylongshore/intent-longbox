@@ -67,16 +67,39 @@ const ARGON2_PARAMS = { parallelism: 1, iterations: 3, memorySize: 64 * 1024, ha
 /**
  * The process-environment pepper (048 §9.2, R6).
  *
- * Mixed into the PIN before hashing: `argon2id(pin ‖ pepper)`. It is NEVER in
- * the database, in a migration, in a fixture or in a backup of this database —
- * the same custody posture §4.2 gives the authenticator key and 041 A5 gives the
- * purge-epoch key, so **a database compromise alone is not a credential
- * compromise**.
+ * Mixed into every credential this system hashes before hashing it:
+ * `argon2id(secret ‖ pepper)`. It is NEVER in the database, in a migration, in a
+ * fixture or in a backup of this database — the same custody posture §4.2 gives
+ * the authenticator key and 041 A5 gives the purge-epoch key, so **a database
+ * compromise alone is not a credential compromise**.
  *
- * The two-secret failure mode is stated rather than discovered: losing the
- * pepper invalidates every PIN in the system. That makes it a backup-and-custody
- * obligation on E03-B05 (048 §12.4 row 3), filed there rather than assumed to be
- * somebody's habit.
+ * ⚠ **ONE PEPPER, FOR FOUR THINGS, AND THAT IS A DECISION** (057 §4.1, closing
+ * 055 §9 item 11). It peppers the operator PIN, the recovery code, and — from
+ * E03-D11 — the PASSWORD. 048 §9.2 rules one value for both factors it names
+ * (*"PIN and password hashes are computed over `secret ‖ pepper`"*), and 055 §9
+ * item 11 hands the confirmation to this bead. Two peppers were considered and
+ * refused: they would be two custody obligations, two things to lose and two
+ * rotations to run, in exchange for a separation that buys nothing — every path
+ * back in after a pepper loss is authenticated by something under the lost value
+ * (055 §2 E4/E6), so splitting the value splits the blast radius of nothing.
+ *
+ * ⚠ **THE NAME IS NOW NARROWER THAN THE JOB, AND IT IS KEPT ANYWAY** (057 §4.1).
+ * `LONGBOX_PIN_PEPPER` reads as though rotating it would only affect PINs. It
+ * would not: it would invalidate every PIN, every password and every recovery
+ * code, at once, for every shop. Renaming a boot-required secret's variable is a
+ * deploy-coordination step with a real outage window and no security gain, so
+ * the correction lands where a reader actually looks — `.env.example`, this
+ * comment, and `PepperConfigError`'s message — and the rename rides the ring
+ * that 055 §9 item 5 asks for (057 §7 residual R3).
+ *
+ * **What losing it costs, stated in one sentence because 055 RULING 6 requires
+ * that sentence to exist:** every staff sign-in and every owner sign-in stops
+ * working simultaneously, in every shop, and the way back is not 048 §8's
+ * recovery codes — those are hashed with this value too — but 055 §6.1's
+ * runbook. That makes it a backup-and-custody obligation, discharged as a
+ * DECISION by 055 (escrow, RULING 1) and as a POSTURE by 055 RULING 4's interim
+ * (no escrow exists yet; Option B is the live posture). 048 §12.4 row 3's
+ * orphaned half is re-homed to this bead and answered in 057 §5.
  */
 export const PIN_PEPPER_ENV = "LONGBOX_PIN_PEPPER";
 
@@ -108,11 +131,14 @@ export function requirePinPepper(env: NodeJS.ProcessEnv = process.env): string {
   const pepper = env[PIN_PEPPER_ENV] ?? "";
   if (pepper.length === 0) {
     throw new PepperConfigError(
-      `${PIN_PEPPER_ENV} is not set. Every operator PIN is hashed with argon2id over ` +
-        `(pin ‖ pepper), and the pepper is what puts a six-digit keyspace out of reach of a ` +
-        `stolen database dump (048 §9.2). There is no empty-pepper mode: a PIN written without ` +
+      `${PIN_PEPPER_ENV} is not set. Every operator PIN, every PASSWORD and every RECOVERY ` +
+        `CODE is hashed with argon2id over (secret ‖ pepper) — one value for all three (048 ` +
+        `§9.2; 055 §9 item 11) — and the pepper is what puts a six-digit keyspace out of reach ` +
+        `of a stolen database dump. There is no empty-pepper mode: a credential written without ` +
         `one would be un-peppered forever and nothing about the running system would say so. ` +
-        `Generate one with \`openssl rand -base64 48\` and put it in SOPS.`
+        `Generate one with \`openssl rand -base64 48\` and put it in SOPS. Losing it stops every ` +
+        `sign-in in every shop at once and the recovery codes do not survive it either (055 §2 ` +
+        `E4); the way back is 055 §6.1's runbook.`
     );
   }
   if (pepper.length < MIN_PEPPER_LENGTH) {
@@ -158,6 +184,23 @@ export async function hashPin(pin: string, pepper: string): Promise<string> {
  * runs. That is bounded by `RECOVERY_CODE_COUNT`, by the per-person lockout (048
  * §9.1), and today by there being no route at all — the flow is a CLI an operator
  * runs. It is why the batch is eight and not forty.
+ *
+ * ⚠ **THE PEPPER HERE IS NOW A DECISION AND NOT AN INHERITANCE** (057 §4.7,
+ * ruling on 055 F8/F9 and its §9 item 4a). The 055 cannon found that this
+ * function's delegation made 048 §8's fallback depend on the pepper *by
+ * accident*, and RECOMMENDED branch (a): 128-bit codes hashed WITHOUT the
+ * pepper, so the fallback survives a pepper loss. **Branch (b) is taken — keep
+ * the pepper, keep ten characters — and the ground is 048 R20, which the
+ * recommendation predates in effect.** A recovery code substitutes for the
+ * SECOND factor only: it is never accepted without the password, and the
+ * password is peppered with this same value (048 §9.2, 055 §9 item 11). So a
+ * pepper loss takes the FIRST factor whatever this function does, and branch (a)
+ * would buy no pepper-loss survivability at all while trading away the
+ * ergonomics 048 §8.1 ratified — *"a 26-character string on a slip in a drawer
+ * is a string that gets photographed instead"*. **The consequence 055 requires
+ * to be written in terms, and it is written in 048 §8, in `.env.example` and
+ * here: recovery codes are a fallback for a LOST PHONE and never for a CUSTODY
+ * LOSS.**
  */
 export async function hashRecoveryCode(code: string, pepper: string): Promise<string> {
   return hashWithPepper(code, pepper);
@@ -166,6 +209,18 @@ export async function hashRecoveryCode(code: string, pepper: string): Promise<st
 /** Verify a recovery code against a stored digest. Same contract as `verifyPin`. */
 export async function verifyRecoveryCode(code: string, pepper: string, hash: string): Promise<boolean> {
   return verifyPin(code, pepper, hash);
+}
+
+/**
+ * **The general verify, and the name every new caller uses** (E03-D11).
+ *
+ * `verifyPin` is what this function is called when a PIN is what is being
+ * verified, and it stays for the readers of `pin.ts`. The first factor is not a
+ * PIN and calling `verifyPin(password, …)` would read as a bug in the one file
+ * where a reader most needs to be sure it is not one.
+ */
+export async function verifyWithPepper(secret: string, pepper: string, hash: string): Promise<boolean> {
+  return verifyPin(secret, pepper, hash);
 }
 
 /**

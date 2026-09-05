@@ -16,9 +16,32 @@
 // property, at any class (021 B16). A floor may be RAISED freely; lowering one
 // after seeing a result it would change needs a 006 row saying so (018 C3).
 
-/** 048 §3.6 — one cookie per principal, both `__Host-` prefixed. */
+/** 048 §3.6 — one cookie per principal, all `__Host-` prefixed. */
 export const DEVICE_COOKIE = "__Host-lb_device";
 export const OPERATOR_COOKIE = "__Host-lb_op";
+/**
+ * 048 §4.1 / §12.4 row 3a (E03-D11) — the THIRD principal's cookie.
+ *
+ * A third cookie for the same reason 048 R1 reversed the draft's single one:
+ * **the principals have different lifetimes**, and one cookie forces every pair
+ * to share the shortest. A privileged session is measured in the length of one
+ * administrative task; a device session is measured in weeks. Sharing a cookie
+ * would mean an owner signing in at their desk to invite one person signs the
+ * counter phone out of its shop when that session idles, and the recovery from
+ * that is not a PIN — it is an enrollment.
+ *
+ * **The pair check does NOT extend to this one, and that is the decision.** 048
+ * §3.6's mismatch rule is about an operator token presented against a device
+ * chain it was not issued under, which is the shape of a cookie lifted from one
+ * phone onto another. A privileged session has no parent and no device, so there
+ * is no pair to mismatch — and the route table decides which cookie is read: a
+ * route whose principal is `privileged` consults this cookie and NOTHING else,
+ * and every other route ignores it. That is what keeps 048 §4.1's *"never an
+ * operator session on a shared phone"* true by construction rather than by a
+ * check somebody has to remember: an operator cookie can never satisfy a
+ * privileged route, because the privileged route never looks at it.
+ */
+export const PRIVILEGED_COOKIE = "__Host-lb_priv";
 
 /**
  * How long a device session may live at all, from first issuance.
@@ -52,6 +75,57 @@ export const OPERATOR_IDLE_MS = 30 * 60 * 1000;
 export const OPERATOR_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
 /** 048 §3.3 point 4: rotations must be RARE relative to requests. */
 export const OPERATOR_ROTATE_MS = 10 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// 048 §4.1 (E03-D11) — the privileged session's three numbers, and the one that
+// is doing a job no other number in this file does.
+// ---------------------------------------------------------------------------
+
+/**
+ * **THE FRESHNESS WINDOW IS THIS NUMBER, AND THERE IS NO SECOND ONE** (057 §4.3).
+ *
+ * 048 §4.1 requires that *"a privileged action requires a session established by
+ * password + TOTP within a freshness window"* — 022 P3's *"never on a shared or
+ * kiosk device without fresh authentication"*, expressed as a property of the
+ * session record rather than as a rule in a screen. The obvious build is an
+ * `mfa_verified_at` column and a comparison against it. **It is not built**: the
+ * absolute expiry is carried unchanged across every rotation (`sessions.ts`,
+ * *"the ceiling belongs to the CHAIN"*), so it already IS the elapsed time since
+ * the two factors were presented, and a second column holding the same fact is a
+ * second thing that can disagree with the first — the shape 040 A8, 042 I5 and
+ * 047 §5.1 each refused in turn.
+ *
+ * The derivation, and it is a PROVISIONAL floor like every other number here:
+ * long enough to invite a person, issue an enrollment code, and read the screen
+ * that shows the code once; short enough that an owner who signs in at a desk
+ * and walks away has left something that is already dead by the time anybody
+ * sits down. It is deliberately shorter than the operator session's absolute
+ * ceiling, because an operator session reaches the scan flow and this one
+ * reaches who works here and which phones are the shop's.
+ */
+export const PRIVILEGED_ABSOLUTE_MS = 30 * 60 * 1000;
+/**
+ * Idle expiry, on the same reasoning `OPERATOR_IDLE_MS` carries: idle expiry is
+ * the control against a copied cookie (048 R4), and this cookie is the one that
+ * can staff a shop. It is close to the absolute ceiling because the ceiling is
+ * already short — the two are not doing different jobs at this scale, and a much
+ * smaller idle window would sign an owner out between reading a code and typing
+ * the next person's name.
+ */
+export const PRIVILEGED_IDLE_MS = 15 * 60 * 1000;
+/**
+ * Rotation, and it is the one number here NOT set by 048 §3.3 point 4's
+ * "rotations must be rare relative to requests".
+ *
+ * A privileged session issues a handful of requests in its whole life, so
+ * rotation is rare whatever this is. What it is set by instead is the reuse
+ * detector (048 §3.3 point 3): a chain that never rotates never produces a
+ * successor, and a successor is the only thing that makes a copied cookie
+ * DETECTABLE at all. Five minutes means a stolen privileged cookie has at most
+ * one rotation period of silence before the legitimate client's next request
+ * turns it into a revocation.
+ */
+export const PRIVILEGED_ROTATE_MS = 5 * 60 * 1000;
 
 /**
  * 048 §3.3 (K2) — the rotation race's grace window.

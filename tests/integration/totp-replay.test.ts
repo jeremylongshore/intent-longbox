@@ -38,6 +38,7 @@ const dbUp = await probeDb();
 
 describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () => {
   let pool: pg.Pool;
+  let ownerPool: pg.Pool;
   let shopId: string;
   const keyring = testKeyring();
 
@@ -72,17 +73,28 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
   const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
     asShop(pool, shopId).query(sql, values);
 
+  /** The SCHEMA OWNER — no policy, no column grant, and the trigger still stands. */
+  const ownerQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    ownerPool.query(sql, values);
+
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_totp");
     await runMigrations(migrateUrl);
-    const ownerPool = new pg.Pool({ connectionString: migrateUrl });
+    // ⚠ THE SCHEMA-OWNER POOL IS KEPT (E03-D11). Most of this suite runs on the
+    // APP ROLE, which is the point of it — but the app role's grant on
+    // `user_authenticator` is COLUMN-SCOPED, so an UPDATE of the sealed secret
+    // is refused by the GRANT before any trigger sees it. That is defence in
+    // depth working; it is not evidence about the trigger. The cases that
+    // exercise `migrations/031`'s trigger therefore run as the schema owner,
+    // where the grant is not in the way and the trigger is the only thing left.
+    ownerPool = new pg.Pool({ connectionString: migrateUrl });
     shopId = await seedShop(ownerPool, { name: "TOTP Shop", slug: `totp-${Date.now()}` });
-    await ownerPool.end();
     pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
   }, 120_000);
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
   /** A person holding one of 048 §4.1's three MFA roles, with nothing enrolled. */
@@ -417,10 +429,22 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
   it("keeps the ONE mutable column mutable and everything else append-only", async () => {
     // 041 §9.2 item 4's exemption, asserted from the APP ROLE — the role that has
     // full DML on an exempt table and `SELECT, INSERT` on an append-only one.
+    //
+    // ⚠ **THE MOVE IS FORWARD, AND IT USED TO BE BACKWARD** (E03-D11). The first
+    // version of this case set the step to `1` on a row whose enrollment had
+    // already spent a step in the seventeen-million range — so it asserted the
+    // column was mutable by performing the exact ROLLBACK 048 R19 exists to
+    // refuse, and passed because nothing refused it. `migrations/031`'s trigger
+    // now does; the case moves the step forward, which is the only direction the
+    // exemption was ever for, and the rollback has its own case below.
     const id = await freshOwner();
     await enrol(id);
     const row = (await liveAuthenticator(pool, id))!;
-    const moved = await shopQuery(`UPDATE user_authenticator SET last_used_step = 1 WHERE id = $1`, [row.id]);
+    const forward = Number(row.last_used_step ?? 0) + 1;
+    const moved = await shopQuery(`UPDATE user_authenticator SET last_used_step = $2 WHERE id = $1`, [
+      row.id,
+      forward,
+    ]);
     expect(moved.rowCount).toBe(1);
     await expect(
       shopQuery(`UPDATE user_authenticator_retirement SET reason = 'offboarding' WHERE app_user_id = $1`, [
@@ -430,6 +454,99 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     await expect(
       shopQuery(`UPDATE recovery_code SET code_hash = 'x' WHERE app_user_id = $1`, [id])
     ).rejects.toThrow();
+  });
+
+  // =========================================================================
+  // E03-D11 — the PR #82 residual, closed by the DATABASE (048 R19).
+  //
+  // The bead note recorded the hole precisely: *"the app role holds a
+  // column-scoped UPDATE on `user_authenticator.last_used_step`, so R19
+  // monotonicity is the service SQL only — an actor with the app connection
+  // could roll the step back and replay a code inside the ±1 window."* Every
+  // case below runs on the APP ROLE and spells raw SQL, so it is testing the
+  // trigger and never the service that usually writes it.
+  // =========================================================================
+  describe("the replay guard is enforced by the database, not by one statement (E03-D11)", () => {
+    it("REFUSES a step that moves backward — the replay PR #82 left open", async () => {
+      const id = await freshOwner();
+      await enrol(id);
+      const row = (await liveAuthenticator(pool, id))!;
+      const spent = Number(row.last_used_step);
+      expect(spent).toBeGreaterThan(0);
+      await expect(
+        shopQuery(`UPDATE user_authenticator SET last_used_step = $2 WHERE id = $1`, [row.id, spent - 1])
+      ).rejects.toThrow(/monotone/);
+      // …and the row is untouched, so the refusal is a refusal and not a partial write.
+      const after = (await liveAuthenticator(pool, id))!;
+      expect(Number(after.last_used_step)).toBe(spent);
+    });
+
+    it("REFUSES a step that stands still, and a step set back to NULL", async () => {
+      const id = await freshOwner();
+      await enrol(id);
+      const row = (await liveAuthenticator(pool, id))!;
+      const spent = Number(row.last_used_step);
+      // Equal is not forward: re-presenting the SAME step is the replay itself.
+      await expect(
+        shopQuery(`UPDATE user_authenticator SET last_used_step = $2 WHERE id = $1`, [row.id, spent])
+      ).rejects.toThrow(/monotone/);
+      // NULL means "nothing spent yet", which is a rollback to the beginning.
+      await expect(
+        shopQuery(`UPDATE user_authenticator SET last_used_step = NULL WHERE id = $1`, [row.id])
+      ).rejects.toThrow(/monotone/);
+    });
+
+    it("REFUSES the app role's edit of a sealed column at the GRANT, before any trigger", async () => {
+      // Defence in depth, and the layers are named rather than blurred: the app
+      // role's grant is `SELECT, INSERT` plus `UPDATE (last_used_step,
+      // updated_at)`, so it cannot even ATTEMPT the write. That is the first
+      // layer working, and it is not evidence about the second.
+      const id = await freshOwner();
+      await enrol(id);
+      const row = (await liveAuthenticator(pool, id))!;
+      await expect(
+        shopQuery(`UPDATE user_authenticator SET key_version = 9 WHERE id = $1`, [row.id])
+      ).rejects.toThrow(/permission denied/);
+    });
+
+    it("REFUSES an edit to the sealed secret, its nonce or its key version — as the SCHEMA OWNER", async () => {
+      // The layer that matters, exercised where the grant is not in the way. A
+      // grant is not permanent the way a trigger is (`appRoleGrants.ts` says so
+      // in its own words), and the schema owner is the role every migration, CLI
+      // and disaster-recovery script runs as.
+      const id = await freshOwner();
+      await enrol(id);
+      const row = (await liveAuthenticator(pool, id))!;
+      for (const sql of [
+        `UPDATE user_authenticator SET secret_ciphertext = '\\x00'::bytea WHERE id = $1`,
+        `UPDATE user_authenticator SET secret_nonce = '\\x00'::bytea WHERE id = $1`,
+        `UPDATE user_authenticator SET key_version = 9 WHERE id = $1`,
+        `UPDATE user_authenticator SET app_user_id = id WHERE id = $1`,
+      ]) {
+        await expect(ownerQuery(sql, [row.id])).rejects.toThrow(/written once|only last_used_step/);
+      }
+    });
+
+    it("REFUSES a DELETE, because an ending is a retirement row", async () => {
+      const id = await freshOwner();
+      await enrol(id);
+      const row = (await liveAuthenticator(pool, id))!;
+      await expect(ownerQuery(`DELETE FROM user_authenticator WHERE id = $1`, [row.id])).rejects.toThrow(
+        /never deleted/
+      );
+    });
+
+    it("is ENABLE ALWAYS, so a replication role does not skip it", async () => {
+      // 041 §9.2 item 1's ranking, asserted the way `append-only.test.ts` asserts
+      // it for every other trigger in the schema: `tgenabled = 'A'`. A trigger at
+      // the `'O'` default is a trigger a session-replication-role setting turns
+      // off, which is exactly the bypass a GRANT already had.
+      const t = await shopQuery(
+        `SELECT tgenabled FROM pg_trigger
+          WHERE tgrelid = 'user_authenticator'::regclass AND tgname = 'user_authenticator_step_is_monotone'`
+      );
+      expect(t.rows).toEqual([{ tgenabled: "A" }]);
+    });
   });
 
   it("declares no status column on the authenticator or its recovery set", async () => {

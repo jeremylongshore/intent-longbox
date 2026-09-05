@@ -31,6 +31,10 @@ export {
   redemptionWaitMs,
   secondFactorWaitMs,
   PIN_LENGTH,
+  PRIVILEGED_COOKIE,
+  PRIVILEGED_ABSOLUTE_MS,
+  PRIVILEGED_IDLE_MS,
+  PRIVILEGED_ROTATE_MS,
   clearCookie,
   isSameOriginRequest,
   lockoutWaitMs,
@@ -101,10 +105,12 @@ export {
 } from "./totp.js";
 
 export {
+  asDeviceBound,
   chainHead,
   chainIsRevoked,
   issueDeviceSession,
   issueOperatorSession,
+  issuePrivilegedSession,
   lockAndRotate,
   lockLiveSessionsOf,
   lockSession,
@@ -113,9 +119,36 @@ export {
   resolveToken,
   revokeChain,
   revokeForReuse,
+  revokePrivilegedChainsOf,
   revokeSessionsOf,
 } from "./sessions.js";
-export type { IssuedSession, SessionKind, SessionRefusal, SessionRow } from "./sessions.js";
+export type {
+  DeviceBoundSession,
+  IssuedSession,
+  SessionKind,
+  SessionRefusal,
+  SessionRow,
+} from "./sessions.js";
+
+// E03-D11 — the FIRST factor and the third session's shape. The door is the same
+// one for the same reason: `verifyPassword` is correct ONLY inside a transaction
+// that holds its anchor lock AND that commits whatever the verdict, and
+// `personWait` is the ONE budget three factors share (048 §4.3, 057 §4.5).
+export {
+  MIN_PASSWORD_LENGTH,
+  lockCredential,
+  personIdForEmail,
+  personWait,
+  readCredential,
+  setPassword,
+  verifyPassword,
+} from "./credentials.js";
+export type { PasswordRefusal, PasswordVerdict, UserCredentialRow } from "./credentials.js";
+
+export { readPerson, upsertPerson } from "./people.js";
+export type { Person } from "./people.js";
+
+export { authenticatorsBelowVersion, resealAuthenticator } from "./authenticator.js";
 
 export { mintDeviceCredential, resolveDeviceCredential } from "./devices.js";
 export type { DeviceCredentialRow } from "./devices.js";
@@ -174,8 +207,8 @@ export type {
   IssuedEnrollmentCode,
 } from "./enrollment.js";
 
-export { resolvePrincipal } from "./principal.js";
-export type { Principal, PrincipalOutcome } from "./principal.js";
+export { resolvePrincipal, resolvePrivileged } from "./principal.js";
+export type { Principal, PrincipalOutcome, PrivilegedOutcome } from "./principal.js";
 
 export {
   highestRole,

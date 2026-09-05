@@ -340,6 +340,83 @@ export const ERROR_CODES = {
       "without parsing prose: this one means 'tap your name', that one means 'this phone is not " +
       "signed in to a shop'.",
   },
+  INVITATION_REFUSED: {
+    status: 409,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §7.1a (E03-D11) — the shop already holds the maximum number of outstanding " +
+      "invitations. **Distinct from INVITATION_INVALID, and the pair is the same distinction " +
+      "PIN_REFUSED and PIN_INVALID draw**: INVITATION_INVALID answers a credential TEST and is " +
+      "deliberately indistinguishable across every cause (048 §9.3), while this answers a fact " +
+      "about the caller's OWN shop that the caller may act on — let one expire, or have it " +
+      "redeemed. It carries no `details` and in particular no count, because how many codes are " +
+      "outstanding is not a number a refusal needs to publish.",
+  },
+  ENROLLMENT_CODE_REFUSED: {
+    status: 409,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §7.1a / §7.3 (E03-D11) — the enrollment code was not issued. **ONE code for two " +
+      "causes, deliberately**: the shop's outstanding-code ceiling is reached, OR the location " +
+      "named is not this shop's. Separating them would make the route an oracle over which " +
+      "location ids exist, which is 019 T24's boundary reached through a 409 instead of a 404 — " +
+      "and a caller who holds a privileged session at this shop already knows its own locations, " +
+      "so the merge costs them nothing.",
+  },
+  PRIVILEGED_SESSION_REQUIRED: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §4.1 / §12.4 row 3a (E03-D11) — the route requires a session established by password " +
+      "AND a second factor, and the caller presented none. **Distinct from SESSION_REQUIRED and " +
+      "from OPERATOR_REQUIRED for OPERATOR_REQUIRED's own stated reason: the ACTION differs and " +
+      "the client must be able to choose it without parsing prose.** This one means 'sign in with " +
+      "your password and your authenticator'; OPERATOR_REQUIRED means 'tap your name'; " +
+      "SESSION_REQUIRED means 'this phone is not signed in to a shop'. It is deliberately NOT the " +
+      "answer to a WRONG password or a wrong code — every credential test on the sign-in route " +
+      "answers SESSION_REQUIRED, because 048 §9.3 requires a credential boundary to answer the " +
+      "same thing however it failed, and this code is a statement about the SHAPE of the request " +
+      "rather than about a secret the caller submitted.",
+  },
+  FRESH_SECOND_FACTOR_REQUIRED: {
+    status: 403,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "057 §4.4b (E03-D11, the security lens's F1) — the act names a second OWNER, and that is the " +
+      "one privileged act whose damage the session's expiry does not bound: the membership is " +
+      "PERMANENT and carries the power to grant it again, so a copied cookie spent here outlives " +
+      "every session in the system. 048 §4.1's freshness window is therefore re-presented rather " +
+      "than inherited — a code from the person's own authenticator, in the request. **ONE code for " +
+      "an absent factor and for a wrong one**, and that sameness is not §9.3's constant-answer rule " +
+      "arriving somewhere new: the caller already holds a privileged session, so nothing about who " +
+      "exists is disclosed either way, and the merge is here because 'you did not send a code' and " +
+      "'that code was not accepted' lead to the same next action. It carries no `details` and in " +
+      "particular no retry-after, for PIN_INVALID's reason.",
+  },
+  MFA_REENROLLMENT_REQUIRED: {
+    status: 403,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §8.1 (E03-D11) — the person used a RECOVERY CODE, which retires the authenticator it " +
+      "substituted for in the same transaction, so the session they now hold *'can reach NOTHING " +
+      "else until it has'* enrolled a new second factor. It is a PREDICATE over facts and not a " +
+      "flag: `mfaState` reads 'no live authenticator, and a recovery-code use exists', so the " +
+      "state cannot be left stale and cannot be escaped by anything except an enrollment. **The " +
+      "enrollment ROUTE does not exist yet** — enrollment is `pnpm enroll-authenticator`, a " +
+      "schema-owner CLI (048 §12.4 row 3a's remaining half) — so today this code means 'run the " +
+      "re-enrollment out of band', and the artifact that says so is 000-docs/057 §7 residual R2 " +
+      "rather than a screen that promises a button.",
+  },
   PERMISSION_DENIED: {
     status: 403,
     retryable: false,
@@ -529,6 +606,11 @@ export const MESSAGES: Record<ErrorCode, string> = {
   IDENTIFY_PROVIDER_UNAVAILABLE: "no vision provider is configured for this shop",
   SESSION_REQUIRED: "this route requires a session and none resolved",
   OPERATOR_REQUIRED: "this route requires the second of the two session chains",
+  PRIVILEGED_SESSION_REQUIRED: "this route requires a session established by password and a second factor",
+  INVITATION_REFUSED: "this shop has the maximum number of outstanding invitations",
+  ENROLLMENT_CODE_REFUSED: "the enrollment code was not issued",
+  MFA_REENROLLMENT_REQUIRED: "this session may only enrol a new second factor",
+  FRESH_SECOND_FACTOR_REQUIRED: "this act requires a fresh second-factor code in the request",
   PERMISSION_DENIED: "the role held at this shop does not carry the permission this route requires",
   PIN_INVALID: "the submitted credential was not accepted",
   PIN_REFUSED: "the chosen PIN does not satisfy the PIN policy",

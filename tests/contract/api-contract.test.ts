@@ -158,7 +158,19 @@ describe("the route table (042 §3.1, I6)", () => {
     // REPLACED: each names the UNIQUE constraint that makes a second execution a
     // failed INSERT, and the block below asserts the named index actually exists
     // in `migrations/` rather than taking the string's word for it.
-    expect(mutating).toHaveLength(14);
+    //
+    // EIGHTEEN at E03-D11. Four routes arrive together and they split across
+    // §5.1's rules rather than sharing one: `POST …/privileged-sessions` and
+    // `POST …/privileged-sessions/end` are CLASS ONE (b1) — their entire
+    // externally visible effect is a `Set-Cookie`, so they take the header and
+    // no `request_idempotency` row — while `POST …/invitations` and
+    // `POST …/device-enrollment-codes` are in NEITHER class: each writes a row
+    // that outlives the response, so each takes the header AND the row. What
+    // those two DO carry is 042 v1.4.4's amend-by-a-row: the shown-once code
+    // travels outside the STORED body, exactly as a `Set-Cookie` does, because
+    // storing it would put a live credential in a jsonb column on the one route
+    // whose whole custody story is "shown once, stored nowhere".
+    expect(mutating).toHaveLength(18);
     for (const route of ROUTES) {
       // POST always mutates. A GET mutates ONLY as a provider callback — 048
       // I6(d) as amended at v1.5.2, whose original ground was that a cross-site

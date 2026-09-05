@@ -221,7 +221,15 @@ describe("verifyTotp (048 §4.3, R19, §9.1)", () => {
     ]);
   });
 
-  it("counts the window per PERSON across both second-factor methods", async () => {
+  // E03-D11 WIDENED THIS FROM TWO METHODS TO THREE, and the assertion moved with
+  // it rather than being loosened. 048 §4.3's reason for one budget across two
+  // forms of one factor — "two budgets is one budget an attacker doubles by
+  // alternating" — is the same sentence with a bigger number once the FIRST
+  // factor exists: a password, a TOTP code and a recovery code are three values
+  // submitted against one named person, and three budgets would triple it.
+  // 057 §4.5 argues it; the shared count lives in `credentials.ts` and BOTH
+  // files call it, so the two cannot become two by an edit to one of them.
+  it("counts the window per PERSON across all three factor methods", async () => {
     let count: Call | undefined;
     const { db } = fakeDb((text, values) => {
       if (text.includes("FROM auth_attempt")) {
@@ -232,7 +240,7 @@ describe("verifyTotp (048 §4.3, R19, §9.1)", () => {
     });
     const wait = await secondFactorWait(db, PERSON, NOW);
     expect(wait).toBeGreaterThan(0);
-    expect(count?.text).toContain("method IN ('totp','recovery_code')");
+    expect(count?.text).toContain("method IN ('password','totp','recovery_code')");
     expect(count?.text).not.toContain("device_id");
   });
 });

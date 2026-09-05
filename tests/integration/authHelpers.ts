@@ -20,6 +20,7 @@ import {
   issueOperatorSession,
   mintDeviceCredential,
   setOperatorPin,
+  type DeviceBoundSession,
   type IssuedSession,
 } from "../../src/services/auth/index.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
@@ -136,7 +137,10 @@ export async function grant(
 }
 
 /** Issue a device session directly, bypassing the route, for suites testing something else. */
-export async function openDevice(pool: pg.Pool, id: SeededIdentity): Promise<IssuedSession> {
+export async function openDevice(
+  pool: pg.Pool,
+  id: SeededIdentity
+): Promise<IssuedSession<DeviceBoundSession>> {
   return withTransaction(
     pool,
     (tx) =>
@@ -153,7 +157,7 @@ export async function openDevice(pool: pg.Pool, id: SeededIdentity): Promise<Iss
 
 export async function openOperator(
   pool: pg.Pool,
-  device: IssuedSession,
+  device: IssuedSession<DeviceBoundSession>,
   appUserId: string
 ): Promise<IssuedSession> {
   return withTransaction(

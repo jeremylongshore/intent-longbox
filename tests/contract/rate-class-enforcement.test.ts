@@ -98,6 +98,82 @@ const ENFORCEMENT: readonly EnforcementRow[] = [
       "times this EXACT secret has been tried. Taken in the service because the credential arrives " +
       "in the BODY and `onRequest` runs before any body parsing.",
   },
+  // E03-D11's four. The sign-in is anonymous and takes the same two buckets
+  // `POST …/device-sessions` does, for the same two reasons; the other three run
+  // on a privileged session, which names a SHOP and names no device — so the
+  // only key available is the one 042 §8.1 asks for anyway.
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions",
+    file: "src/services/auth/hook.ts",
+    fn: "registerAuthentication",
+    call: "deps.limiter.takeRoute(url)",
+    guard: 'required === "none" && spec !== undefined && spec.rateClass !== "none"',
+    why:
+      "anonymous and sessionless, exactly as `POST /api/v1/device-sessions` is: a person signing " +
+      "in holds no session, so there is no shop and no device to key on at `onRequest`. This " +
+      "bucket bounds the aggregate; `openPrivilegedSession` takes a second one keyed on the " +
+      "submitted identifier's digest, which is the question this one cannot answer.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions",
+    file: "src/services/auth/api.ts",
+    fn: "openPrivilegedSession",
+    call: "deps.limiter.takeSignIn(tokenHash(input.email.toLowerCase()))",
+    reachedFrom: "src/routes/auth.ts",
+    why:
+      "048 R14's second half for the first factor: how many times THIS identifier has been tried. " +
+      "The DIGEST and not the address, because a rate-limit key is held in a process and printed " +
+      "in a log line the day somebody debugs it. Taken in the service because the address arrives " +
+      "in the BODY and `onRequest` runs before any body parsing. Its OWN bucket " +
+      "(`PROVISIONAL_SIGN_IN_RATE_PER_IDENTIFIER`) and not the `device` class it first borrowed: " +
+      "a shop's 120/min is a phone's working rate, and on an anonymous internet-facing route it is " +
+      "wide enough that a known address and an unknown one answer at different attempt counts long " +
+      "before either refuses. Tightening the bucket NARROWS that oracle — about 120 observations a " +
+      "minute down to about five — and does NOT close it: the bucket's window is one minute and " +
+      "`LOCKOUT_WINDOW_MS` is fifteen, so a warmed known address keeps dropping back onto its " +
+      "lockout and answering in single-digit milliseconds (measured 6-16 ms against about 600 ms). " +
+      "Closing the class would mean hashing while blocked, which 048 §9.3 refuses. 057 §9 R10 " +
+      "carries the residual.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/privileged-sessions/end",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why:
+      "a privileged session names a SHOP and names no device, so `ordinary` keyed on that shop is " +
+      "the only class available and is the one 042 §8.1 asks for. Taken at the earliest point the " +
+      "shop is known — 054 §4.3's F4, whose finding was that anything reachable before a limiter " +
+      "is unbounded.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/invitations",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why:
+      "the same bucket as the sign-out above, and it matters more here: this route WRITES an " +
+      "`authorization_decision` row and an `invitation`, so a session hammering it would grow two " +
+      "tables. The bucket is taken before the permission decision and before either write.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/device-enrollment-codes",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why:
+      "the same site and the same reason as the invitation route beside it: a privileged session " +
+      "is keyed on its shop, and the token is spent before any decision is recorded or any code " +
+      "is minted.",
+  },
   {
     method: "GET",
     path: "/api/v1/shops",

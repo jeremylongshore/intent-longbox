@@ -352,7 +352,36 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
           operator.row.id,
         ]
       )
-    ).rejects.toThrow(/app_session_rotation_keeps_its_principal/);
+    ).rejects.toThrow(/app_session_rotation_keeps_its_(principal|person)/);
+
+    // ⚠ TWO NAMES, ONE RULE, AND THE ALTERNATION IS NOT SLOPPINESS (E03-D11).
+    //
+    // `031` added a THIRD composite FK, `app_session_rotation_keeps_its_person`
+    // — `(rotated_from, app_user_id)` — because MATCH SIMPLE leaves the K5
+    // constraint above unchecked whenever `device_id` is NULL, which is every
+    // privileged row. This insert names a stranger AND keeps the device, so it
+    // violates BOTH, and PostgreSQL reports whichever RI trigger fires first.
+    // That order is the triggers' NAME order, `RI_ConstraintTrigger_c_<oid>`,
+    // compared as TEXT — so an OID that gains a digit sorts before a smaller
+    // one, and which of the two names comes back is an artifact of the sequence
+    // this database happened to be built with. It differed between a local run
+    // and CI on the same commit, which is how this was found.
+    //
+    // Accepting either name would be a weakened assertion if either constraint
+    // could be gone, so the existence of both is asserted separately — a
+    // refusal from one while the other had been dropped is exactly the state
+    // the alternation would otherwise hide.
+    const guards = await shopQuery(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'app_session'::regclass AND contype = 'f'
+          AND conname IN ('app_session_rotation_keeps_its_principal',
+                          'app_session_rotation_keeps_its_person')
+        ORDER BY conname`
+    );
+    expect(guards.rows.map((r: { conname: string }) => r.conname)).toEqual([
+      "app_session_rotation_keeps_its_person",
+      "app_session_rotation_keeps_its_principal",
+    ]);
   });
 
   it("(xi-b) REFUSES a device-chain successor on another device, where the K5 FK cannot reach", async () => {

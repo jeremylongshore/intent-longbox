@@ -122,17 +122,37 @@ const SNAPSHOTS = [
   // E03-B06 and never written, so the twenty-seven files up to and including
   // `028` are what a database at that schema has applied.
   { name: "028", file: "tests/fixtures/schema/after-028.sql", applied: 27 },
-  // E03-D14 shipped `032` and added this one, **before the assertion at the
-  // foot of this file forced it** — for E03-B03's reason exactly, one bead
-  // later. With `028` alone the newest fixture sits three behind a head of 30,
-  // inside the limit, so nothing would be red today. It is added anyway because
-  // of the gap: E03-D11 is landing `031` on this same base, and the moment it
-  // merges head becomes 31 — FOUR past `028`, which is the limit itself, so the
-  // very next migration anybody writes fails on a stranger's PR. `030` rather
-  // than `032`, for the reason every row above gives: a snapshot is a schema
-  // somebody could be RUNNING, and `032` is the one this PR is adding. `030` is
-  // E02-D11's, merged ahead of this branch, so it is also the newest RELEASED
-  // schema at the moment this fixture was cut.
+  // ONE row, added independently by TWO beads for two different reasons, kept as
+  // one because the row is the same row: same snapshot, same file, same applied
+  // count, and a second copy would only run the fixture twice.
+  //
+  // E03-D14 added it **before the assertion at the foot of this file forced
+  // it** — for E03-B03's reason exactly, one bead later. With `028` alone the
+  // newest fixture sat three behind a head of 30, inside the limit, so nothing
+  // was red that day; it was added anyway because of the gap, since the moment
+  // `031` merged head became 31 — FOUR past `028`, the limit itself, so the very
+  // next migration anybody wrote would have failed on a stranger's PR.
+  //
+  // E03-D11 needs the same snapshot for a stronger reason: `030` is the last
+  // schema RELEASED before `031`, so it is what an operator upgrading a deployed
+  // database starts from — and it is the snapshot that proves the interesting
+  // half of `031`, which is the half a fresh database cannot show: **three
+  // `NOT NULL`s are DROPPED and a CHECK is WIDENED on a table that already holds
+  // rows.**
+  //
+  // ⚠ **AND THE ROWS HAD TO BE PUT THERE, which the first version of this comment
+  // claimed without arranging** (the invariant review's WARN 2). `FIXTURE_SEED`
+  // seeded no `app_session` at all, so the validation this row calls the
+  // "interesting half" ran over ZERO rows and proved only that the DDL parses.
+  // The seed now has a third snapshot-aware branch carrying one device session
+  // and one operator session on top of it, and the standalone case near the foot
+  // of this file asserts they are there BEFORE it upgrades — because a case that
+  // silently found none would go on passing for exactly the wrong reason. The two
+  // `ENABLE ALWAYS` triggers this bead adds are covered by the same case's
+  // trigger assertion below.
+  //
+  // `030` rather than `032`, for the reason every row above gives: a snapshot is
+  // a schema somebody could be RUNNING, never one a PR is adding.
   //
   // `applied: 29` and not 30: the ledger counts FILES, and `027` was reserved by
   // E03-B06 and never written, so the twenty-nine files up to and including
@@ -320,6 +340,55 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
       `SELECT 1 FROM pg_constraint WHERE conname = 'scan_session_operator_is_an_app_user'`
     );
     expect(constraint.rowCount).toBe(0);
+  });
+
+  // E03-D11's `031` is the first migration in this tree to WIDEN a CHECK on a
+  // table that already holds rows, and a CHECK added by `ALTER TABLE` is
+  // VALIDATED against every one of them. Over an empty table that validation is
+  // vacuous — which is exactly what this suite was doing until `FIXTURE_SEED`
+  // grew its third snapshot-aware branch (the invariant review's WARN 2).
+  it("validates 031's tightened shape CHECK against sessions that were ALREADY THERE", async () => {
+    const url = await createFreshDb("longbox_upgrade_live_sessions");
+    await restoreFixture(url, "tests/fixtures/schema/after-030.sql");
+    const pool = new pg.Pool({ connectionString: url });
+    pools.push(pool);
+
+    // The premise, asserted rather than assumed: the snapshot really does carry
+    // one session of each device-bound kind. Without this the case below would
+    // pass just as well over zero rows, which is the failure it exists to close.
+    const before = await pool.query(`SELECT kind FROM app_session ORDER BY kind`);
+    expect(before.rows).toEqual([{ kind: "device" }, { kind: "operator" }]);
+
+    await runMigrations(url);
+
+    // `031` DROPS three `NOT NULL`s and re-adds the shape CHECK with the device
+    // and operator disjuncts asserting those same three columns explicitly —
+    // because they were implied by the `NOT NULL`s a moment earlier and are not
+    // any more. If either disjunct were wrong, THIS is where it would have
+    // failed: the ALTER would have aborted on a pre-existing row.
+    const after = await pool.query(
+      `SELECT kind, device_id IS NOT NULL AS has_device, location_id IS NOT NULL AS has_location
+         FROM app_session ORDER BY kind`
+    );
+    expect(after.rows).toEqual([
+      { kind: "device", has_device: true, has_location: true },
+      { kind: "operator", has_device: true, has_location: true },
+    ]);
+
+    // …and the widened CHECK still REFUSES the shapes it was tightened to refuse:
+    // a device session with no device is now representable by the column types
+    // and must not be representable by the constraint.
+    await expect(
+      pool.query(
+        `INSERT INTO app_session
+           (chain_id, kind, shop_id, location_id, device_id, device_credential_id,
+            token_hash, rotate_after, idle_expires_at, absolute_expires_at)
+         SELECT gen_random_uuid(), 'device', shop_id, location_id, NULL, NULL,
+                'fixture-not-a-real-token-000000000003',
+                now() + interval '1 day', now() + interval '1 day', now() + interval '1 day'
+           FROM app_session WHERE kind = 'device'`
+      )
+    ).rejects.toThrow(/app_session_kind_shape/);
   });
 
   it("covers the newest released schema, so the fixture set cannot silently go stale", () => {

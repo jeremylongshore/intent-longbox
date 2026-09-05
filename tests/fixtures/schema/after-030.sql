@@ -5829,6 +5829,61 @@ BEGIN
   END IF;
 END
 $seed$;
+-- ⚠ A THIRD SNAPSHOT-AWARE BRANCH (E03-D11, from the invariant review's WARN 2).
+--
+-- `031` DROPS three `NOT NULL`s on `app_session` and WIDENS its shape CHECK by
+-- one disjunct while TIGHTENING the other two — and a `CHECK` added by
+-- `ALTER TABLE` is VALIDATED against every row already there. **Over an empty
+-- table that validation is vacuous**, so a snapshot with no sessions in it proves
+-- the migration parses and nothing else. The prior-snapshot upgrade test claimed
+-- otherwise until this block existed; it is the difference between "the DDL ran"
+-- and "the DDL ran against the rows a deployed shop actually has".
+--
+-- Two sessions, because the tightened disjuncts are one per kind: a DEVICE row
+-- (no person, no parent, three columns present) and an OPERATOR row on top of it
+-- (a person, a parent, the same three). Both must satisfy `020`'s three composite
+-- foreign keys as well, which is why the operator row names its parent's
+-- `chain_id` and not merely its id.
+DO $sessions$
+BEGIN
+  IF to_regclass('public.app_session') IS NULL THEN RETURN; END IF;
+  INSERT INTO location (id, shop_id, kind, name) VALUES
+    ('99999999-9999-4999-8999-999999999991', '11111111-1111-4111-8111-111111111111',
+     'store', 'Fixture counter');
+  INSERT INTO app_user (id, email, display_name) VALUES
+    ('99999999-9999-4999-8999-999999999992', 'fixture.person@example.invalid', 'Fixture Person');
+  INSERT INTO membership (id, app_user_id, shop_id, scope_kind, role) VALUES
+    ('99999999-9999-4999-8999-999999999993', '99999999-9999-4999-8999-999999999992',
+     '11111111-1111-4111-8111-111111111111', 'shop', 'operator');
+  INSERT INTO device (id, shop_id, location_id, label, kind) VALUES
+    ('99999999-9999-4999-8999-999999999994', '11111111-1111-4111-8111-111111111111',
+     '99999999-9999-4999-8999-999999999991', 'fixture counter phone', 'phone');
+  INSERT INTO device_credential (id, shop_id, device_id, token_hash) VALUES
+    ('99999999-9999-4999-8999-999999999995', '11111111-1111-4111-8111-111111111111',
+     '99999999-9999-4999-8999-999999999994', 'fixture-not-a-real-digest-0000000000');
+  INSERT INTO app_session
+    (id, chain_id, kind, shop_id, location_id, device_id, device_credential_id,
+     token_hash, rotate_after, idle_expires_at, absolute_expires_at)
+  VALUES
+    ('99999999-9999-4999-8999-999999999996', '99999999-9999-4999-8999-999999999997', 'device',
+     '11111111-1111-4111-8111-111111111111', '99999999-9999-4999-8999-999999999991',
+     '99999999-9999-4999-8999-999999999994', '99999999-9999-4999-8999-999999999995',
+     'fixture-not-a-real-token-000000000001',
+     now() + interval '1 day', now() + interval '7 days', now() + interval '30 days');
+  INSERT INTO app_session
+    (id, chain_id, kind, shop_id, location_id, device_id, device_credential_id,
+     app_user_id, parent_session_id, parent_chain_id,
+     token_hash, rotate_after, idle_expires_at, absolute_expires_at)
+  VALUES
+    ('99999999-9999-4999-8999-999999999998', '99999999-9999-4999-8999-999999999999', 'operator',
+     '11111111-1111-4111-8111-111111111111', '99999999-9999-4999-8999-999999999991',
+     '99999999-9999-4999-8999-999999999994', '99999999-9999-4999-8999-999999999995',
+     '99999999-9999-4999-8999-999999999992',
+     '99999999-9999-4999-8999-999999999996', '99999999-9999-4999-8999-999999999997',
+     'fixture-not-a-real-token-000000000002',
+     now() + interval '10 minutes', now() + interval '30 minutes', now() + interval '12 hours');
+END
+$sessions$;
 INSERT INTO shop_pricing_policy (id, shop_id, comp_percent, floor_cents, rounding_rule) VALUES
   ('11111111-1111-4111-8111-111111111112', '11111111-1111-4111-8111-111111111111', 90, 300, 'nearest_99');
 INSERT INTO scan_session (id, shop_id, created_by) VALUES

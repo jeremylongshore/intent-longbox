@@ -199,7 +199,13 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     expect(totp).toEqual({ ok: false, reason: "no_authenticator" });
   });
 
-  it("RE-ENROLLMENT retires every remaining code in the old set", async () => {
+  // 90 s, against the suite's 30 s default. This case alone issues TWO full
+  // recovery sets and redeems THREE codes, so it pays argon2id sixteen-plus times
+  // in one chain — measured at 23.7 s of the 30 s ceiling under a loaded lane,
+  // which is a flake waiting for a busy CI runner rather than a slow assertion.
+  // Raised for THIS case and not for the file: everything else here hashes a
+  // handful of times and should still fail fast if it hangs.
+  it("RE-ENROLLMENT retires every remaining code in the old set", { timeout: 90_000 }, async () => {
     // 048 §8.1: "codes that survive a re-enrollment are codes that survive
     // whatever caused it." The mechanism is a superseding batch, so the old codes
     // are refused by a predicate rather than by a column somebody had to update.

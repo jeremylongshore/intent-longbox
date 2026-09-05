@@ -18,6 +18,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findDuplicateMigrationNumbers } from "./migrationDiscipline.js";
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -468,7 +469,15 @@ const IDEMPOTENCY_INSERT =
 const ANCHOR_LOCK = /(FROM\s+scan_session[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockScanSession|lockOrRefuse)\s*\(/i;
 
 /**
- * The SESSION lock — the third position, added by E03-D09 (048 K1).
+ * The SESSION lock — the SECOND position, added by E03-D09 (048 K1).
+ *
+ * ⚠ **THE ORDINALS IN THESE FOUR COMMENTS NAME THE SLOT IN THE ORDER AS IT
+ * STANDS, NOT THE ORDER THE POSITION WAS ADDED IN** (E03-D11, the gate
+ * audit's N1). They used to mean both at once — this one said "third" because
+ * 048 K1 made the order three long, while sitting SECOND in it — and a reader
+ * comparing two comments would have concluded the list was inconsistent. The
+ * bead that added each is kept, because that is the history; the number is the
+ * slot, because that is what the lint enforces.
  *
  * 048 inserts the authentication row's `SELECT … FOR NO KEY UPDATE` BETWEEN
  * 042's two, and the position is argued rather than assumed: identity-of-the-
@@ -487,7 +496,30 @@ const SESSION_LOCK =
   /(FROM\s+app_session[\s\S]{0,200}?FOR\s+NO\s+KEY\s+UPDATE)|\b(lockSession|lockAndRotate|sessionLock)\s*[(:]/i;
 
 /**
+ * The FIRST-FACTOR lock — the THIRD position, added by E03-D11 (048 §9.1, 057 §4.5).
+ * (Third in the order; the fifth position to be added to it. See the note above.)
+ *
+ * `verifyPassword` takes `SELECT … FOR UPDATE` on the person's `user_credential`
+ * row as ITS lockout anchor — 048 §9.1's construction again, keyed per person,
+ * which is §9.1's own key "for a password". It sits **after** the session lock
+ * and **before** the authenticator lock, and the ordering between the two
+ * credentials is not arbitrary: **the sign-in path takes BOTH in one
+ * transaction**, because 048 §4.3's per-person budget is SHARED across all three
+ * factors and two anchors over one count is the write-skew shape §9.1 exists to
+ * close. Two handlers taking them in opposite orders would deadlock at exactly
+ * the moment two people signed in at once, which reproduces on nobody's laptop.
+ *
+ * First factor before second is the order the FLOW has anyway (a code presented
+ * without a password must not consume a step — R19), so the lint pins the order
+ * the code already wants rather than imposing one on it.
+ */
+const CREDENTIAL_LOCK =
+  /(FROM\s+user_credential[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockCredential|verifyPassword)\s*\(/i;
+
+/**
  * The AUTHENTICATOR lock — the FOURTH position, added by E03-D06 (048 §4.3, R19).
+ * (Fourth in the order, and fourth to be added; see the note above the session
+ * lock for why the two numbers are not always the same.)
  *
  * `verifyTotp` and `redeemRecoveryCode` take `SELECT … FOR UPDATE` on the live
  * `user_authenticator` row as their lockout anchor (048 §9.1's construction,
@@ -528,13 +560,15 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
   for (const file of files) {
     if (!HANDLER_LAYERS.some((layer) => file.path.startsWith(layer))) continue;
     for (const [i, body] of splitMutatingHandlers(file.text).entries()) {
-      // FOUR POSITIONS SINCE E03-D06, checked over every PAIR so a chunk that
-      // takes only two of the four is still policed:
+      // FIVE POSITIONS SINCE E03-D11, checked over every PAIR so a chunk that
+      // takes only two of the five is still policed:
       //   request_idempotency INSERT → app_session (FOR NO KEY UPDATE)
-      //     → user_authenticator (FOR UPDATE) → scan_session anchor (FOR UPDATE)
+      //     → user_credential (FOR UPDATE) → user_authenticator (FOR UPDATE)
+      //     → scan_session anchor (FOR UPDATE)
       const positions: Array<{ name: string; at: number }> = [
         { name: "its request_idempotency INSERT", at: body.search(IDEMPOTENCY_INSERT) },
         { name: "the app_session lock", at: body.search(SESSION_LOCK) },
+        { name: "the user_credential lock", at: body.search(CREDENTIAL_LOCK) },
         { name: "the user_authenticator lock", at: body.search(AUTHENTICATOR_LOCK) },
         { name: "the scan_session anchor lock", at: body.search(ANCHOR_LOCK) },
       ].filter((p) => p.at !== -1);
@@ -554,14 +588,17 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
           rule: "fixed-lock-order",
           message:
             `${file.path}: mutating handler #${i + 1} takes ${first} BEFORE ` +
-            `${second} (042 §5.3(b) I22, extended to three positions by 048 K1 and to four by ` +
-            `E03-D06). The fixed order is request_idempotency INSERT, then the app_session row ` +
-            `FOR NO KEY UPDATE, then the user_authenticator row FOR UPDATE, then the ` +
-            `scan_session anchor FOR UPDATE, in every handler, always — the idempotency row is ` +
-            `the request's IDENTITY, the session says who is asking, the authenticator says ` +
-            `they are still who they claim, and only then is the domain subject touched. Two ` +
-            `handlers with opposite orders deadlock (40P01) intermittently, at a counter, ` +
-            `reproducing on nobody's laptop.`,
+            `${second} (042 §5.3(b) I22, extended to three positions by 048 K1, to four by ` +
+            `E03-D06 and to five by E03-D11). The fixed order is request_idempotency INSERT, ` +
+            `then the app_session row FOR NO KEY UPDATE, then the user_credential row FOR ` +
+            `UPDATE, then the user_authenticator row FOR UPDATE, then the scan_session anchor ` +
+            `FOR UPDATE, in every handler, always — the idempotency row is the request's ` +
+            `IDENTITY, the session says who is asking, the first factor and then the second say ` +
+            `they are still who they claim, and only then is the domain subject touched. The ` +
+            `two credential positions are taken TOGETHER by the privileged sign-in, because ` +
+            `their per-person lockout budget is shared (048 §4.3, 057 §4.5), so their order is ` +
+            `load-bearing rather than notional. Two handlers with opposite orders deadlock ` +
+            `(40P01) intermittently, at a counter, reproducing on nobody's laptop.`,
         });
       }
     }
@@ -1018,13 +1055,17 @@ export function checkNoVerticalBranching(files: readonly SourceFile[]): Finding[
  * It lives beside the rules rather than in the CLI so a test can call the rules on
  * the REAL tree without importing a module that runs `process.exit` on load.
  */
-export function collectSources(dir: string): SourceFile[] {
+export function collectSources(dir: string, extensions: readonly string[] = [".ts"]): SourceFile[] {
   const out: SourceFile[] = [];
   const walk = (abs: string): void => {
     for (const entry of readdirSync(abs)) {
       const child = join(abs, entry);
       if (statSync(child).isDirectory()) walk(child);
-      else if (child.endsWith(".ts")) {
+      // E03-D11: the extension list is a PARAMETER because one rule reads SQL —
+      // a `mfa_verified_at` column would arrive in a migration before it ever
+      // reached a type, so a walker that only saw TypeScript would police the
+      // half of the tree the mistake does not start in.
+      else if (extensions.some((ext) => child.endsWith(ext))) {
         out.push({
           path: relative(REPO_ROOT, child).split(sep).join("/"),
           text: readFileSync(child, "utf8"),
@@ -1192,8 +1233,11 @@ export function checkTenantGucWriters(files: readonly SourceFile[]): Finding[] {
  * deliberately instead of drifting.
  */
 export const SERVICE_SCOPE_SITES: readonly { scope: string; count: number }[] = [
-  // `resolvePrincipal`'s reads.
-  { scope: "session-resolution", count: 1 },
+  // `resolvePrincipal`'s reads, and `resolvePrivileged`'s (E03-D11). Two
+  // resolvers rather than one because the privileged cookie is read by a route
+  // that must NOT consult the other two (048 §4.1), and both face the same
+  // question a cookie cannot answer: the row a digest finds IS the tenant.
+  { scope: "session-resolution", count: 2 },
   // The poller's shop enumeration — the ONE read a per-shop drain cannot scope,
   // because `shop` is policied on its own `id` (the invariant review's WARN 3).
   { scope: "outbox-sweep", count: 1 },
@@ -1203,8 +1247,13 @@ export const SERVICE_SCOPE_SITES: readonly { scope: string; count: number }[] = 
   { scope: "code-redemption", count: 2 },
   // `myShops`, the one read whose correct answer spans tenants.
   { scope: "my-shops", count: 1 },
-  // The three MFA CLIs; the routes that replace them are E03-D11's.
-  { scope: "second-factor", count: 3 },
+  // The three MFA CLIs, E03-D11's re-encryption CLI, and TWO route-side sites in
+  // `api.ts`: the privileged sign-in, and the FRESH-factor check that inviting an
+  // owner re-presents (057 §4.4b). Both are person-scoped reads that no tenant
+  // context can ask — `user_authenticator` carries no `shop_id` — and the second
+  // exists because the one privileged act whose damage the session's expiry does
+  // NOT bound is naming another owner.
+  { scope: "second-factor", count: 6 },
   // The OAuth callback's state lookup, its cross-tenant domain-claim check (F8),
   // the webhook's domain lookup, and the webhook's own transaction (whose receipt
   // may carry a NULL shop_id).
@@ -1274,6 +1323,100 @@ export function checkServiceScopeSites(files: readonly SourceFile[]): Finding[] 
     });
   }
   return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Rule 12 — 057 §4.3 (session-convened cannon brief, consistency question
+// K3; the dispatched lens raised no finding of that number, so the label is a
+// pointer to the brief and NOT an attribution): the freshness window has NO
+// column, and the absence is enforced rather than remembered.
+// ---------------------------------------------------------------------------
+
+/**
+ * **`mfa_verified_at` exists nowhere — not in a migration, not in a projection,
+ * not in a type.**
+ *
+ * 048 §4.1 requires a privileged action to sit in a session established by
+ * password and a second factor *"within a freshness window"*, and 057 §4.3 rules
+ * that the window IS the privileged chain's absolute expiry: it is carried
+ * unchanged across every rotation, so it already measures the elapsed time since
+ * both factors were presented. A column beside it would be **a second thing that
+ * can disagree with the first**, which is the shape 040 A8 retired from
+ * `scan_session`, 042 I5 generalised and 047 §5.1 refused to reintroduce.
+ *
+ * ⚠ **THE REASON IT IS A LINT AND NOT A REVIEW NOTE.** The absence is the whole
+ * decision, and an absence is the one thing a test cannot assert by exercising
+ * the system: every behavioural test passes just as well with a redundant column
+ * present and quietly drifting. The obvious change six months from now is *"add
+ * `mfa_verified_at` so the freshness check is explicit"* — which reads like an
+ * improvement, ships green, and reintroduces the class of bug three ratified
+ * records spent sections removing. This makes that edit a build failure with the
+ * argument attached.
+ *
+ * Comments are stripped first, in both dialects, because 048, 057, `policy.ts`,
+ * `sessions.ts` and `migrations/031` all NAME the column in prose to explain why
+ * it does not exist — and a rule that punished saying so would push the reasoning
+ * out of the tree, which is the opposite of what it is for.
+ */
+export const FORBIDDEN_FRESHNESS_COLUMN = "mfa_verified_at";
+
+/**
+ * The rule's own file DECLARES the string and cannot therefore be judged by it —
+ * the same carve-out `SCOPE_DECLARATION_FILES` makes one rule up, and for the
+ * same reason: a checker that failed on its own subject would be unwritable.
+ */
+const FRESHNESS_DECLARATION_FILES = ["scripts/architectureRules.ts"];
+
+export function checkNoFreshnessColumn(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const file of files) {
+    if (FRESHNESS_DECLARATION_FILES.includes(file.path)) continue;
+    const body = file.path.endsWith(".sql")
+      ? file.text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, "")
+      : stripJsComments(file.text);
+    if (!body.includes(FORBIDDEN_FRESHNESS_COLUMN)) continue;
+    findings.push({
+      rule: "no-mfa-verified-at-column",
+      message:
+        `${file.path} names \`${FORBIDDEN_FRESHNESS_COLUMN}\` outside a comment (057 §4.3). ` +
+        `048 §4.1's freshness window is the privileged chain's ABSOLUTE EXPIRY, which is carried ` +
+        `unchanged across every rotation and therefore already measures the time since both ` +
+        `factors were presented. A column beside it is a SECOND thing that can disagree with the ` +
+        `first — the shape 040 A8 retired from scan_session, 042 I5 generalised and 047 §5.1 ` +
+        `refused to reintroduce. If the expiry has stopped being carried across rotation, fix ` +
+        `THAT; if this is a deliberate reversal, it needs a 000-docs/006 row and an amendment to ` +
+        `057 §4.3, not a column.`,
+    });
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Rule 13 — 041 §10 / 044 §7 (the consistency lens's K6): one number, one file.
+// ---------------------------------------------------------------------------
+
+/**
+ * **Two migration files may not share a numeric prefix.**
+ *
+ * The predicate lives in `migrationDiscipline.ts` beside the other migration
+ * rules; this is the gate's adapter for it, so `pnpm arch` reports it in the same
+ * place as everything else a reviewer already looks. See that function for why a
+ * collision is the ORDINARY outcome of two branches in flight rather than an
+ * accident, and why nothing downstream would notice: the runner's ledger keys on
+ * the FILENAME, so both files apply and the divergence shows up later as two
+ * databases with the same ledger count and different schemas.
+ */
+export function checkMigrationNumbers(filenames: readonly string[]): Finding[] {
+  return findDuplicateMigrationNumbers(filenames).map(({ prefix, files }) => ({
+    rule: "one-migration-per-number",
+    message:
+      `migrations/ has ${String(files.length)} files numbered ${prefix} — ${files.join(", ")} ` +
+      `(041 §10, 044 §7). A file number is CLAIMED when the file is written and never reserved in ` +
+      `prose, so two branches in flight will each take the next free integer and collide; nothing ` +
+      `downstream says so, because the runner's ledger keys on the FILENAME and both files apply ` +
+      `in directory order. Renumber the later one — it has not been applied anywhere yet, which is ` +
+      `the only moment renaming a migration is free (041 §10's own rule).`,
+  }));
 }
 
 export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {

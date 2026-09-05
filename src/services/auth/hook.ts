@@ -39,21 +39,29 @@ import { highestRole, membershipsAt, type MembershipRow, type Role } from "./mem
 import { isPrivileged } from "../../contracts/v1/permissions.js";
 import { PERMISSION_MATRIX_VERSION, authorize } from "./permissions.js";
 import { recordAuthorizationDecision, shouldRecord } from "./authorizationAudit.js";
+import { mfaState } from "./authenticator.js";
 import {
   DEVICE_COOKIE,
   OPERATOR_COOKIE,
+  PRIVILEGED_COOKIE,
   clearCookie,
   isSameOriginRequest,
   setCookie,
   shouldRotate,
 } from "./policy.js";
-import { resolvePrincipal } from "./principal.js";
-import { lockAndRotate, type SessionRow } from "./sessions.js";
+import { resolvePrincipal, resolvePrivileged } from "./principal.js";
+import { lockAndRotate, type DeviceBoundSession, type SessionRow } from "./sessions.js";
 
 /** What the hook leaves on the request for the handlers and the services. */
 export interface RequestAuth {
-  device?: SessionRow;
-  operator?: SessionRow;
+  device?: DeviceBoundSession;
+  operator?: DeviceBoundSession;
+  /**
+   * E03-D11's third principal (048 §4.1). Present ONLY on a route whose auth
+   * row declares `principal: "privileged"`, and never beside `device` or
+   * `operator` — the hook reads one cookie set or the other and returns.
+   */
+  privileged?: SessionRow;
   /** 048 §6.1 — the ONLY source of `shop_id` for a request. */
   shopId?: string;
   locationId?: string;
@@ -244,6 +252,20 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
     // ---- 4. the session (048 §3.3, §3.6) ---------------------------------
     if (required === "none") return;
 
+    // ⚠ **THE PRIVILEGED BRANCH READS A DIFFERENT COOKIE AND RETURNS BEFORE THE
+    // OTHER TWO ARE LOOKED AT** (E03-D11; 048 §4.1, 057 §4.2).
+    //
+    // This is what makes 048 §4.1's *"never an operator session on a shared
+    // phone"* structural rather than a check. A privileged route consults
+    // `__Host-lb_priv` and nothing else, so an operator cookie cannot satisfy
+    // one however privileged its holder is — and the counter phone's two
+    // cookies are not touched, so an owner who signs in privileged in the same
+    // browser does not disturb whatever the phone is doing.
+    if (required === "privileged") {
+      await enforcePrivileged(req, deps, { url, spec });
+      return;
+    }
+
     const outcome = await resolvePrincipal(deps.pool, headerOf(req, "cookie"), new Date());
     if (outcome.kind !== "resolved") {
       // Both cookies are cleared on every refusal, including a pair mismatch:
@@ -320,7 +342,7 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
         // permitted to ask for, and it is driven off the route table's
         // `requires` column so adding a route means declaring a permission
         // rather than remembering a check.
-        await enforcePermission(req, deps, { url, spec, operator, memberships });
+        await enforcePermission(req, deps, { url, spec, session: operator, memberships });
       }
     }
 
@@ -393,7 +415,8 @@ async function enforcePermission(
   ctx: {
     url: string;
     spec: RouteSpec | undefined;
-    operator: SessionRow;
+    /** The session the decision is taken FOR: an operator's, or a privileged one. */
+    session: SessionRow;
     memberships: readonly MembershipRow[];
   }
 ): Promise<void> {
@@ -421,14 +444,14 @@ async function enforcePermission(
   // this one has already taken it, so a request still spends exactly one token.
   // A throttled request records NO decision, which is correct: no decision was
   // taken.
-  const decision = deps.limiter.takeOrdinary(ctx.operator.shop_id);
-  req.auth.ordinaryTokenTaken = true;
-  if (!decision.allowed) {
-    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: decision.retryAfterSeconds });
-  }
+  // E03-D11 guards the take: the privileged branch takes this bucket at the
+  // earliest point ITS shop is known, which is earlier still, and a second take
+  // for one request would halve the shop's declared budget — F4's own finding,
+  // arriving from the other direction.
+  takeOrdinaryOnce(req, deps, ctx.session.shop_id);
 
   const verdict = authorize(ctx.memberships, permission, {
-    atLocation: ctx.operator.location_id,
+    atLocation: ctx.session.location_id,
     now: new Date(),
   });
 
@@ -439,7 +462,7 @@ async function enforcePermission(
     })
   ) {
     const record = {
-      shopId: ctx.operator.shop_id,
+      shopId: ctx.session.shop_id,
       routeMethod: req.method.toUpperCase(),
       // The TEMPLATE Fastify registered, never `req.url` (054 §4.2).
       routePath: ctx.url,
@@ -448,7 +471,7 @@ async function enforcePermission(
       matrixCommit: deps.config.buildCommit ?? "unknown",
       membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
       role: verdict.role ?? null,
-      sessionChainId: ctx.operator.chain_id,
+      sessionChainId: ctx.session.chain_id,
       decision: verdict.kind === "allowed" ? ("allowed" as const) : ("refused" as const),
       refusalReason:
         verdict.kind === "allowed"
@@ -458,7 +481,7 @@ async function enforcePermission(
             : ("scope" as const),
     };
     try {
-      await recordAuthorizationDecision(tenantDb(deps.pool, ctx.operator.shop_id), record);
+      await recordAuthorizationDecision(tenantDb(deps.pool, ctx.session.shop_id), record);
     } catch (err) {
       if (verdict.kind === "allowed") {
         req.log.error({ err }, "authorization decision could not be recorded; refusing the request");
@@ -474,6 +497,112 @@ async function enforcePermission(
   }
   if (verdict.kind === "refused_scope") throw new LongboxError("SHOP_NOT_FOUND");
   throw new LongboxError("PERMISSION_DENIED");
+}
+
+/** The shop's `ordinary` token, taken at most once per request (054 §4.3 F4). */
+function takeOrdinaryOnce(req: FastifyRequest, deps: AuthHookDeps, shopId: string): void {
+  if (req.auth.ordinaryTokenTaken === true) return;
+  const decision = deps.limiter.takeOrdinary(shopId);
+  req.auth.ordinaryTokenTaken = true;
+  if (!decision.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: decision.retryAfterSeconds });
+  }
+}
+
+/**
+ * **THE PRIVILEGED BRANCH** (E03-D11; 048 §4.1, §8.1; 054 §3; 057 §4.2, §4.4).
+ *
+ * It is the tenant branch's shape with three differences, and each one is a
+ * decision rather than a shortcut:
+ *
+ *   1. **the tenant comes from the SESSION and there is no URL to check it
+ *      against.** These routes carry no `:shopId` — the shop is a property of
+ *      the sign-in, checked there against the person's live memberships — so
+ *      048 §6.1's "the URL is a value checked against the session" has nothing
+ *      to check and nothing is skipped;
+ *   2. **the membership is re-read every request**, exactly as it is for an
+ *      operator. A session is not evidence of a membership; it is evidence of
+ *      who is asking, and a revocation that landed a second ago must take
+ *      effect now. A person with no live membership at the session's shop gets
+ *      `SHOP_NOT_FOUND` — byte-identical to a shop that does not exist;
+ *   3. **`mfaState` gates the whole branch.** 048 §8.1: a session established
+ *      with a recovery code *"can reach NOTHING else until"* the person has
+ *      re-enrolled. It is a PREDICATE over facts — no live authenticator, and a
+ *      recovery-code use exists — so nothing can be left stale and nothing but
+ *      an enrollment escapes it. **It runs on every privileged request and not
+ *      only on the one that redeemed the code**, which is stronger than 048
+ *      asks for and is the correct reading: a person whose factor is retired
+ *      from another surface is in that state too, and a check that only fired
+ *      at sign-in would not know.
+ *
+ * **It fails closed on a route with no declared permission, and the exception
+ * is a DECLARED ROW rather than a special case.** A privileged route must name
+ * a permission unless its auth-allowlist row says `selfService: true`, which
+ * means it acts on the caller's own session and nothing else. Without that
+ * rule, a privileged route added next year with no `requires` would inherit
+ * "any privileged session at any shop", which is the fail-open 054 §3 removed
+ * from the tenant branch.
+ */
+async function enforcePrivileged(
+  req: FastifyRequest,
+  deps: AuthHookDeps,
+  ctx: { url: string; spec: RouteSpec | undefined }
+): Promise<void> {
+  const outcome = await resolvePrivileged(deps.pool, headerOf(req, "cookie"), new Date());
+  if (outcome.kind !== "resolved") {
+    req.auth.cookies.push(clearCookie(PRIVILEGED_COOKIE));
+    throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+  }
+  const session = outcome.privileged;
+  const appUserId = session.app_user_id;
+  // Unreachable: `migrations/031`'s shape CHECK makes `app_user_id` NOT NULL on
+  // every privileged row. Here for `requireDevice`'s reason — a database
+  // guarantee read through a nullable column is a guarantee somebody has to
+  // remember, and a thrown code is cheaper than a 500.
+  if (appUserId === null) throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+
+  req.auth.privileged = session;
+  req.auth.shopId = session.shop_id;
+  req.auth.operatorId = appUserId;
+  if (session.location_id !== null) req.auth.locationId = session.location_id;
+
+  // The bucket, at the earliest point the shop is known — 054 §4.3's F4, whose
+  // finding was that an audit INSERT reachable before any limiter is an
+  // unbounded table. Everything below this line reads or writes.
+  //
+  // The condition is written out rather than implied, and it FAILS CLOSED: a
+  // route the table has never heard of takes a token like every other. Every
+  // privileged route declares `ordinary` — a privileged session names a shop and
+  // names no device, so the shop is the only key available and it is the key
+  // 042 §8.1 asks for — and `tests/contract/rate-class-enforcement.test.ts`
+  // requires a hook site to name the guard it runs behind, because a guard
+  // nobody checked is how three routes came to declare a class and be bucketed
+  // by nothing.
+  if (ctx.spec === undefined || ctx.spec.rateClass !== "none") {
+    takeOrdinaryOnce(req, deps, session.shop_id);
+  }
+
+  const state = await mfaState(tenantDb(deps.pool, session.shop_id), appUserId);
+  if (state === "must_reenroll" && ctx.spec?.requires !== null) {
+    throw new LongboxError("MFA_REENROLLMENT_REQUIRED");
+  }
+
+  const memberships = await membershipsAt(tenantDb(deps.pool, session.shop_id), appUserId, session.shop_id);
+  if (memberships.length === 0) throw new LongboxError("SHOP_NOT_FOUND");
+  const held = highestRole(memberships);
+  if (held !== undefined) req.auth.role = held;
+
+  const row = authRowFor(req.method, ctx.url);
+  if (ctx.spec?.requires === null || ctx.spec?.requires === undefined) {
+    // The declared exception, and it is one row: a route that acts on the
+    // caller's own session needs no permission, and a route that does not say so
+    // is refused.
+    if (row?.selfService !== true) throw new LongboxError("PERMISSION_DENIED");
+  } else {
+    await enforcePermission(req, deps, { url: ctx.url, spec: ctx.spec, session, memberships });
+  }
+
+  await maybeRotate(req, deps, [session]);
 }
 
 function headerOf(req: FastifyRequest, name: string): string | undefined {
@@ -552,8 +681,23 @@ async function rotateInto(req: FastifyRequest, tx: Tx, session: SessionRow, now:
   req.auth.cookies.push(setCookie(cookieNameFor(session), issued.token, issued.row.absolute_expires_at));
 }
 
+/**
+ * The cookie a rotation of THIS session sets.
+ *
+ * A total map over the three kinds rather than a ternary, for `sessions.ts`'s
+ * reason one file over: the ternary this replaced would have set the OPERATOR
+ * cookie on a privileged rotation — silently, on the chain that can staff a
+ * shop, with the browser then holding a privileged token in the slot the counter
+ * flow reads.
+ */
+const COOKIE_FOR: Record<SessionRow["kind"], string> = {
+  device: DEVICE_COOKIE,
+  operator: OPERATOR_COOKIE,
+  privileged: PRIVILEGED_COOKIE,
+};
+
 function cookieNameFor(session: SessionRow): string {
-  return session.kind === "device" ? DEVICE_COOKIE : OPERATOR_COOKIE;
+  return COOKIE_FOR[session.kind];
 }
 
 function timingOf(row: SessionRow) {

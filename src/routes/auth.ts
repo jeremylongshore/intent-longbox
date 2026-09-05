@@ -15,10 +15,14 @@ import type { ZodTypeAny } from "zod";
 import { LongboxError } from "../contracts/v1/errors.js";
 import * as contract from "../contracts/v1/schemas.js";
 import {
+  createEnrollmentCode,
+  createInvitation,
   endOperatorSession,
+  endPrivilegedSession,
   myShops,
   openDeviceSession,
   openOperatorSession,
+  openPrivilegedSession,
   operatorRoster,
   redeemEnrollmentCode,
   redeemInvitation,
@@ -109,6 +113,64 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     return send(req, reply, await redeemEnrollmentCode(deps, { code: body.code }));
   });
 
+  // -------------------------------------------------------------------------
+  // E03-D11 — the person's own front door, and the two acts it un-pends.
+  // -------------------------------------------------------------------------
+
+  // Anonymous by construction: a person signing in holds no session. The
+  // CREDENTIALS in the body are the authentication, exactly as the device secret
+  // is one route up — and every refusal is `SESSION_REQUIRED` with no details
+  // (048 §9.3), so the wire cannot tell an unknown address from a wrong code.
+  app.post(`${P}/privileged-sessions`, async (req, reply) => {
+    const body = parse(contract.privilegedSessionRequest, req.body ?? {});
+    const result = await openPrivilegedSession(deps, {
+      email: body.email,
+      password: body.password,
+      ...(body.totp_code !== undefined ? { totpCode: body.totp_code } : {}),
+      ...(body.recovery_code !== undefined ? { recoveryCode: body.recovery_code } : {}),
+      shopId: body.shop_id,
+      ...(body.location_id !== undefined ? { locationId: body.location_id } : {}),
+    });
+    return send(req, reply, result);
+  });
+
+  app.post(`${P}/privileged-sessions/end`, async (req, reply) => {
+    parse(contract.endPrivilegedSessionRequest, req.body ?? {});
+    return send(req, reply, await endPrivilegedSession(deps, requirePrivileged(req)));
+  });
+
+  // 048 §7.1 / §7.3, and the two rows that stopped being `pending`. The header's
+  // PRESENCE is the hook's; its VALUE is needed here, because both routes take a
+  // real `request_idempotency` row — they write an `invitation` and a
+  // `device_enrollment_code`, which outlive the response and are not cookies, so
+  // 042 §5.1's authentication-act class does not reach either.
+  app.post(`${P}/invitations`, async (req, reply) => {
+    const body = parse(contract.invitationRequest, req.body ?? {});
+    const result = await createInvitation(deps, requirePrivileged(req), {
+      email: body.email,
+      displayName: body.display_name,
+      role: body.role,
+      ...(body.location_id !== undefined ? { locationId: body.location_id } : {}),
+      // 057 §4.4b. Passed through whatever the role; the SERVICE decides that it
+      // is mandatory for `owner`, because that is where the role is known and a
+      // rule split across an edge and a service is a rule with two homes.
+      ...(body.totp_code !== undefined ? { totpCode: body.totp_code } : {}),
+      idempotencyKey: requireIdempotencyKey(req),
+    });
+    return send(req, reply, result);
+  });
+
+  app.post(`${P}/device-enrollment-codes`, async (req, reply) => {
+    const body = parse(contract.enrollmentCodeRequest, req.body ?? {});
+    const result = await createEnrollmentCode(deps, requirePrivileged(req), {
+      locationId: body.location_id,
+      deviceLabel: body.device_label,
+      deviceKind: body.device_kind,
+      idempotencyKey: requireIdempotencyKey(req),
+    });
+    return send(req, reply, result);
+  });
+
   app.post(`${P}/operator-sessions/end`, async (req, reply) => {
     parse(contract.endOperatorSessionRequest, req.body ?? {});
     const operator = req.auth.operator;
@@ -125,4 +187,27 @@ function requireDevice(req: FastifyRequest): NonNullable<FastifyRequest["auth"][
   const device = req.auth.device;
   if (!device) throw new LongboxError("SESSION_REQUIRED");
   return device;
+}
+
+/**
+ * The privileged session the hook resolved, or the code the hook would have
+ * thrown.
+ *
+ * Unreachable: the auth allowlist declares `principal: "privileged"` on all
+ * three routes that call this, and the hook refuses without one. It is here for
+ * `requireDevice`'s reason — "the hook guarantees it" stops holding the day
+ * somebody edits a row, and a thrown code is cheaper than a `!` that turns into
+ * a 500 on the routes that staff a shop.
+ */
+function requirePrivileged(req: FastifyRequest): NonNullable<FastifyRequest["auth"]["privileged"]> {
+  const session = req.auth.privileged;
+  if (!session) throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+  return session;
+}
+
+/** The header's value. Its PRESENCE was already required by the hook (048 R10). */
+function requireIdempotencyKey(req: FastifyRequest): string {
+  const key = headerValue(req.headers["idempotency-key"]);
+  if (key === undefined) throw new LongboxError("IDEMPOTENCY_KEY_REQUIRED");
+  return key;
 }

@@ -940,6 +940,27 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
       "INSERT (048 R5), which needs the UPDATE privilege this exemption's full DML already grants.",
   },
   {
+    table: "user_credential",
+    kind: "permanent",
+    // THE EXEMPTION IS FOR THREE COLUMNS, SO THE GRANT IS FOR THREE COLUMNS
+    // (E03-D11, following E03-D06's invariant review). A password is changed in
+    // place; WHOSE credential it is, and when it was created, are not.
+    updateColumns: ["password_hash", "pepper_version", "updated_at"],
+    reason:
+      "048 §10.1 names it CONFIG in the same sentence as `operator_pin` and `user_authenticator`, " +
+      "and gives the reason on the row: **a password is changed in place, and versioning the hash " +
+      "would keep every old password's hash forever, which is a liability rather than an audit " +
+      "trail.** What happened to it IS recorded, elsewhere and deliberately: a FAILED verification " +
+      "is an `auth_attempt` row (048 §9.1), and a SUCCESSFUL one is recorded nowhere at all (048 " +
+      "R16 — a per-person log of when each person signed in is the surface 022 P3 forbids). The " +
+      "row is also 048 §9.1's LOCKOUT ANCHOR for the first factor, taken `SELECT … FOR UPDATE` " +
+      "before the window count and held through the verify and the failure INSERT, which the " +
+      "column-scoped UPDATE privilege is what permits. **The column scope is enforced by an " +
+      "`ENABLE ALWAYS` trigger as well as by the grant** (`migrations/031`), because a grant is " +
+      "not permanent the way a trigger is — and because shipping the grant without the trigger is " +
+      "precisely the gap E03-D06 left on the row below and this bead closes.",
+  },
+  {
     table: "user_authenticator",
     kind: "permanent",
     // THE EXEMPTION IS FOR ONE COLUMN, SO THE GRANT IS FOR ONE COLUMN (E03-D06,

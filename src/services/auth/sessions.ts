@@ -13,6 +13,9 @@ import {
   OPERATOR_ABSOLUTE_MS,
   OPERATOR_IDLE_MS,
   OPERATOR_ROTATE_MS,
+  PRIVILEGED_ABSOLUTE_MS,
+  PRIVILEGED_IDLE_MS,
+  PRIVILEGED_ROTATE_MS,
   shouldRotate,
   spentTokenVerdict,
   timingVerdict,
@@ -21,7 +24,32 @@ import {
 import { randomUUID } from "node:crypto";
 import { mintToken, tokenHash } from "./secrets.js";
 
-export type SessionKind = "device" | "operator";
+/**
+ * 048 §3.1's two, plus §12.4 row 3a's third (E03-D11).
+ *
+ * `privileged` is the person on their own laptop that §4.1 places every
+ * owner/manager act inside: password + TOTP, no device, no location, one shop.
+ */
+export type SessionKind = "device" | "operator" | "privileged";
+
+/**
+ * The three lifetimes, as a total map rather than a chain of ternaries.
+ *
+ * A `Record<SessionKind, …>` is what makes adding a fourth kind a TYPE ERROR
+ * rather than a silent inheritance of the operator's numbers — which is exactly
+ * what `kind === "device" ? … : …` would have given the privileged kind on the
+ * day it was added, and neither the compiler nor a reviewer would have said so.
+ */
+const ROTATE_MS: Record<SessionKind, number> = {
+  device: DEVICE_ROTATE_MS,
+  operator: OPERATOR_ROTATE_MS,
+  privileged: PRIVILEGED_ROTATE_MS,
+};
+const IDLE_MS: Record<SessionKind, number> = {
+  device: DEVICE_IDLE_MS,
+  operator: OPERATOR_IDLE_MS,
+  privileged: PRIVILEGED_IDLE_MS,
+};
 
 /**
  * The columns the security model reads. A NAMED list, never a star: a star
@@ -38,9 +66,11 @@ export interface SessionRow {
   chain_id: string;
   kind: SessionKind;
   shop_id: string;
-  location_id: string;
-  device_id: string;
-  device_credential_id: string;
+  /** NULL on a privileged session: a person at a desk stands at no location. */
+  location_id: string | null;
+  /** NULL on a privileged session (048 §4.1: "any device", so no enrolled one). */
+  device_id: string | null;
+  device_credential_id: string | null;
   app_user_id: string | null;
   parent_session_id: string | null;
   parent_chain_id: string | null;
@@ -48,6 +78,41 @@ export interface SessionRow {
   rotate_after: Date;
   idle_expires_at: Date;
   absolute_expires_at: Date;
+}
+
+/**
+ * A session on one of the two DEVICE-BOUND chains, with the three columns
+ * `migrations/031`'s shape CHECK guarantees are present on exactly those kinds.
+ *
+ * ⚠ **THIS TYPE IS A CONTROL, NOT A CONVENIENCE** (057 §4.2). Widening
+ * `SessionRow` for the third kind made `device_id` nullable for every reader,
+ * and the tempting answer — a `!` at each of the dozen sites that read it — is
+ * how a privileged token presented in the `__Host-lb_device` cookie slot would
+ * have become a device session with a null device: the tenant would resolve, the
+ * rate bucket would key on `undefined`, and every downstream fact would carry a
+ * device that does not exist. The narrowing happens ONCE, in `asDeviceBound`,
+ * and a row that fails it is a refusal rather than a cast.
+ */
+export interface DeviceBoundSession extends SessionRow {
+  location_id: string;
+  device_id: string;
+  device_credential_id: string;
+}
+
+/**
+ * Narrow a resolved row to a device-bound chain, or say it is not one.
+ *
+ * The kind check and the column checks are BOTH here on purpose: the kind is
+ * what the design says and the columns are what the database guarantees, and a
+ * predicate that trusted one of them would be trusting a CHECK constraint it
+ * cannot see from here.
+ */
+export function asDeviceBound(row: SessionRow): DeviceBoundSession | undefined {
+  if (row.kind !== "device" && row.kind !== "operator") return undefined;
+  if (row.device_id === null || row.device_credential_id === null || row.location_id === null) {
+    return undefined;
+  }
+  return row as DeviceBoundSession;
 }
 
 /** What one liveness read answers, in one statement. */
@@ -224,8 +289,8 @@ export async function parentChainIsLive(db: Queryable, parentChainId: string, no
 // Issuance
 // ---------------------------------------------------------------------------
 
-export interface IssuedSession {
-  row: SessionRow;
+export interface IssuedSession<Row extends SessionRow = SessionRow> {
+  row: Row;
   /** The only moment this value exists anywhere. It is set as a cookie and dropped. */
   token: string;
   expiresAt: Date;
@@ -243,9 +308,9 @@ interface IssueArgs {
   chainId: string;
   kind: SessionKind;
   shopId: string;
-  locationId: string;
-  deviceId: string;
-  deviceCredentialId: string;
+  locationId: string | null;
+  deviceId: string | null;
+  deviceCredentialId: string | null;
   appUserId: string | null;
   parentSessionId: string | null;
   parentChainId: string | null;
@@ -257,8 +322,8 @@ interface IssueArgs {
 
 async function insertSession(tx: Tx, args: IssueArgs): Promise<IssuedSession> {
   const token = mintToken();
-  const rotateMs = args.kind === "device" ? DEVICE_ROTATE_MS : OPERATOR_ROTATE_MS;
-  const idleMs = args.kind === "device" ? DEVICE_IDLE_MS : OPERATOR_IDLE_MS;
+  const rotateMs = ROTATE_MS[args.kind];
+  const idleMs = IDLE_MS[args.kind];
   const now = args.now.getTime();
   const res = await tx.query(INSERT_SESSION_SQL, [
     args.chainId,
@@ -280,6 +345,27 @@ async function insertSession(tx: Tx, args: IssueArgs): Promise<IssuedSession> {
   return { row, token, expiresAt: args.absoluteExpiresAt };
 }
 
+/**
+ * Narrow a just-issued row, or say the database's shape CHECK is gone.
+ *
+ * It is an ASSERTION rather than a cast (057 §4.2). `migrations/031`'s
+ * `app_session_kind_shape` makes all three columns `NOT NULL` on both
+ * device-bound kinds, so this cannot fail against the schema this code ships
+ * with — and if it ever does, the constraint has been dropped and the right
+ * outcome is a loud failure at the issuance rather than a `null` travelling into
+ * a rate-limit key and a tenancy decision.
+ */
+function issuedDeviceBound(issued: IssuedSession): IssuedSession<DeviceBoundSession> {
+  const row = asDeviceBound(issued.row);
+  if (!row) {
+    throw new Error(
+      "a device-bound session was issued with a null device, credential or location: " +
+        "migrations/031's app_session_kind_shape CHECK is missing or has been widened"
+    );
+  }
+  return { ...issued, row };
+}
+
 /** A phone presents its device credential and gets the long-lived chain's first row. */
 export async function issueDeviceSession(
   tx: Tx,
@@ -290,21 +376,23 @@ export async function issueDeviceSession(
     deviceCredentialId: string;
     now: Date;
   }
-): Promise<IssuedSession> {
-  return insertSession(tx, {
-    chainId: randomUUID(),
-    kind: "device",
-    shopId: args.shopId,
-    locationId: args.locationId,
-    deviceId: args.deviceId,
-    deviceCredentialId: args.deviceCredentialId,
-    appUserId: null,
-    parentSessionId: null,
-    parentChainId: null,
-    rotatedFrom: null,
-    absoluteExpiresAt: new Date(args.now.getTime() + DEVICE_ABSOLUTE_MS),
-    now: args.now,
-  });
+): Promise<IssuedSession<DeviceBoundSession>> {
+  return issuedDeviceBound(
+    await insertSession(tx, {
+      chainId: randomUUID(),
+      kind: "device",
+      shopId: args.shopId,
+      locationId: args.locationId,
+      deviceId: args.deviceId,
+      deviceCredentialId: args.deviceCredentialId,
+      appUserId: null,
+      parentSessionId: null,
+      parentChainId: null,
+      rotatedFrom: null,
+      absoluteExpiresAt: new Date(args.now.getTime() + DEVICE_ABSOLUTE_MS),
+      now: args.now,
+    })
+  );
 }
 
 /**
@@ -319,20 +407,72 @@ export async function issueDeviceSession(
  */
 export async function issueOperatorSession(
   tx: Tx,
-  args: { parent: SessionRow; appUserId: string; now: Date }
+  args: { parent: DeviceBoundSession; appUserId: string; now: Date }
+): Promise<IssuedSession<DeviceBoundSession>> {
+  return issuedDeviceBound(
+    await insertSession(tx, {
+      chainId: randomUUID(),
+      kind: "operator",
+      shopId: args.parent.shop_id,
+      locationId: args.parent.location_id,
+      deviceId: args.parent.device_id,
+      deviceCredentialId: args.parent.device_credential_id,
+      appUserId: args.appUserId,
+      parentSessionId: args.parent.id,
+      parentChainId: args.parent.chain_id,
+      rotatedFrom: null,
+      absoluteExpiresAt: new Date(args.now.getTime() + OPERATOR_ABSOLUTE_MS),
+      now: args.now,
+    })
+  );
+}
+
+/**
+ * **A person signs in with a password and a TOTP code, and gets the third chain**
+ * (048 §4.1, §12.4 row 3a; E03-D11).
+ *
+ * Everything 048 §3.3 says about the other two applies here unchanged — no
+ * status column, liveness derived, idle expiry by rotation, revocation by fact.
+ * What differs is what the row NAMES, and each absence is a decision (057 §4.2):
+ *
+ *   * **no device and no device credential**, because §4.1 puts this session on
+ *     *"any device"* and the device it will actually be on is an owner's laptop
+ *     that this system has never enrolled and never will. Binding it to an
+ *     enrolled phone would mean the only place an owner could invite somebody is
+ *     the counter phone — which is the shared device §4.1 refuses in its own
+ *     words, reached by making the refusal impossible to obey;
+ *   * **one shop, NOT NULL**, because the tenant must come from the session and
+ *     from nowhere else (048 §6.1). A person may hold memberships at several
+ *     shops (034 §2.6); they name one at sign-in, it is checked against their
+ *     live grants, and acting at a second shop is a second sign-in. A nullable
+ *     `shop_id` would have moved tenant resolution back into the request, which
+ *     is the whole thing 048 §6 exists to prevent;
+ *   * **an OPTIONAL location**, checked against the shop and against the
+ *     person's own membership at issuance (057 §4.4). Without it a
+ *     location-scoped manager could not reach a location-scoped permission from
+ *     a desk at all — `authorize()` refuses a location grant when the session
+ *     stands nowhere — so the session may name the storefront it is acting for.
+ *     It is still a fact about an ISSUANCE and never a value from a request
+ *     body read at act time, which is the property 048 §3.5 is protecting.
+ *
+ * The absolute expiry IS §4.1's freshness window; see `PRIVILEGED_ABSOLUTE_MS`.
+ */
+export async function issuePrivilegedSession(
+  tx: Tx,
+  args: { shopId: string; locationId: string | null; appUserId: string; now: Date }
 ): Promise<IssuedSession> {
   return insertSession(tx, {
     chainId: randomUUID(),
-    kind: "operator",
-    shopId: args.parent.shop_id,
-    locationId: args.parent.location_id,
-    deviceId: args.parent.device_id,
-    deviceCredentialId: args.parent.device_credential_id,
+    kind: "privileged",
+    shopId: args.shopId,
+    locationId: args.locationId,
+    deviceId: null,
+    deviceCredentialId: null,
     appUserId: args.appUserId,
-    parentSessionId: args.parent.id,
-    parentChainId: args.parent.chain_id,
+    parentSessionId: null,
+    parentChainId: null,
     rotatedFrom: null,
-    absoluteExpiresAt: new Date(args.now.getTime() + OPERATOR_ABSOLUTE_MS),
+    absoluteExpiresAt: new Date(args.now.getTime() + PRIVILEGED_ABSOLUTE_MS),
     now: args.now,
   });
 }
@@ -425,7 +565,27 @@ function timingOf(row: SessionRow) {
 // ---------------------------------------------------------------------------
 
 export type RevocationReason =
-  "signed_out" | "token_reuse" | "membership_change" | "device_revoked" | "operator_switch";
+  | "signed_out"
+  | "token_reuse"
+  | "membership_change"
+  | "device_revoked"
+  | "operator_switch"
+  /**
+   * E03-D11: a privileged chain established with a RECOVERY CODE, ended by the
+   * re-enrollment it forced. 048 §8.1 requires that such a session *"can reach
+   * NOTHING else until it has"* re-enrolled, and the honest ending of a session
+   * whose whole purpose has been discharged is a revocation with its own reason
+   * rather than a `signed_out` that says a person clicked something.
+   */
+  | "mfa_reenrolled"
+  /**
+   * E03-D11 (057 §4.4a): the person signed in privileged again, so their earlier
+   * privileged chains at that shop end. Its own reason rather than `signed_out`
+   * because nobody signed out — and because THIS is the row an owner points at
+   * when they say *"I evicted whatever had my cookie"*, which `signed_out` would
+   * make indistinguishable from clicking a button.
+   */
+  | "privileged_superseded";
 
 /**
  * End a chain. Idempotent by constraint: `UNIQUE (chain_id)` means a second
@@ -458,7 +618,15 @@ export async function revokeChain(
  * so the phone keeps its enrollment and whoever is holding it re-enters a PIN.
  */
 export async function revokeForReuse(tx: Tx, spent: SessionRow): Promise<void> {
-  if (spent.kind === "operator") {
+  // ⚠ **A PRIVILEGED CHAIN IS REVOKED LIKE AN OPERATOR CHAIN, NOT LIKE A DEVICE
+  // CHAIN, AND THE TEST IS WRITTEN `!== "device"` FOR THAT REASON** (E03-D11).
+  // Written as `=== "operator"` it would have sent the privileged kind down the
+  // device branch, which looks for operator sessions hanging off the spent
+  // chain, finds none, and revokes NOTHING — leaving a chain whose token has
+  // demonstrably been copied fully live. K2's blast-radius argument holds here
+  // exactly as it does for an operator: the cost of a false positive is one
+  // sign-in, and this is the chain that can staff a shop.
+  if (spent.kind !== "device") {
     await revokeChain(tx, { chainId: spent.chain_id, shopId: spent.shop_id, reason: "token_reuse" });
     return;
   }
@@ -470,6 +638,54 @@ export async function revokeForReuse(tx: Tx, spent: SessionRow): Promise<void> {
   for (const row of rows.rows as Array<{ chain_id: string; shop_id: string }>) {
     await revokeChain(tx, { chainId: row.chain_id, shopId: row.shop_id, reason: "token_reuse" });
   }
+}
+
+/**
+ * **Every live PRIVILEGED chain this person holds AT THIS SHOP, ended** — so
+ * signing in again evicts a copy (E03-D11, 057 §4.4a; the security lens's F1).
+ *
+ * ⚠ **THE PROPERTY THIS EXISTS FOR IS AN OWNER'S ONLY REMEDY.** A privileged
+ * session is deliberately not device-bound (057 §4.4), so a copied
+ * `__Host-lb_priv` cookie is an owner until it expires — and until this function
+ * existed, **signing in again revoked nothing**, which meant a person who
+ * suspected a copy had no act available to them at all. Now the ordinary thing
+ * they would try is the thing that works.
+ *
+ * **AT THIS SHOP, and the scope is a decision rather than a limitation.** A
+ * privileged session names one shop; the revocation INSERT carries that shop and
+ * is written under its tenant context, so evicting a chain at ANOTHER shop would
+ * need a cross-tenant write scope — a widening of 056 §5's closed union, which is
+ * a tenancy decision this bead does not get to take on its own. The property the
+ * lens asked for is satisfied without it: an owner evicts a copy of the session
+ * for the shop they are signing in to, which is the session the copy can spend.
+ *
+ * It runs INSIDE the issuance transaction and BEFORE the new row exists, so it
+ * cannot revoke the chain it is making room for, and a rollback leaves both the
+ * old sessions and the absence of a new one.
+ */
+export async function revokePrivilegedChainsOf(
+  tx: Tx,
+  args: { appUserId: string; shopId: string }
+): Promise<number> {
+  const res = await tx.query(
+    `SELECT DISTINCT s.chain_id FROM app_session s
+      WHERE s.app_user_id = $1
+        AND s.shop_id = $2
+        AND s.kind = 'privileged'
+        AND NOT EXISTS (SELECT 1 FROM app_session_revocation r WHERE r.chain_id = s.chain_id)
+        AND s.absolute_expires_at > now()`,
+    [args.appUserId, args.shopId]
+  );
+  const chains = res.rows as Array<{ chain_id: string }>;
+  for (const row of chains) {
+    await revokeChain(tx, {
+      chainId: row.chain_id,
+      shopId: args.shopId,
+      reason: "privileged_superseded",
+      revokedBy: args.appUserId,
+    });
+  }
+  return chains.length;
 }
 
 /**

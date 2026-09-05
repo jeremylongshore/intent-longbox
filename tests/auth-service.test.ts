@@ -43,7 +43,7 @@ import {
   shopRoster,
   tokenHash,
   verifyOperatorPin,
-  type SessionRow,
+  type DeviceBoundSession,
 } from "../src/services/auth/index.js";
 import { TEST_PIN_PEPPER } from "./testConfig.js";
 
@@ -69,8 +69,7 @@ function fakeDb(answer: (text: string, values: unknown[] | undefined) => unknown
 
 const FUTURE = new Date(Date.now() + 60 * 60 * 1000);
 const PAST = new Date(Date.now() - 60 * 60 * 1000);
-
-function sessionRow(over: Partial<SessionRow> = {}): SessionRow {
+function sessionRow(over: Partial<DeviceBoundSession> = {}): DeviceBoundSession {
   return {
     id: "session-1",
     chain_id: "chain-1",

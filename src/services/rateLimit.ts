@@ -75,6 +75,49 @@ export const PROVISIONAL_SHOP_METERED_BUDGET = 500;
 export const PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET = 150;
 
 /** Whose money a paid call spends (050 §2 Q4(a)). Two values, no `unknown`. */
+/**
+ * **The privileged sign-in's own budget, per submitted identifier per minute**
+ * (E03-D11, 057 §4.5a; the security lens's F2 and F3/F4).
+ *
+ * ⚠ **IT IS A SEPARATE NUMBER BECAUSE IT DEFENDS A DIFFERENT THING, AND
+ * INHERITING `ordinaryPerMinute` WAS THE BUG.** `PROVISIONAL_SHOP_ORDINARY_RATE`
+ * is 120/min and is sized for a SHOP doing its work — a phone at a counter
+ * moving through a box of books. `POST /api/v1/privileged-sessions` is an
+ * anonymous, internet-facing route whose caller is a stranger with somebody's
+ * email address, and 120 attempts a minute against one address is not a
+ * circuit breaker, it is a comfortable guessing budget.
+ *
+ * **The number NARROWS the timing oracle and does not close it**, which is the
+ * half a reader would otherwise miss — and the half an earlier version of this
+ * comment got wrong. 048 §9.1 refuses to run argon2id while a person is inside
+ * their lockout delay — correctly, because hashing on demand is a denial-of-
+ * service surface the attacker paces — and the consequence measured on this
+ * route is that a KNOWN address inside its delay answers in single-digit
+ * milliseconds while an UNKNOWN one pays the decoy's full cost. That difference
+ * is an enumeration oracle for *who works at which shop*.
+ *
+ * Lowering THIS bucket cuts the oracle's observation RATE from about 120/min to
+ * about 5/min. **It does not equalise the two answers, because the two windows
+ * do not match**: this bucket refills every MINUTE while `LOCKOUT_WINDOW_MS` is
+ * FIFTEEN, so a warmed known address drops out of the bucket and back onto its
+ * lockout roughly fourteen times an hour. Measured in minute two: a known
+ * address answered 6-16 ms on four attempts of five; an unknown one paid about
+ * 600 ms on all five.
+ *
+ * Closing the class would mean hashing while blocked, which 048 §9.3 REFUSES and
+ * 057 does not reopen. So this is a narrowed residual with a row of its own
+ * (057 §9 R10), not a defect that has been fixed. Do not restate it as one.
+ *
+ * **PROVISIONAL 5/min per identifier**, with its derivation stated and no
+ * measurement behind it (042 A3): a person signing in mistypes a password once
+ * or twice and re-reads a code off a phone once; five is above any honest
+ * sequence and two orders of magnitude below a useful guessing rate. It is a
+ * floor that may be RAISED freely; lowering it after seeing a result it would
+ * change needs a 006 row (018 C3). **No artifact quotes it as a security
+ * property.**
+ */
+export const PROVISIONAL_SIGN_IN_RATE_PER_IDENTIFIER = 5;
+
 export type SpendOwner = "shop" | "longbox";
 
 const MINUTE_MS = 60_000;
@@ -93,6 +136,8 @@ interface Bucket {
 
 export interface RateLimiterOptions {
   ordinaryPerMinute?: number;
+  /** The privileged sign-in's per-identifier budget (E03-D11). */
+  signInPerMinute?: number;
   /** The `shop`-owned metered budget: a shop spending its own money. */
   meteredPerDay?: number;
   /** The `longbox`-owned metered budget: a shop on the service account. */
@@ -110,9 +155,12 @@ export interface RateLimiterOptions {
  */
 export class ShopRateLimiter {
   private readonly ordinary = new Map<string, Bucket>();
+  /** E03-D11: its own map, so the two adversaries cannot exhaust each other. */
+  private readonly signIn = new Map<string, Bucket>();
   private readonly metered = new Map<string, Bucket>();
   private readonly now: () => number;
   readonly ordinaryPerMinute: number;
+  readonly signInPerMinute: number;
   readonly meteredPerDay: number;
   readonly serviceAccountPerDay: number;
 
@@ -126,6 +174,7 @@ export class ShopRateLimiter {
 
   constructor(opts: RateLimiterOptions = {}) {
     this.ordinaryPerMinute = opts.ordinaryPerMinute ?? PROVISIONAL_SHOP_ORDINARY_RATE;
+    this.signInPerMinute = opts.signInPerMinute ?? PROVISIONAL_SIGN_IN_RATE_PER_IDENTIFIER;
     this.meteredPerDay = opts.meteredPerDay ?? PROVISIONAL_SHOP_METERED_BUDGET;
     this.serviceAccountPerDay = opts.serviceAccountPerDay ?? PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET;
     this.now = opts.now ?? (() => Date.now());
@@ -206,6 +255,28 @@ export class ShopRateLimiter {
    */
   takeRoute(routeTemplate: string): RateDecision {
     const decision = this.take(this.ordinary, `route:${routeTemplate}`, this.ordinaryPerMinute, MINUTE_MS);
+    if (!decision.allowed) this.events.ordinaryThrottled += 1;
+    return decision;
+  }
+
+  /**
+   * **The privileged sign-in, keyed on a DIGEST of the submitted identifier**
+   * (E03-D11; 057 §4.5a).
+   *
+   * Never the address itself — a rate-limit key is held in a process and printed
+   * in a log line the day somebody debugs it, and an address is a person. Never
+   * an IP (042 §8.1, unchanged). Never the resolved `app_user_id` either, and
+   * that is the point of keying on what was SUBMITTED: an unknown address and a
+   * known one must be bucketed identically, or the bucket itself becomes the
+   * oracle the bucket exists to close.
+   *
+   * **It is its own bucket map**, so a shop working hard at the counter cannot
+   * exhaust the sign-in budget and a sign-in flood cannot exhaust the shop's.
+   * They are different adversaries on different channels and 042 §8.1's
+   * "per shop, never per IP" was written about the first one.
+   */
+  takeSignIn(identifierDigest: string): RateDecision {
+    const decision = this.take(this.signIn, `sign-in:${identifierDigest}`, this.signInPerMinute, MINUTE_MS);
     if (!decision.allowed) this.events.ordinaryThrottled += 1;
     return decision;
   }

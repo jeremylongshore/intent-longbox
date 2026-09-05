@@ -102,21 +102,51 @@ describe("every shop-scoped route declares a permission (054 §3.2)", () => {
     }
   });
 
-  it("gives every route OUTSIDE the tenant prefix `requires: null`, and says why that is not a hole", () => {
+  it("gives every route with NO RESOLVED ROLE `requires: null`, and says why that is not a hole", () => {
     // These are the routes that ESTABLISH a tenant: the probe, the two credential
-    // exchanges, the picker, *my shops*, the two redemptions. No membership has
-    // been resolved when they run, so there is no role for a permission to test.
-    // They are constrained by their PRINCIPAL instead — the other of 048 R12's
-    // two lists — which this test cross-checks rather than assumes.
+    // exchanges, the picker, *my shops*, the two redemptions, and the privileged
+    // sign-in. No membership has been resolved when they run, so there is no role
+    // for a permission to test. They are constrained by their PRINCIPAL instead —
+    // the other of 048 R12's two lists — which this test cross-checks rather than
+    // assumes.
+    //
+    // ⚠ **THE RULE IS "NO ROLE YET", NOT "OUTSIDE THE PREFIX", AND E03-D11 IS
+    // WHY THE TWO STOPPED BEING THE SAME SET** (057 §4.4). This test used to key
+    // on the tenant prefix, which was a correct proxy while every role was
+    // resolved from a URL's `:shopId`. A PRIVILEGED session resolves its shop at
+    // SIGN-IN, so `POST /api/v1/invitations` and `POST …/device-enrollment-codes`
+    // sit outside the prefix WITH a resolved role — and the old rule would have
+    // exempted the two most privileged acts in the system from the one
+    // enforcement site 054 §3 built. The ground the field's own documentation
+    // gave has not moved; the proxy has.
     for (const route of ROUTES) {
       if (route.path.startsWith(TENANT_PREFIX)) continue;
-      expect(
-        route.requires,
-        `${route.method} ${route.path} sits outside the tenant prefix and declares a permission, ` +
-          `which nothing evaluates — the hook resolves a role only under the prefix`
-      ).toBeNull();
       const auth = AUTH_ALLOWLIST.find((r) => r.path === route.path);
       expect(auth, `${route.path} has no auth-allowlist row`).toBeDefined();
+      if (auth!.principal === "privileged") {
+        // A privileged route names a permission, or declares itself self-service
+        // — the hook refuses anything else, which is the fail-closed default the
+        // tenant branch has had since E03-B03.
+        if (auth!.selfService === true) {
+          expect(
+            route.requires,
+            `${route.path} declares itself self-service AND names a permission — pick one`
+          ).toBeNull();
+        } else {
+          expect(
+            route.requires,
+            `${route.method} ${route.path} runs on a resolved role and names no permission, so the ` +
+              `hook refuses it — declare one, or declare the row self-service`
+          ).not.toBeNull();
+          expect(PERMISSION_NAMES).toContain(route.requires!);
+        }
+        continue;
+      }
+      expect(
+        route.requires,
+        `${route.method} ${route.path} has no resolved role and declares a permission, ` +
+          `which nothing evaluates`
+      ).toBeNull();
     }
   });
 
@@ -147,7 +177,36 @@ describe("every shop-scoped route declares a permission (054 §3.2)", () => {
     }
   });
 
-  it("gives every pending row a closing bead, and every E03-D11 row a permission too", () => {
+  it("keeps the two E03-D11 rows REGISTERED, permissioned and behind a privileged session", () => {
+    // ⚠ **THIS ASSERTION INVERTED WHEN E03-D11 LANDED, AND THE INVERSION IS THE
+    // EVIDENCE.** Until then it asserted the two rows were PENDING and named
+    // E03-D11 as their closing bead — the construction that stops a declared
+    // route from quietly going stale. The bead has landed, so the same two paths
+    // are now asserted from the other side: registered, still carrying the
+    // permission E03-B03 decided for them, and behind the third session kind
+    // rather than the `device+operator` they could only approximate before.
+    //
+    // The permission is the SAME STRING it was while pending. That is the whole
+    // point of having declared it early (054 §3.4): E03-D11 inherited an answer
+    // instead of choosing one, and this test is where a later edit that widens it
+    // stops being invisible.
+    const expected: ReadonlyArray<[string, string]> = [
+      ["/api/v1/invitations", "membership.invite"],
+      ["/api/v1/device-enrollment-codes", "device.enrollment.issue"],
+    ];
+    for (const [path, permission] of expected) {
+      const row = AUTH_ALLOWLIST.find((r) => r.path === path && r.method === "POST");
+      expect(row, `${path} has no auth-allowlist row`).toBeDefined();
+      expect(row!.pending, `${path} is still pending, and E03-D11 was supposed to land it`).toBeUndefined();
+      expect(row!.principal, `${path} is not behind a privileged session`).toBe("privileged");
+      expect(row!.requires, `${path} lost the permission E03-B03 decided for it`).toBe(permission);
+      const spec = ROUTES.find((r) => r.path === path && r.method === "POST");
+      expect(spec, `${path} is declared on the auth allowlist and absent from the route table`).toBeDefined();
+      expect(spec!.requires, `${path}'s route table row disagrees with its auth row`).toBe(permission);
+    }
+  });
+
+  it("gives every pending row a closing bead", () => {
     // ⚠ **THE SECOND HALF IS NARROWER THAN IT LOOKS, AND THE NARROWING IS THE
     // POINT.** A pending row waits on a bead; that bead is where its permission
     // gets decided. For the two rows THIS bead's matrix covers — issuing an
@@ -173,21 +232,18 @@ describe("every shop-scoped route declares a permission (054 §3.2)", () => {
         row.closingBead ?? "",
         `${row.path} is pending and names no bead alias in its closing bead`
       ).toMatch(/\bE\d{2}-[BD]\d{2}\b/);
-      if (row.closingBead!.includes("E03-D11")) {
-        // The named permission, not merely "some permission": a pending row that
-        // declared a permission the matrix does not contain would be a promise
-        // E03-D11 could not keep.
+      if (row.requires !== undefined) {
+        // A pending row MAY name a permission — the two E03-D11 rows did, so
+        // that bead inherited an answer — and when it does, the permission must
+        // be one the matrix contains. A pending row declaring a permission the
+        // matrix does not have would be a promise its closing bead could not
+        // keep.
         expect(
           PERMISSION_NAMES,
-          `${row.path} waits on E03-D11, whose permissions this bead's matrix owns, and declares ` +
-            `${row.requires ?? "none"}`
-        ).toContain(row.requires!);
+          `${row.path} is pending and declares ${row.requires}, which the matrix does not contain`
+        ).toContain(row.requires);
       }
     }
-    // …and the two rows that DO owe one still owe it, named, so the narrowing
-    // above cannot quietly empty the assertion.
-    const owed = pending.filter((r) => r.closingBead!.includes("E03-D11")).map((r) => r.path);
-    expect(owed.sort()).toEqual(["/api/v1/device-enrollment-codes", "/api/v1/invitations"]);
   });
 });
 
@@ -195,7 +251,37 @@ describe("the declaration is ENFORCED, at a site this file names", () => {
   it("calls the permission check from inside `registerAuthentication`", () => {
     const body = functionBody(hook, "registerAuthentication");
     expect(body, "registerAuthentication is gone or renamed").toBeDefined();
-    expect(body!).toContain("await enforcePermission(req, deps, { url, spec, operator, memberships })");
+    expect(body!).toContain(
+      "await enforcePermission(req, deps, { url, spec, session: operator, memberships })"
+    );
+  });
+
+  it("has exactly TWO callers of the check, and the second one is the privileged branch", () => {
+    // ⚠ **054 §3's "one site" IS STILL ONE SITE, AND THIS IS WHERE THAT IS
+    // PROVED RATHER THAN ASSERTED** (E03-D11, 057 §4.4). There is one DECISION
+    // FUNCTION and it is reached from the two branches of one hook — the tenant
+    // branch, for a session that resolved its shop from a URL, and the privileged
+    // branch, for a session that resolved its shop at sign-in. A third caller
+    // anywhere, or a handler taking its own decision, is the second policy 054
+    // §3.5 forbids, and the count is exact rather than a ceiling for that reason.
+    const callers = (hook.match(/await enforcePermission\(/g) ?? []).length;
+    expect(callers, "enforcePermission is reached from more than the hook's two branches").toBe(2);
+    // …and the privileged one is inside `enforcePrivileged`, not sprinkled.
+    const privileged = functionBody(hook, "enforcePrivileged");
+    expect(privileged, "enforcePrivileged is gone or renamed").toBeDefined();
+    expect(privileged!).toContain("await enforcePermission(req, deps, { url: ctx.url, spec: ctx.spec,");
+  });
+
+  it("makes the privileged branch fail closed on a route that declares neither", () => {
+    // The same default the tenant branch has had since E03-B03, one principal
+    // over: a privileged route that names no permission is REFUSED unless its
+    // auth row declares itself self-service. Without it, a privileged route added
+    // next year would inherit "any privileged session at any shop".
+    const body = functionBody(hook, "enforcePrivileged")!;
+    expect(body).toMatch(/selfService !== true\) throw new LongboxError\("PERMISSION_DENIED"\)/);
+    // Exactly one row may use the escape hatch today, and it is the sign-out.
+    const selfService = AUTH_ALLOWLIST.filter((r) => r.selfService === true).map((r) => r.path);
+    expect(selfService).toEqual(["/api/v1/privileged-sessions/end"]);
   });
 
   it("puts that call INSIDE the tenant branch, proved by offset and not by reading", () => {
@@ -220,7 +306,7 @@ describe("the declaration is ENFORCED, at a site this file names", () => {
     // E03-B04: the write goes through a TENANT-SCOPED handle, because
     // `authorization_decision` carries a `shop_id` and therefore a policy — a
     // pool-level INSERT would be refused by the `WITH CHECK` with no context set.
-    expect(body!).toContain("recordAuthorizationDecision(tenantDb(deps.pool, ctx.operator.shop_id)");
+    expect(body!).toContain("recordAuthorizationDecision(tenantDb(deps.pool, ctx.session.shop_id)");
     expect(body!).toContain("shouldRecord(verdict,");
   });
 

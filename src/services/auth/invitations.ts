@@ -112,6 +112,28 @@ export async function issueInvitation(
     locationId?: string | null;
     invitedBy: string;
     now: Date;
+    /**
+     * **WHERE THIS ACT WAS REACHED FROM, AND WHETHER THE ALLOWANCE IS ALREADY
+     * RECORDED** (E03-D11; 054 §4.3's S5′, §4.5).
+     *
+     * Absent means the CLI, which is what it was when only the CLI existed: the
+     * surface is the script, the chain is null, and the decision row rides this
+     * transaction because a CLI has no request transaction to be outside of.
+     *
+     * Present means the route (E03-D11's `POST /api/v1/invitations`), and
+     * `recordAllowance: false` is the load-bearing half: the authentication
+     * hook has ALREADY written the allowance for `membership.invite` on this
+     * request, because 054 §4.3 records every allowance of a PRIVILEGED
+     * permission. Writing a second one here would make one authorized act two
+     * decision rows — the N:1 property 054 accepts for a retried
+     * `Idempotency-Key` (E03-D15), arriving a second time for a reason that is
+     * not a retry and has no excuse.
+     *
+     * **A REFUSAL IS ALWAYS RECORDED, from either surface**, because the RANK
+     * check below is a decision the hook cannot take — the target role is in the
+     * body — so it is a decision nothing else has recorded.
+     */
+    audit?: { routeMethod: string; routePath: string; recordAllowance: boolean };
   }
 ): Promise<{ ok: true; invitation: IssuedInvitation } | { ok: false; refusal: IssueRefusal }> {
   // ⚠ **THIS CHECK WAS A MEMBERSHIP CHECK AND NOT A ROLE CHECK, AND E03-B03
@@ -138,21 +160,23 @@ export async function issueInvitation(
   // rule does not hold, and 054 §4.5 states it: a CLI has no request
   // transaction to be outside of, and writing the decision beside the grant
   // makes the pair atomic, which is the stronger property when it is available.
-  await recordAuthorizationDecision(tx, {
-    shopId: args.shopId,
-    routeMethod: "CLI",
-    routePath: "scripts/issue-invitation.ts",
-    permission: "membership.invite",
-    matrixVersion: PERMISSION_MATRIX_VERSION,
-    matrixCommit: buildCommit(),
-    membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
-    role: verdict.role ?? null,
-    sessionChainId: null,
-    decision: permitted ? "allowed" : "refused",
-    // A rank refusal is a ROLE refusal: the caller's role may not hand out the
-    // role asked for. It is not a scope refusal, which is about WHERE.
-    refusalReason: permitted ? null : verdict.kind === "refused_scope" ? "scope" : "role",
-  });
+  if (!permitted || (args.audit?.recordAllowance ?? true)) {
+    await recordAuthorizationDecision(tx, {
+      shopId: args.shopId,
+      routeMethod: args.audit?.routeMethod ?? "CLI",
+      routePath: args.audit?.routePath ?? "scripts/issue-invitation.ts",
+      permission: "membership.invite",
+      matrixVersion: PERMISSION_MATRIX_VERSION,
+      matrixCommit: buildCommit(),
+      membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+      role: verdict.role ?? null,
+      sessionChainId: null,
+      decision: permitted ? "allowed" : "refused",
+      // A rank refusal is a ROLE refusal: the caller's role may not hand out the
+      // role asked for. It is not a scope refusal, which is about WHERE.
+      refusalReason: permitted ? null : verdict.kind === "refused_scope" ? "scope" : "role",
+    });
+  }
   if (!permitted) return { ok: false, refusal: "not_permitted" };
 
   const outstanding = await countOutstandingInvitations(tx, args.shopId);

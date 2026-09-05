@@ -35,6 +35,8 @@ import {
   checkAuthorizationDecisionWriters,
   checkOriginDesignationWriters,
   checkCostLogWriters,
+  checkMigrationNumbers,
+  checkNoFreshnessColumn,
   checkServiceScopeSites,
   checkTenantGucWriters,
   checkTransactionsDeclareTenant,
@@ -61,6 +63,7 @@ import {
   type SourceFile,
   collectSources,
 } from "../../scripts/architectureRules.js";
+import { readMigrations } from "../../scripts/migrationDiscipline.js";
 import { REGISTERED_VERTICALS } from "../../src/catalog/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -493,7 +496,12 @@ describe("the non-graph rules, against fixtures that violate them", () => {
   });
 
   it("E03-B04: one more site naming a service scope fails the inventory", () => {
+    // TWO legitimate sites since E03-D11 (`resolvePrincipal` and
+    // `resolvePrivileged`), so the fixture carries two and the violation is the
+    // THIRD. The number moves with the declaration on purpose: a negative
+    // fixture pinned to a stale count is a negative fixture that stops firing.
     const findings = checkServiceScopeSites([
+      { path: "src/services/auth/principal.ts", text: 'serviceDb(pool, "session-resolution")' },
       { path: "src/services/auth/principal.ts", text: 'serviceDb(pool, "session-resolution")' },
       { path: "src/services/elsewhere.ts", text: 'serviceDb(pool, "session-resolution")' },
     ]);
@@ -504,6 +512,77 @@ describe("the non-graph rules, against fixtures that violate them", () => {
 
   it("029 §2.8: cost_log with NO writer is also a violation — the rule is an equality", () => {
     expect(checkCostLogWriters([{ path: "src/services/costLog.ts", text: "nothing" }])).toHaveLength(1);
+  });
+
+  // =========================================================================
+  // E03-D11's two rules. Both guard an ABSENCE, which is the one class of
+  // property no behavioural test can reach: the system does exactly the same
+  // thing with a redundant column present or a second `031` applied, right up
+  // until it does not.
+  // =========================================================================
+
+  it("057 §4.3 (brief question K3): an `mfa_verified_at` column anywhere is a violation", () => {
+    // The edit this exists to stop is one that READS like an improvement — "add
+    // `mfa_verified_at` so the freshness check is explicit" — and that ships
+    // green, because every behavioural test passes with the column present.
+    expect(
+      checkNoFreshnessColumn([
+        {
+          path: "migrations/099_freshness.sql",
+          text: "ALTER TABLE app_session ADD mfa_verified_at timestamptz;",
+        },
+      ])
+    ).toHaveLength(1);
+    expect(
+      checkNoFreshnessColumn([{ path: "src/services/auth/sessions.ts", text: "row.mfa_verified_at" }])
+    ).toHaveLength(1);
+  });
+
+  it("057 §4.3 (brief question K3): NAMING it in prose is not a violation, in either dialect", () => {
+    // 048, 057, `policy.ts`, `sessions.ts` and `migrations/031` all name the
+    // column to explain why it does not exist. A rule that punished saying so
+    // would push the reasoning out of the tree, which is the opposite of the job.
+    expect(
+      checkNoFreshnessColumn([
+        {
+          path: "migrations/031_x.sql",
+          text: "-- It does not add a mfa_verified_at column, and that is a decision.",
+        },
+        {
+          path: "src/services/auth/policy.ts",
+          text: "// no mfa_verified_at: the expiry IS the window\nconst x = 1;",
+        },
+        {
+          path: "src/services/auth/policy.ts",
+          text: "/* mfa_verified_at would be a second truth */\nconst y = 2;",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("041 §10 (K6): two migration files sharing a number is a violation, and names both", () => {
+    // The ORDINARY outcome of two branches in flight: each reads the tree, sees
+    // the same highest number, takes the next one. Nothing downstream says so —
+    // the ledger keys on the FILENAME, so both apply in directory order.
+    const findings = checkMigrationNumbers([
+      "030_causal_reference_persistence.sql",
+      "031_first_factor_and_privileged_session.sql",
+      "031_something_else.sql",
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("031_first_factor_and_privileged_session.sql");
+    expect(findings[0]!.message).toContain("031_something_else.sql");
+  });
+
+  it("041 §10 (K6): a gap in the numbering is NOT a violation", () => {
+    // `027` was reserved by E03-B06 and never written, and the runner reads no
+    // contiguity (tests/integration/migrations.test.ts says so in its own words).
+    // A rule that demanded a dense sequence would fail the tree as it stands.
+    expect(checkMigrationNumbers(["026_a.sql", "028_b.sql", "029_c.sql"])).toEqual([]);
+  });
+
+  it("041 §10 (K6): the REAL migrations directory has one file per number", () => {
+    expect(checkMigrationNumbers(readMigrations().map((m) => m.filename))).toEqual([]);
   });
 
   it("054 §4.4: a second writer of authorization_decision is a violation", () => {
@@ -766,6 +845,51 @@ describe("042 I22 — the fixed lock order", () => {
     expect(findings[0]!.message).toContain(
       "the user_authenticator lock BEFORE its request_idempotency INSERT"
     );
+  });
+
+  it("fails on a handler that takes the SECOND factor's anchor BEFORE the FIRST's (E03-D11)", () => {
+    // ⚠ **THE FIFTH POSITION'S OWN NEGATIVE FIXTURE**, which the invariant review
+    // found missing — the rule was proved to fire in three directions and not in
+    // the one this bead added, and a rule that has never failed on its own new
+    // pair is indistinguishable from one that cannot.
+    //
+    // The pair is load-bearing rather than notional, which is why it needs a
+    // fixture at all: 048 §4.3's per-person lockout budget is SHARED across all
+    // three factors, so the sign-in holds `user_credential` and
+    // `user_authenticator` in ONE transaction — two anchors over one count is the
+    // write skew §9.1 exists to close. Two handlers taking them in opposite
+    // orders deadlock the moment two people sign in at once.
+    const findings = checkLockOrder([
+      {
+        path: "src/services/auth/backwards.ts",
+        text:
+          "export async function signIn(deps, input) {\n" +
+          "  await verifyTotp(tx, { appUserId: id, code: input.code });\n" +
+          "  await verifyPassword(tx, { email: input.email, password: input.password });\n" +
+          "  return { status: 201 };\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the user_authenticator lock BEFORE the user_credential lock");
+  });
+
+  it("passes the SAME two anchors in the declared order", () => {
+    // The positive direction, because a rule that only ever fails is a rule
+    // nobody can tell from a broken matcher. This is the sign-in's real shape.
+    expect(
+      checkLockOrder([
+        {
+          path: "src/services/auth/forwards.ts",
+          text:
+            "export async function signIn(deps, input) {\n" +
+            "  await verifyPassword(tx, { email: input.email, password: input.password });\n" +
+            "  await verifyTotp(tx, { appUserId: id, code: input.code });\n" +
+            "  return { status: 201 };\n" +
+            "}\n",
+        },
+      ])
+    ).toEqual([]);
   });
 
   it("fails on a handler that takes the scan_session anchor BEFORE the authenticator lock", () => {

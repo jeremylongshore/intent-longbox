@@ -364,6 +364,19 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
       "residual is stated rather than argued away: 056 §11 R9.**",
   },
   {
+    table: "user_credential",
+    reason:
+      "The FIRST factor, keyed on `app_user_id` (048 §4.1, E03-D11). Same reason as `app_user` and " +
+      "the same reason as the second factor one row down: a password belongs to a PERSON, who may " +
+      "hold memberships at more than one shop (034 §2.6), so there is no tenant to key a policy on " +
+      "and inventing one would mean a person with two shops needing two passwords. What bounds it " +
+      "is that every read is by the authenticated person's own id or by a lowercased email in the " +
+      "same statement, the digest is argon2id over `password ‖ pepper` so a cross-tenant read " +
+      "returns something that opens nothing without a value this database does not hold, and the " +
+      "module graph lets only `identity` reach it. **The residual is `app_user`'s and is stated " +
+      "there rather than restated here: 056 §11 R9, owned by E03-D21 (`longbox-e5b.3.31`).**",
+  },
+  {
     table: "user_authenticator",
     reason:
       "The second factor, keyed on `app_user_id` (048 §4). Same reason as `app_user`, plus one more: " +

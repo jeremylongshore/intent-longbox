@@ -7,13 +7,21 @@
 //
 // 048 §4.1 requires TOTP of `owner`, `manager` and `support_break_glass`, and
 // places it in "a session established by password + TOTP within a freshness
-// window". **That session does not exist in this tree, and this bead did not
-// invent it.** 048 §3.1 models exactly two sessions — a device session and an
-// operator session on top of it — and both are bound to an enrolled phone by
-// `app_session`'s own CHECK and its two composite foreign keys (`migrations/020`).
-// A person signing in on their own laptop has no row shape here, and the FIRST
-// factor (`user_credential`, M3's other remainder) is assigned to no bead by 048
-// §10.2 at all.
+// window". **That session did not exist when this module was written, and this
+// bead did not invent it** — 048 §3.1 modelled exactly two sessions, both bound to
+// an enrolled phone by `app_session`'s CHECK and its composite foreign keys, and
+// the FIRST factor (`user_credential`, M3's other remainder) was assigned to no
+// bead by 048 §10.2 at all.
+//
+// ⚠ **E03-D11 BUILT BOTH** (`migrations/031`, 000-docs/057), so the paragraph above
+// is history and the paragraph below is now only half true. `verifyTotp` IS reached
+// from a route — `POST /api/v1/privileged-sessions`, whose sign-in takes this
+// module's anchor after the first factor's, at 042 §5.3(b)'s fourth of five lock
+// positions. What is still true is the ENROLLMENT half: nothing in `src/routes/`
+// calls `enrollAuthenticator`, so a person forced to re-enrol by a recovery code
+// still finishes at `pnpm enroll-authenticator`, and 057 §9 R2/R2a name the bead
+// that closes it. Read the split below as "the factor landed first and the
+// enrollment surface has not landed yet", not as "there is no session".
 //
 // So the split this module takes is the honest one: **the factor, its custody, its
 // replay guard and its recovery land here; the session that carries them is named
@@ -70,7 +78,7 @@ import type { AuthenticatorKeyring, SealedSecret } from "./aead.js";
 import { decoySecret, open, seal } from "./aead.js";
 import { liveRolesOf, type Role } from "./memberships.js";
 import { recordFailure } from "./pin.js";
-import { LOCKOUT_WINDOW_MS, secondFactorWaitMs } from "./policy.js";
+import { personWait } from "./credentials.js";
 import { hashRecoveryCode } from "./secrets.js";
 import { mintRecoveryCode } from "./codes.js";
 import { TOTP_DIGITS, TOTP_PERIOD_SECONDS, verifyTotpCode } from "./totp.js";
@@ -332,6 +340,133 @@ export async function retireAuthenticator(
   return (res as { rowCount?: number }).rowCount ?? 0;
 }
 
+/**
+ * **RE-SEAL one authenticator under the current key version** (E03-D11; 048
+ * §4.2's *"re-encrypting the old rows is a later FACT-producing job"*, 057 §4.6).
+ *
+ * It is the second step of 048 §4.2's additive rotation, and until this function
+ * existed the rotation had a step nobody could take: `..._V2` is added, new
+ * enrollments seal under V2, every V1 row still opens under V1 — and **removing
+ * V1 takes every second factor still sealed under it.**
+ *
+ * ⚠ **IT WRITES A NEW ROW AND SUPERSEDES THE OLD ONE. IT DOES NOT EDIT THE
+ * SEALED COLUMN**, and the reason is 048 R18's own: **the AAD is the row's id.**
+ * A ciphertext re-computed in place would have to be bound to the id it already
+ * sits in — which is possible — but the column is declared immutable by
+ * `migrations/031`'s trigger, and it is declared immutable because "a sealed
+ * secret is written once" is the sentence that makes a moved ciphertext fail to
+ * authenticate rather than decrypt. A rotation that carves an exception into that
+ * sentence removes the guarantee for every row, permanently, to save one INSERT.
+ *
+ * ⚠ **`last_used_step` IS CARRIED FORWARD, AND THIS IS THE ONE THING A RE-SEAL
+ * CAN GET SILENTLY WRONG.** The successor is a NEW row with a NULL replay guard
+ * unless the value is copied, and a NULL guard means the code the owner used
+ * thirty seconds ago is valid again — 048 R19's replay, reintroduced by a
+ * maintenance job. The value moves with the secret because it is a fact about
+ * the secret and not about the row.
+ *
+ * ⚠ **THE RECOVERY SET IS NOT REISSUED**, and that is not an omission. Recovery
+ * codes are argon2id digests under the pepper (§8.1) and are not sealed under
+ * this ring at all, so a key rotation does not reach them. Reissuing them would
+ * invalidate the slip in the owner's drawer for a reason the owner cannot see.
+ *
+ * The secret is unchanged, so **nobody re-scans anything**: the person's
+ * authenticator app keeps working, and this is a maintenance job rather than an
+ * event in anybody's day. (`.env.example`'s step 2 said *"a retirement and a
+ * fresh enrollment per person"*, which read as a forced re-enrollment; it is
+ * corrected in the same commit as this function.)
+ *
+ * Runs as the SCHEMA OWNER from `scripts/reencrypt-authenticators.ts` — it
+ * INSERTs into a table whose app-role grant is column-scoped, so the app role
+ * could not do this and must not be able to.
+ */
+export async function resealAuthenticator(
+  tx: Tx,
+  args: { appUserId: string; keyring: AuthenticatorKeyring; now: Date; resealedBy?: string | null }
+): Promise<
+  | { resealed: false; reason: "no_authenticator" | "already_current" }
+  | { resealed: true; from: number; to: number; authenticatorId: string }
+> {
+  const previous = await lockLiveAuthenticator(tx, args.appUserId);
+  if (!previous) return { resealed: false, reason: "no_authenticator" };
+  if (previous.key_version === args.keyring.current) return { resealed: false, reason: "already_current" };
+
+  // Opening it is also the proof that the OLD key is still present. A ring that
+  // has already lost V1 throws `AeadOpenError` here, which is the correct and
+  // loud outcome: the job cannot rotate what it cannot read, and pretending
+  // otherwise would write a row sealed under V2 whose plaintext is garbage.
+  const secret = open(args.keyring, {
+    ciphertext: previous.secret_ciphertext,
+    nonce: previous.secret_nonce,
+    keyVersion: previous.key_version,
+    aad: previous.id,
+  });
+
+  await retireAuthenticator(tx, {
+    authenticatorId: previous.id,
+    appUserId: args.appUserId,
+    reason: "replaced",
+    retiredBy: args.resealedBy ?? null,
+  });
+
+  const id = randomUUID();
+  const sealed = seal(args.keyring, secret, id);
+  await tx.query(
+    `INSERT INTO user_authenticator
+       (id, app_user_id, kind, secret_ciphertext, secret_nonce, key_version,
+        digits, period_seconds, algorithm, last_used_step, enrolled_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      id,
+      args.appUserId,
+      previous.kind,
+      sealed.ciphertext,
+      sealed.nonce,
+      sealed.keyVersion,
+      previous.digits,
+      previous.period_seconds,
+      previous.algorithm,
+      // See the header: the replay guard is a fact about the SECRET.
+      previous.last_used_step,
+      // The ENROLLMENT did not happen again, so its timestamp does not move — but
+      // it must still sort after the predecessor for `LIVE_PREDICATE`'s
+      // `ORDER BY enrolled_at DESC` to pick the successor if a retirement were
+      // ever missing. `now()` would claim a re-enrollment that did not happen;
+      // the predecessor's own instant plus nothing would tie. The tie is broken
+      // by `enrolled_at` staying the predecessor's and the retirement fact being
+      // written in the SAME transaction, which is what actually decides liveness.
+      previous.enrolled_at,
+    ]
+  );
+  return { resealed: true, from: previous.key_version, to: sealed.keyVersion, authenticatorId: id };
+}
+
+/**
+ * Every person holding a live authenticator sealed under an older key version.
+ *
+ * The job's worklist, read before any write so a rotation can be REPORTED
+ * without being performed — which is what `--dry-run` is for and why nobody has
+ * to trust a maintenance script's own account of what it is about to do.
+ */
+export async function authenticatorsBelowVersion(
+  db: Queryable,
+  current: number
+): Promise<ReadonlyArray<{ appUserId: string; keyVersion: number }>> {
+  const res = await db.query(
+    `SELECT a.app_user_id, a.key_version
+       FROM user_authenticator a
+      WHERE a.key_version < $1
+        AND NOT EXISTS (SELECT 1 FROM user_authenticator_retirement r
+                         WHERE r.authenticator_id = a.id)
+      ORDER BY a.app_user_id`,
+    [current]
+  );
+  return (res.rows as Array<{ app_user_id: string; key_version: number }>).map((r) => ({
+    appUserId: r.app_user_id,
+    keyVersion: r.key_version,
+  }));
+}
+
 export type TotpVerdict =
   | { ok: true; step: number }
   | { ok: false; reason: "wait" | "no_authenticator" | "wrong_code" | "replayed" | "unreadable" };
@@ -449,17 +584,14 @@ export async function verifyTotp(
  * class that bounds this one is the per-person delay itself.
  */
 export async function secondFactorWait(db: Queryable, appUserId: string, now: Date): Promise<number> {
-  const since = new Date(now.getTime() - LOCKOUT_WINDOW_MS);
-  const res = await db.query(
-    `SELECT count(*)::int AS failures,
-            extract(epoch from (now() - max(created_at))) AS age
-       FROM auth_attempt
-      WHERE app_user_id = $1 AND created_at >= $2 AND method IN ('totp','recovery_code')`,
-    [appUserId, since]
-  );
-  const r = res.rows[0] as { failures: number; age: string | null };
-  return secondFactorWaitMs({
-    failures: r.failures,
-    lastFailureAgeMs: r.age === null ? Number.POSITIVE_INFINITY : Number(r.age) * 1000,
-  });
+  // ⚠ **THE COUNT MOVED, AND THE BUDGET IS NOW SHARED WITH THE FIRST FACTOR**
+  // (E03-D11, 057 §4.5). This function used to spell its own query over
+  // `method IN ('totp','recovery_code')`. `personWait` is the same query with
+  // `password` in the list, and both files call it — so the two budgets cannot
+  // become two by an edit to one of them, which is exactly the failure the
+  // shared budget exists to prevent one factor lower. The reason is 048 §4.3's,
+  // unchanged and applied once more: two forms of one factor with two budgets is
+  // one budget an attacker doubles by alternating, and three forms is the same
+  // sentence with a bigger number.
+  return personWait(db, appUserId, now);
 }

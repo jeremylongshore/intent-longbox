@@ -226,4 +226,13 @@ export {
   shouldRecord,
   unreconciledBreakGlassSessions,
 } from "./authorizationAudit.js";
-export type { AuthorizationDecisionRecord, UnreconciledSession } from "./authorizationAudit.js";
+// `AuthorizationDecisionCount` is exported deliberately and not inlined: 059 §5
+// makes the reader's RETURN TYPE the boundary that keeps a count of decisions
+// from being read as a count of acts, and a type nobody can name is a boundary
+// nobody can be held to. `pnpm arch` rule 3d refuses a numeric `acts`, `effects`
+// or `requests` field in any file that reads this table.
+export type {
+  AuthorizationDecisionCount,
+  AuthorizationDecisionRecord,
+  UnreconciledSession,
+} from "./authorizationAudit.js";

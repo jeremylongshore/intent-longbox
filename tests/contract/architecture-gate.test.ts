@@ -31,6 +31,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTHORIZATION_DECISION_WRITER,
   ORIGIN_DESIGNATION_WRITER,
+  checkAuthorizationDecisionCountNouns,
   checkAuthorizationDecisionWriters,
   checkOriginDesignationWriters,
   checkCostLogWriters,
@@ -313,6 +314,17 @@ describe("the non-graph rules, against the real tree", () => {
     expect(checkOriginDesignationWriters(all)).toEqual([]);
   });
 
+  // E03-D15's rule 3d, over BOTH trees for the reason the scope inventory is: a
+  // CLI that printed "three acts" from the actor audit would be exactly as wrong
+  // as a service that returned it.
+  it("059 §5: no file that reads the actor audit types a count as acts, effects or requests", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkAuthorizationDecisionCountNouns(all)).toEqual([]);
+    // …and the rule is not vacuous: files that name the table DO exist, so an
+    // empty result is a pass rather than an empty input.
+    expect(all.filter((f) => f.text.includes("authorization_decision")).length).toBeGreaterThan(0);
+  });
+
   // 041 §3.3, the rule E02-D09 added: the single writer is a property of the tree,
   // not of a comment. Asserted against the REAL tree, so a route or service that
   // starts writing the column fails here rather than in a review.
@@ -504,6 +516,49 @@ describe("the non-graph rules, against fixtures that violate them", () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.message).toContain("src/routes/scanSessions.ts");
+  });
+
+  it("059 §5: a numeric `acts` field in a file that reads the audit table is a violation", () => {
+    // The negative direction, because a rule that has never failed is
+    // indistinguishable from one that cannot. This is the shape the data-model
+    // lens said a convention decays into: a reader that quietly starts reporting
+    // ACTS, in a table where two rows may be one act replayed.
+    const findings = checkAuthorizationDecisionCountNouns([
+      {
+        path: "src/services/reports/shiftSummary.ts",
+        text: "SELECT count(*) FROM authorization_decision\ninterface Row { acts: number }",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/reports/shiftSummary.ts");
+    expect(findings[0]!.rule).toBe("authorization-decision-counts-are-decisions");
+  });
+
+  it("059 §5: it catches a CLI too, and it does NOT fire on prose or on the right noun", () => {
+    // `scripts/` is in scope: a CLI printing "three effects" is the same error.
+    expect(
+      checkAuthorizationDecisionCountNouns([
+        {
+          path: "scripts/breakGlassReport.ts",
+          text: "FROM authorization_decision\ntype Out = { effects: number }",
+        },
+      ])
+    ).toHaveLength(1);
+    // Prose that DISCUSSES the nouns is not a declaration — this repository
+    // explains itself at length, and a checker that counted explanation would
+    // teach the next author to stop.
+    expect(
+      checkAuthorizationDecisionCountNouns([
+        {
+          path: "src/services/auth/authorizationAudit.ts",
+          text: "// a count of authorization_decision rows is not a count of acts or effects\ninterface C { decisions: number }",
+        },
+      ])
+    ).toEqual([]);
+    // And a file that never names the table is none of this rule's business.
+    expect(
+      checkAuthorizationDecisionCountNouns([{ path: "src/services/pricing.ts", text: "acts: number" }])
+    ).toEqual([]);
   });
 
   it("054 §4.4: the audit table with NO writer is also a violation — the rule is an equality", () => {

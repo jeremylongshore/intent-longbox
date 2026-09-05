@@ -230,6 +230,15 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
     // §4.5), so this case exists to pin the property rather than to fix it: if
     // somebody later keys the decision on the idempotency key (E03-D15), this
     // test is what tells them they changed a documented property.
+    //
+    // ⚠ **E03-D15 HAS NOW RULED, AND THE RULING IS THAT THIS STAYS** (059 §3).
+    // The ratio is not a tolerated cost: a replay re-reads the grants and answers
+    // again, so the second authorization happened and 041 §2.1 gives it a row —
+    // and the row it would have given up is exactly the one that DIFFERS when a
+    // grant is revoked or a role changes between two attempts of one key. So this
+    // case is now the record of a decision rather than of a deferral, and the
+    // three absences that keep it true (no key column, no UNIQUE, no collapsing
+    // view) are asserted in tests/contract/authorization-audit-surface.test.ts.
     await clear();
     const url = `${TENANT_PREFIX.replace(":shopId", shopId)}/scan-sessions`;
     const key = `replay-${randomUUID()}`;
@@ -510,7 +519,10 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
           sessionChainId: orphan.row.chain_id,
           permission: "scan.session.open",
           decision: "refused",
-          count: 1,
+          // DECISIONS, not acts — 059 §7 renamed the projection, because two rows
+          // may be one act replayed and the field name is where a caller reads
+          // what the number counts.
+          decisions: 1,
         },
       ]);
       // And it answers nothing at all for an empty list, rather than everything.

@@ -122,6 +122,22 @@ export function shouldRecord(
  * request whose work then fails.** That is the correct direction for an audit of
  * AUTHORITY (the authority really was granted) and the wrong direction for an
  * audit of ACTS — which this is not, and which the domain rows already are.
+ *
+ * ⚠ **ONE ROW IS ONE AUTHORIZATION, NOT ONE EFFECT — and that is DECIDED, not
+ * tolerated (059, E03-D15).** A client that retries with the same
+ * `Idempotency-Key` re-enters the hook, so the grants are read again, at a later
+ * instant, and answered again: the second authorization HAPPENED, and 041 §2.1
+ * is that a thing that happened is a row. So there is **no `ON CONFLICT` clause
+ * here, no `UNIQUE` on the table, and no column carrying the idempotency key, a
+ * request id, an attempt number or an effect id** — the first three are refused
+ * by 059 §4/§5 and the last two would swallow the second decision precisely when
+ * it DIFFERS from the first (a grant revoked, a role changed mid-handover, a
+ * break-glass window closed between two attempts), which is the row an
+ * investigation is looking for. The key itself is additionally refused as a
+ * COLUMN because it joins straight to `request_idempotency`, whose row holds the
+ * route and the stored RESPONSE BODY — i.e. the item — which is the join 054
+ * §4.2 refuses `correlation_id` by name for. `tests/contract/authorization-audit-surface.test.ts`
+ * holds all four absences.
  */
 export async function recordAuthorizationDecision(
   db: Queryable,
@@ -317,17 +333,44 @@ export async function unreconciledBreakGlassSessions(
  * wrong is the correct shape for this one.**
  *
  * It returns COUNTS and permission names, never route paths per session and
- * never timestamps per decision: enough to say *"this session was allowed two
- * privileged acts"*, which is what an investigation needs, and not enough to
- * reconstruct a shift.
+ * never timestamps per decision: enough to say *"this session was authorized
+ * twice for this permission"*, which is what an investigation needs, and not
+ * enough to reconstruct a shift.
+ *
+ * ⚠ **THE NUMBER IS DECISIONS, AND SAYING "ACTS" WOULD BE FALSE (059 §7).** This
+ * header used to read *"enough to say 'this session was allowed two privileged
+ * acts'"* — which is exactly the sentence 054 §4.5 withdrew one page earlier: a
+ * replayed `Idempotency-Key` writes a SECOND decision for ONE effect, so two rows
+ * may be one act performed once. The projection is therefore named `decisions`
+ * rather than `n`, and the field a caller reads is named `decisions` rather than
+ * `count`, because the harm K1 found was a false noun in an artifact and a field
+ * name is an artifact. **Authorizations, never acts.**
  */
+export interface AuthorizationDecisionCount {
+  readonly sessionChainId: string;
+  readonly permission: string;
+  readonly decision: string;
+  /**
+   * **The ONLY numeric field this type may ever declare, and the name is the
+   * boundary** (059 §5, the data-model lens's condition). A field name and a
+   * regex over source text are a CONVENTION; a convention decays exactly where
+   * 059 §10 predicts it will. A named type makes the wrong noun unable to be
+   * expressed: adding `acts`, `effects` or `requests` here fails `pnpm arch`
+   * (rule 3d) rather than passing review.
+   *
+   * It counts AUTHORIZATIONS — evaluations of the grants — never acts. Two rows
+   * may be one act replayed (054 I9a, 059 §3).
+   */
+  readonly decisions: number;
+}
+
 export async function decisionsByUnreconciledSessions(
   db: Queryable,
   chainIds: readonly string[]
-): Promise<Array<{ sessionChainId: string; permission: string; decision: string; count: number }>> {
+): Promise<AuthorizationDecisionCount[]> {
   if (chainIds.length === 0) return [];
   const res = await db.query(
-    `SELECT d.session_chain_id, d.permission, d.decision, count(*)::int AS n
+    `SELECT d.session_chain_id, d.permission, d.decision, count(*)::int AS decisions
        FROM authorization_decision d
       WHERE d.session_chain_id = ANY($1::uuid[])
       GROUP BY d.session_chain_id, d.permission, d.decision
@@ -335,11 +378,16 @@ export async function decisionsByUnreconciledSessions(
     [[...chainIds]]
   );
   return (
-    res.rows as Array<{ session_chain_id: string; permission: string; decision: string; n: number }>
+    res.rows as Array<{
+      session_chain_id: string;
+      permission: string;
+      decision: string;
+      decisions: number;
+    }>
   ).map((r) => ({
     sessionChainId: r.session_chain_id,
     permission: r.permission,
     decision: r.decision,
-    count: r.n,
+    decisions: r.decisions,
   }));
 }

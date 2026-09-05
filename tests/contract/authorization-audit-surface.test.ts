@@ -99,6 +99,32 @@ describe("the column list is CLOSED (054 §4.2)", () => {
     }
   });
 
+  it("carries NO dedup key, so a replay can never be collapsed into the first decision (059 §4)", () => {
+    // E03-D15's ruling, as four refused names. A replayed `Idempotency-Key` is a
+    // SECOND AUTHORIZATION — the hook re-read the grants and answered again — so
+    // there is nothing to deduplicate, and the column that would deduplicate it
+    // is refused twice over:
+    //
+    //   idempotency_key — a JOIN KEY. `request_idempotency` is keyed
+    //     `(shop_id, idempotency_key)` and holds the route, the request hash and
+    //     the stored RESPONSE BODY, whose payload for `POST …/scan-sessions` is
+    //     the session id — the book. That is the join 054 §4.2 refuses
+    //     `correlation_id` by name for, under a different name and chosen by the
+    //     client rather than by the server. A digest of it is no better: the
+    //     plaintext sits in the other table, so the digest is computable;
+    //   request_id / effect_id — the same object under names a future author
+    //     would not think to check against 054 §4.2's list;
+    //   attempt_no — needs a read of `request_idempotency` at `onRequest` (a
+    //     round trip on the hot path), is WRONG exactly under concurrency (the
+    //     first attempt's row is invisible until commit, so two concurrent
+    //     attempts both record 1), and is a COUNT on a table that refuses
+    //     `count` and `duration_ms` by name.
+    const body = tableBody();
+    for (const forbidden of ["idempotency_key", "request_id", "attempt_no", "effect_id"]) {
+      expect(body, `authorization_decision must not carry ${forbidden} (059 §4)`).not.toContain(forbidden);
+    }
+  });
+
   it("indexes the ONE access path it has, and neither of the two per-person ones", () => {
     // F1 / S6, and the finding is worth the length. The first version of this
     // migration carried `authorization_decision_chain_idx` and justified it as
@@ -117,6 +143,149 @@ describe("the column list is CLOSED (054 §4.2)", () => {
     // And exactly one index is created, so a third cannot arrive unnoticed.
     const created = [...migration.matchAll(/CREATE INDEX[^;]*ON authorization_decision/g)];
     expect(created).toHaveLength(1);
+  });
+});
+
+describe("a replay is a SECOND authorization, and nothing collapses it (059, E03-D15)", () => {
+  // 054 §4.5 accepted the N:1 decisions-to-effects ratio as a documented property
+  // and handed the trade to this bead. 059 rules that there is nothing to
+  // remove: the hook re-reads the grants on a replayed `Idempotency-Key` and
+  // answers again, so the second authorization HAPPENED (041 §2.1), and it can
+  // differ from the first — a grant revoked, a role changed mid-handover, a
+  // break-glass window closed between two attempts. A `UNIQUE` with
+  // `ON CONFLICT DO NOTHING` would discard exactly that row, and after a
+  // rolled-back first attempt (042 §5.3 step 4) it would keep the decision of the
+  // request that did NOTHING and drop the decision of the one that did the work.
+  //
+  // The ruling is therefore three absences, and they are checked here rather than
+  // argued in prose, because an absence defended only by a record drifts.
+
+  it("has no UNIQUE constraint and no unique index, in ANY migration — the 1:1 shape cannot arrive quietly", () => {
+    // Comments stripped first: 028's prose says `session_chain_id` is
+    // "deliberately not unique", and a matcher that read that would be asserting
+    // against an explanation rather than against DDL.
+    const ddl = migration.replace(/--[^\n]*/g, "");
+    expect(ddl).not.toMatch(/\bUNIQUE\b/i);
+    expect(ddl).not.toMatch(/CREATE\s+UNIQUE\s+INDEX/i);
+
+    // ⚠ **AND THE SCAN IS REPO-WIDE, because the claim was.** The first version
+    // of this case read `migrations/028` alone while the invariant beside it said
+    // the 1:1 shape "cannot arrive without an amendment here" — which a LATER
+    // migration could have done in one line (gate audit, B4). A constraint added
+    // by `033_…` is exactly as much of an amendment as one added by 028.
+    for (const file of readdirSync(join(repoRoot, "migrations")).filter((f) => f.endsWith(".sql"))) {
+      const sql = readFileSync(join(repoRoot, "migrations", file), "utf8").replace(/--[^\n]*/g, "");
+      expect(sql, `${file} creates a unique index on the audit table (059 §5)`).not.toMatch(
+        /CREATE\s+UNIQUE\s+INDEX[^;]*\bON\s+authorization_decision\b/i
+      );
+      for (const statement of sql.split(";")) {
+        if (!/ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?authorization_decision\b/i.test(statement)) continue;
+        // An ALTER is not forbidden — E03-B09's retention work may need one. What
+        // is forbidden is an ALTER that adds the constraint this record refuses.
+        expect(statement, `${file} adds a UNIQUE to the audit table (059 §5)`).not.toMatch(/\bUNIQUE\b/i);
+      }
+    }
+  });
+
+  it("has a writer with no ON CONFLICT clause", () => {
+    // The cheapest form of the rejected option needs no schema move at all —
+    // `ON CONFLICT DO NOTHING` on the pooled write — which is why the absence is
+    // asserted on the WRITER and not only on the table (059 §5, §6.1c).
+    const writer = readFileSync(join(repoRoot, "src", "services", "auth", "authorizationAudit.ts"), "utf8");
+    // Comments FIRST, because this module now DISCUSSES `ON CONFLICT` at length —
+    // and a checker that counted prose would teach the next author to stop
+    // explaining themselves, which is the lesson the `authorize(` scan already
+    // learned one describe block down.
+    const code = stripComments(writer);
+    expect(code).toContain("INSERT INTO authorization_decision");
+    expect(code).not.toMatch(/ON\s+CONFLICT/i);
+
+    // ⚠ **AND THE SAME QUESTION ASKED WITHOUT `stripComments`, because that
+    // helper is a NAIVE regex** (invariant review, delta b). It deletes from `//`
+    // to end-of-line anywhere it appears, INCLUDING inside a SQL template — so a
+    // URL or a `--`-style comment carrying a `//` would truncate the very line an
+    // `ON CONFLICT` might sit on, and this assertion would pass by having deleted
+    // its own evidence. So the second mechanism reads the RAW source and looks
+    // only at TEMPLATE LITERALS that mention the table: the SQL as written,
+    // comment-stripping never applied. Two checks with different blind spots,
+    // which is the same posture §5's type-plus-regex takes one file over.
+    const sqlTemplates = [...writer.matchAll(/`[^`]*`/g)]
+      .map((m) => m[0])
+      .filter((t) => t.includes("authorization_decision"));
+    expect(sqlTemplates.length, "no SQL template names the table — the scan is vacuous").toBeGreaterThan(0);
+    for (const template of sqlTemplates) {
+      expect(template, "a SQL template on the audit table carries ON CONFLICT (059 §5)").not.toMatch(
+        /ON\s+CONFLICT/i
+      );
+    }
+  });
+
+  it("is not read through a view, in any migration, ordinary or materialized", () => {
+    // Option B was a view that collapses replays. It would need either the
+    // forbidden key column or a fuzzy grouping over grant, route and time — and
+    // 042 §5.4 refuses fuzzy comparison by name for the neighbouring mechanism.
+    // A read model that GUESSES which rows are the same act is worse than a
+    // documented ratio, because the guess arrives wearing a view's name.
+    for (const file of readdirSync(join(repoRoot, "migrations")).filter((f) => f.endsWith(".sql"))) {
+      const sql = readFileSync(join(repoRoot, "migrations", file), "utf8").replace(/--[^\n]*/g, "");
+      for (const statement of sql.split(";")) {
+        if (!/\bCREATE\b/i.test(statement) || !/\bVIEW\b/i.test(statement)) continue;
+        expect(statement, `${file} defines a view over the audit table (059 §5)`).not.toContain(
+          "authorization_decision"
+        );
+      }
+    }
+  });
+
+  it("gives its one counting reader a field named for what it counts", () => {
+    // 059 §7: the K4 companion's header used to say the result was "enough to say
+    // 'this session was allowed two privileged acts'" — the exact noun 054 §4.5
+    // withdrew, since two rows may be one act replayed. A count of rows is a
+    // count of AUTHORIZATIONS. The field name is where a caller reads that, so
+    // the field name is where it is pinned.
+    // ⚠ **THE WALK SPANS `src/` AND `scripts/`, and it did not have to wait for a
+    // consumer to exist** (invariant review, delta a). E03-D14's branch lands
+    // `scripts/breakGlassAudit.ts` and `scripts/audit-break-glass.ts` — the first
+    // reader that prints this number TO A HUMAN, which is precisely where the
+    // wrong noun does its damage. A pin scoped to `src/` would have gone on
+    // passing while a CLI said "acts" on somebody's terminal.
+    const trees = ["src", "scripts"];
+    const readers = trees
+      .flatMap((tree) => walk(join(repoRoot, tree)))
+      .filter((p) => p.endsWith(".ts"))
+      .filter((p) => /FROM\s+authorization_decision/i.test(readFileSync(p, "utf8")));
+
+    // The EQUALITY is scoped to `src/` on purpose and the two halves are
+    // different claims. "The identity module is the only reader inside the
+    // application" is a property this record relies on (054 §4.4's writer rule,
+    // one direction over). "No reader anywhere says acts" is the vocabulary rule,
+    // and it must hold for a tree that is about to grow readers — so an equality
+    // over both trees would be a merge landmine dressed as an invariant.
+    expect(
+      readers.filter((p) => p.startsWith(join(repoRoot, "src"))).map((p) => p.slice(repoRoot.length + 1))
+    ).toEqual(["src/services/auth/authorizationAudit.ts"]);
+    expect(readers.length, "no file reads the audit table — the vocabulary scan is vacuous").toBeGreaterThan(
+      0
+    );
+
+    for (const path of readers) {
+      const source = readFileSync(path, "utf8");
+      // No projection, alias or returned field may call these rows acts, effects
+      // or requests — the three nouns a report author reaches for. `pnpm arch`
+      // rule 3d refuses the TYPE; this is the belt over the source text, and the
+      // two have different blind spots (059 §5).
+      expect(stripComments(source), `${path} names a count acts/effects/requests`).not.toMatch(
+        /\b(acts|effects|requests)\s*[:=]/
+      );
+      expect(stripComments(source), `${path} aliases a count acts/effects/requests`).not.toMatch(
+        /\bAS\s+(acts|effects|requests)\b/i
+      );
+    }
+
+    // And the one reader that COUNTS names its projection for what it counts.
+    const counter = readFileSync(join(repoRoot, "src", "services", "auth", "authorizationAudit.ts"), "utf8");
+    expect(counter).toMatch(/count\(\*\)::int AS decisions/);
+    expect(counter).toMatch(/interface AuthorizationDecisionCount/);
   });
 });
 

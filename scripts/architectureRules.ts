@@ -359,6 +359,65 @@ export function checkOriginDesignationWriters(files: readonly SourceFile[]): Fin
 }
 
 // ---------------------------------------------------------------------------
+// Rule 3d — 059 §5 (E03-D15): a READ of the actor audit may not be TYPED as acts.
+// ---------------------------------------------------------------------------
+
+/** Files that mention the table at all — the only ones this rule has an opinion about. */
+const AUDIT_TABLE_MENTION = /authorization_decision/;
+
+/**
+ * A DECLARED numeric field under one of the three forbidden nouns. Anchored on
+ * `: number`, so it catches the type and not the prose: this file, 059 and the
+ * audit module all discuss the nouns at length, and a checker that counted
+ * discussion would teach the next author to stop explaining themselves.
+ */
+const COUNT_NOUN_FIELD = /\b(acts|effects|requests)\s*\??\s*:\s*number\b/g;
+
+/**
+ * **The data-model lens's condition on 059, as a boundary rather than a habit.**
+ *
+ * 059 §3 rules that one row of `authorization_decision` is one AUTHORIZATION — one
+ * evaluation of the grants — and never one act: a client replaying an
+ * `Idempotency-Key` is re-authorized, so two rows may be one act performed once
+ * (054 I9a). The whole read model depends on nobody ever presenting a count of
+ * those rows as a count of acts, and at v1.0.0 that depended on a field name and
+ * a regex over source text — *"a convention and not a boundary; a convention
+ * decays exactly where this record predicts it will."*
+ *
+ * So the rule is rule 3b's shape, one column over: in any file that reads or
+ * names this table, a numeric field called `acts`, `effects` or `requests` is a
+ * red build. The type cannot express the wrong noun, and the comment explaining
+ * why is no longer load-bearing.
+ *
+ * **Scope is `src/` AND `scripts/`**, which is why this is called from
+ * `architectureGate.ts` with both trees rather than from `runArchitectureRules`
+ * — the same reason `checkServiceScopeSites` is (NOTE 5: a pure rule does not
+ * reach for the filesystem). A CLI that printed *"three acts"* from this table
+ * would be exactly as wrong as a service that returned it.
+ */
+export function checkAuthorizationDecisionCountNouns(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const file of files) {
+    if (!file.path.startsWith("src/") && !file.path.startsWith("scripts/")) continue;
+    if (!AUDIT_TABLE_MENTION.test(file.text)) continue;
+    // `.match()` and not `.test()`, for the reason rules 3, 3b and 3c record: a /g
+    // regex's `test()` advances `lastIndex` between calls and skips every other
+    // match.
+    const nouns = [...new Set((file.text.match(COUNT_NOUN_FIELD) ?? []).map((m) => m.trim()))].sort();
+    if (nouns.length === 0) continue;
+    findings.push({
+      rule: "authorization-decision-counts-are-decisions",
+      message:
+        `${file.path} reads or names authorization_decision and declares [${nouns.join(", ")}]; a ` +
+        `count of rows in that table is a count of AUTHORIZATIONS and never of acts, effects or ` +
+        `requests (059 §3, §5). A replayed Idempotency-Key is re-authorized, so two rows may be ` +
+        `one act performed once — the reader's type is where that stops being a comment.`,
+    });
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
 // Rule 4 — 042 I22(a): a fixed lock acquisition order in every mutating handler.
 // ---------------------------------------------------------------------------
 

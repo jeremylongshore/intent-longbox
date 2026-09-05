@@ -30,6 +30,16 @@
      stale-world property, and 044 §3 the prior-snapshot upgrade. No PRD requirement changed and no MoSCoW
      tag moved: 042 §6's wire shape was already covered by 042 I3, and what this bead adds is the STORAGE
      behind it, so the summary counts below are untouched. Nothing is struck. -->
+<!-- Engineer edit 2026-09-05 (bead longbox-e5b.3.25 / E03-D15, doc 059 v1.1.0 PROPOSED, 054 → v1.1.3):
+     FIVE rows added to §Ratified-record invariants for the decision NOT to key the authorization decision
+     on the idempotency key. Four are contract-lane and ran here; the fifth is 054 I9a unchanged and was
+     NOT re-run on this box (no database was started — CI paid it at aad14c7). No PRD requirement changed
+     and no MoSCoW tag moved: this bead adds no route, no column and no migration.
+     Updated after the DISPATCHED cannon (both lenses ACCEPT-WITH-CHANGES): I2's scan widened from
+     migrations/028 to every migration (gate audit B4 = the invariant review's one WARN); I4 gains the
+     named return type AuthorizationDecisionCount and `pnpm arch` rule 3d over src/ AND scripts/, so the
+     vocabulary is a boundary rather than a convention, and the walk bites the moment E03-D14's CLI lands
+     as the first reader that prints the number to a human. -->
 <!-- 2026-09-04 (E02-B10): §Ratified-record invariants added below — decision-record invariants are not PRD requirements and are not MoSCoW-tagged; they carry the non-waivable 019 threshold they map to instead. -->
 <!-- Engineer edit 2026-09-04 (bead longbox-e5b.2.17 / E02-D07, doc 043 v1.1.2): R1, R13 and R14 updated for
      the transactional outbox, and fifteen 043 invariants added to §Ratified-record invariants. R14's named
@@ -497,6 +507,25 @@ K1 only when somebody runs the command (R3); and it reconciles **APPLICATION
 sessions**, so every schema-owner DATABASE session is outside it by construction
 and needs connection-level auditing rather than this query (R5). **019 T35(b) is untouched and still renders OPEN**: the
 audited accessor module is E03-D17's.
+
+### 000-docs/059 — the authorization decision is not keyed on the replay (E03-D15)
+
+| Invariant | Record     | Property                                                                                                                                                                                                                                                                                                                                                                                                            | 019 threshold    | State                                                                                                                                                                                                                                                                                                 |
+| --------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 059 I1    | §4         | The closed column list additionally refuses the four dedup keys — `idempotency_key`, `request_id`, `attempt_no`, `effect_id`                                                                                                                                                                                                                                                                                        | **T35** (022 P3) | ✓ tests/contract/authorization-audit-surface.test.ts                                                                                                                                                                                                                                                  |
+| 059 I2    | §5, §6.1   | `authorization_decision` has no `UNIQUE` constraint and no unique index **in ANY migration** (028's DDL, plus every file for a `CREATE UNIQUE INDEX … ON` or an `ALTER TABLE … UNIQUE`), and its one writer has no `ON CONFLICT` clause — checked twice, once over stripped source and once over the RAW SQL templates, because `stripComments` is a naive regex a `//` inside a template would turn against itself | —                | ✓ tests/contract/authorization-audit-surface.test.ts                                                                                                                                                                                                                                                  |
+| 059 I3    | §5         | No view — ordinary or materialized — is defined over the table in any migration, so the collapsing read model cannot arrive quietly                                                                                                                                                                                                                                                                                 | **T35** (022 P3) | ✓ tests/contract/authorization-audit-surface.test.ts (10 `CREATE … VIEW` statements scanned, so the assertion is not vacuous)                                                                                                                                                                         |
+| 059 I4    | §3, §5, §7 | The one counting reader projects `decisions` and returns the NAMED TYPE `AuthorizationDecisionCount` whose only numeric field is that one; **no file under `src/` OR `scripts/` that reads the table declares a numeric `acts`, `effects` or `requests`** — `pnpm arch` **rule 3d** (H2/H3), with the source-text scan kept as belt                                                                                 | —                | ✓ tests/contract/authorization-audit-surface.test.ts, ✓ tests/contract/architecture-gate.test.ts (rule 3d, negative fixtures both directions)                                                                                                                                                         |
+| 059 I5    | §3         | A replayed `Idempotency-Key` writes a SECOND decision for ONE effect (054 I9a, unchanged — now the record of a decision rather than of a deferral)                                                                                                                                                                                                                                                                  | —                | ✓ tests/integration/authorization-decision.test.ts ⚠ **NOT RE-RUN on this box** — no database was started — **but GREEN in CI at the head this row is cut against**: `aad14c7` (PR #93, `Postgres integration + HTTP smoke`, 4m54s, run `33977050044`, the file's 16 cases; first green at `430fd51`) |
+
+**What this section does NOT claim.** N:1 is a property of the record, never a
+privacy control: 059 §6.3 states that collapsing replays would make a person
+_more_ reconstructible, and refuses the collapse on that ground among others —
+but noise is not a control, and the controls remain 054 §4.2's closed column
+list, the absent route, the absent DTO and the two unindexed per-person joins.
+The vocabulary rule ("decisions, never acts") is carried by I4 at one call site
+and by prose everywhere else, which is weaker than a schema constraint and is
+stated as such.
 
 ## Summary (rebuilt 2026-09-02, v0.3.1)
 

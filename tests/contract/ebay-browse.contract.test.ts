@@ -120,7 +120,7 @@ describe("eBay OAuth client-credentials — token cache timing", () => {
     expect(tokenCalls(spy)).toHaveLength(1);
     expect(spy).toHaveBeenCalledTimes(3); // token, browse, browse
     const [, browseInit] = spy.mock.calls[2]! as unknown as [string, RequestInit];
-    expect((browseInit.headers as Record<string, string>).authorization).toBe(
+    expect((browseInit.headers as Record<string, string>)["authorization"]).toBe(
       "Bearer v^1.1#i^1#f^0#p^1#r^0#I^3#t^H4sIAAAA"
     );
   });
@@ -143,7 +143,7 @@ describe("eBay OAuth client-credentials — token cache timing", () => {
     await provider.getComps({ title: "Uncanny X-Men", issue: "267" });
     expect(tokenCalls(spy)).toHaveLength(2);
     const [, secondBrowse] = spy.mock.calls[3]! as unknown as [string, RequestInit];
-    expect((secondBrowse.headers as Record<string, string>).authorization).toBe("Bearer tok-2");
+    expect((secondBrowse.headers as Record<string, string>)["authorization"]).toBe("Bearer tok-2");
   });
 });
 

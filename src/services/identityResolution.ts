@@ -233,7 +233,7 @@ async function lookupClaim(
 
 /** A barcode string on the claim, under either the namespace's name or `barcode`. */
 function readBarcode(claim: Record<string, unknown>, provider: string): string | null {
-  const raw = claim[provider] ?? (provider === "upc" ? claim.barcode : undefined);
+  const raw = claim[provider] ?? (provider === "upc" ? claim["barcode"] : undefined);
   if (typeof raw === "number") return String(raw);
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();

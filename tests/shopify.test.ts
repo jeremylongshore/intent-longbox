@@ -17,24 +17,24 @@ describe("buildProductSetInput", () => {
     imageUrls: ["https://example.com/cover.jpg"],
     copyKey: COPY_KEY,
   });
-  const inner = input.input as Record<string, unknown>;
+  const inner = input["input"] as Record<string, unknown>;
 
   it("always DRAFT status — nothing publishes without a human", () => {
-    expect(inner.status).toBe("DRAFT");
+    expect(inner["status"]).toBe("DRAFT");
   });
 
   it("formats price as dollars string", () => {
-    const variants = inner.variants as Array<{ price: string }>;
+    const variants = inner["variants"] as Array<{ price: string }>;
     expect(variants[0]?.price).toBe("249.99");
   });
 
   it("attaches media by public URL", () => {
-    const files = inner.files as Array<{ originalSource: string; contentType: string }>;
+    const files = inner["files"] as Array<{ originalSource: string; contentType: string }>;
     expect(files).toEqual([{ originalSource: "https://example.com/cover.jpg", contentType: "IMAGE" }]);
   });
 
   it("carries the title through", () => {
-    expect(inner.title).toBe("The Amazing Spider-Man #300");
+    expect(inner["title"]).toBe("The Amazing Spider-Man #300");
   });
 
   it("mutation targets productSet and declares BOTH variables", () => {
@@ -66,7 +66,7 @@ describe("the productSet upsert identifier (043 §4.3, I7)", () => {
       copyKey: COPY_KEY,
     });
     expect(Object.keys(vars).sort()).toEqual(["identifier", "input"]);
-    expect(vars.identifier).toEqual({
+    expect(vars["identifier"]).toEqual({
       customId: { namespace: "longbox", key: "copy", value: COPY_KEY },
     });
   });
@@ -89,6 +89,6 @@ describe("the productSet upsert identifier (043 §4.3, I7)", () => {
       imageUrls: [],
       copyKey: COPY_KEY,
     });
-    expect((vars.input as Record<string, unknown>).status).toBe("DRAFT");
+    expect((vars["input"] as Record<string, unknown>)["status"]).toBe("DRAFT");
   });
 });

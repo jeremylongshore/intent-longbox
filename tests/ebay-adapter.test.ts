@@ -36,7 +36,7 @@ describe("createEbayProvider — OAuth2 client-credentials flow", () => {
     const [tokenUrl, tokenInit] = spy.mock.calls[0]! as [string, RequestInit];
     expect(tokenUrl).toBe("https://api.ebay.com/identity/v1/oauth2/token");
     const headers = tokenInit.headers as Record<string, string>;
-    expect(headers.authorization).toBe(`Basic ${Buffer.from("cid:csec").toString("base64")}`);
+    expect(headers["authorization"]).toBe(`Basic ${Buffer.from("cid:csec").toString("base64")}`);
     expect(headers["content-type"]).toBe("application/x-www-form-urlencoded");
     expect(String(tokenInit.body)).toContain("grant_type=client_credentials");
     expect(String(tokenInit.body)).toContain(encodeURIComponent("https://api.ebay.com/oauth/api_scope"));
@@ -44,7 +44,7 @@ describe("createEbayProvider — OAuth2 client-credentials flow", () => {
     const [browseUrl, browseInit] = spy.mock.calls[1]! as [string, RequestInit];
     expect(browseUrl).toContain("/buy/browse/v1/item_summary/search?");
     const browseHeaders = browseInit.headers as Record<string, string>;
-    expect(browseHeaders.authorization).toBe("Bearer tok1");
+    expect(browseHeaders["authorization"]).toBe("Bearer tok1");
     expect(browseHeaders["x-ebay-c-marketplace-id"]).toBe("EBAY_US");
 
     expect(result.kind).toBe("live_asks");

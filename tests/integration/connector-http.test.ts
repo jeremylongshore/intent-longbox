@@ -63,9 +63,9 @@ beforeAll(async () => {
   // The app's credentials reach `buildApp` through the environment, exactly as
   // they do in production — this suite exercises the WIRING, so it must not
   // inject past it.
-  process.env.SHOPIFY_APP_CLIENT_ID = "test-client-id";
-  process.env.SHOPIFY_APP_CLIENT_SECRET = APP_SECRET;
-  process.env.SHOPIFY_APP_REDIRECT_URI = "https://longbox.example/api/v1/connectors/shopify/callback";
+  process.env["SHOPIFY_APP_CLIENT_ID"] = "test-client-id";
+  process.env["SHOPIFY_APP_CLIENT_SECRET"] = APP_SECRET;
+  process.env["SHOPIFY_APP_REDIRECT_URI"] = "https://longbox.example/api/v1/connectors/shopify/callback";
 
   app = await buildApp(pool, testConfig({ uploadsDir: UPLOADS, publicOrigins: [] }), {
     // ⚠ THE LOG DESTINATION IS HELD BY THIS SUITE, AND IT HAS TO BE.

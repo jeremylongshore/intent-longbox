@@ -16,11 +16,11 @@
 
 /** Resolve the schema-owner connection string, or throw with the fix. */
 export function resolveMigrateUrl(): string {
-  const migrateUrl = process.env.MIGRATE_DATABASE_URL;
+  const migrateUrl = process.env["MIGRATE_DATABASE_URL"];
   if (migrateUrl) return migrateUrl;
 
-  const appUrl = process.env.DATABASE_URL;
-  if (process.env.NODE_ENV === "production") {
+  const appUrl = process.env["DATABASE_URL"];
+  if (process.env["NODE_ENV"] === "production") {
     throw new Error(
       "MIGRATE_DATABASE_URL is not set. In production the migration runner must connect as the " +
         "schema-owning role (longbox_migrate), never as the application role in DATABASE_URL — " +

@@ -37,11 +37,11 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
 
   beforeAll(async () => {
     // Force the stub clients: no external tokens visible to this process.
-    delete process.env.PRICECHARTING_TOKEN;
-    delete process.env.EBAY_CLIENT_ID;
-    delete process.env.EBAY_CLIENT_SECRET;
-    delete process.env.SHOPIFY_ADMIN_TOKEN;
-    delete process.env.SHOPIFY_STORE_DOMAIN;
+    delete process.env["PRICECHARTING_TOKEN"];
+    delete process.env["EBAY_CLIENT_ID"];
+    delete process.env["EBAY_CLIENT_SECRET"];
+    delete process.env["SHOPIFY_ADMIN_TOKEN"];
+    delete process.env["SHOPIFY_STORE_DOMAIN"];
 
     const migrateUrl = await createFreshDb("longbox_smoke_test");
     await runMigrations(migrateUrl);
@@ -264,7 +264,7 @@ describe.skipIf(!dbUp)("HTTP smoke: scan-to-draft flow", () => {
     const res = await inject({ method: "GET", url: "/api/shops" });
     expect(res.statusCode).toBe(308);
     expect(res.headers.location).toBe("/api/v1/shops");
-    expect(res.headers.deprecation).toBe("true");
+    expect(res.headers["deprecation"]).toBe("true");
 
     const write = await inject({
       method: "POST",

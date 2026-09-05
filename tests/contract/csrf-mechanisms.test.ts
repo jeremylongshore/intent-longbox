@@ -429,7 +429,7 @@ describe("(f) an alias path and its /api/v1 target refuse IDENTICALLY (048 R12)"
       // itself discloses nothing about the session it was handed.
       expect(viaAlias.statusCode).toBe(308);
       expect(viaAlias.headers.location).toBe(`${API_PREFIX}/shops`);
-      expect(viaAlias.headers.deprecation).toBe("true");
+      expect(viaAlias.headers["deprecation"]).toBe("true");
 
       const followed = await app.inject({
         method: "GET",

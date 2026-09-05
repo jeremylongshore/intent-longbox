@@ -108,7 +108,7 @@ describe("openai-compat adapter", () => {
     if (result.ok) expect(result.usage).toEqual({ tokensIn: 77, tokensOut: 33 });
     const [url, init] = spy.mock.calls[0]!;
     expect(url).toBe("https://api.openai.com/v1/chat/completions");
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer sk-oai-test");
+    expect((init.headers as Record<string, string>)["authorization"]).toBe("Bearer sk-oai-test");
     const body = JSON.parse(init.body as string);
     expect(body.messages[0].content[0].image_url.url).toMatch(/^data:image\/jpeg;base64,/);
   });

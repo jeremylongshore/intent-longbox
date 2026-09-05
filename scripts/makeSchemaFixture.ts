@@ -164,7 +164,7 @@ export function assertLocalTestCluster(adminUrl: string, env: NodeJS.ProcessEnv 
       `the admin user is '${parsed.username}', not the local test cluster's 'longbox'`
     );
   }
-  if (env.NODE_ENV === "production") {
+  if (env["NODE_ENV"] === "production") {
     throw new UnsafeFixtureTargetError("NODE_ENV is production");
   }
 }
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
     );
   }
   const adminUrl =
-    process.env.TEST_DATABASE_ADMIN_URL ?? "postgres://longbox:longbox@127.0.0.1:54329/postgres";
+    process.env["TEST_DATABASE_ADMIN_URL"] ?? "postgres://longbox:longbox@127.0.0.1:54329/postgres";
   // BEFORE the first DROP DATABASE, and before anything is dumped (E03-D04).
   assertLocalTestCluster(adminUrl);
   const dbName = `longbox_fixture_gen_${upto}`;
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
   const url = new URL(adminUrl);
   url.pathname = `/${dbName}`;
   url.username = "longbox_migrate";
-  url.password = process.env.TEST_LONGBOX_MIGRATE_PASSWORD ?? "longbox_migrate";
+  url.password = process.env["TEST_LONGBOX_MIGRATE_PASSWORD"] ?? "longbox_migrate";
   const migrateUrl = url.toString();
 
   const client = new pg.Client({ connectionString: migrateUrl });

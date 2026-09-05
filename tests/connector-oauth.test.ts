@@ -221,7 +221,7 @@ describe("verifyQueryHmac — the OAuth callback's signature (053 §8.2)", () =>
 
   it("REFUSES a signature of the right length but the wrong bytes", () => {
     const signed = sign(base);
-    const flipped = signed.hmac!.slice(0, -1) + (signed.hmac!.endsWith("a") ? "b" : "a");
+    const flipped = signed["hmac"]!.slice(0, -1) + (signed["hmac"]!.endsWith("a") ? "b" : "a");
     expect(verifyQueryHmac({ ...signed, hmac: flipped }, APP_SECRET)).toBe(false);
   });
 

@@ -297,6 +297,107 @@ edit. Nothing in the Thresholds or Classification sections moved: this is an
 observational note about two test files, not a policy change, and no threshold,
 waiver or coverage floor was touched.
 
+### A rule only the type checker can see: `noPropertyAccessFromIndexSignature` and its scratch-compile contract test (E02-D13, 2026-09-04)
+
+`tsconfig.json` now sets `noPropertyAccessFromIndexSignature: true`, and
+`tsconfig.check.json` — which is what `pnpm typecheck` runs — inherits it by
+`extends`, so the flag governs `src/`, `scripts/` and `tests/` alike.
+
+**Why it is a testing note and not just a compiler setting.** The rule it
+enforces is a DOMAIN rule: `SignatureFields` is a bare index signature, and
+049 §6.2 recorded in terms that removing comic's four field names from that type
+removed _"the advertisement, not the error"_ — `fields.series` on a card claim
+still compiled, resolved to `string | null | undefined`, and evaluated to
+`undefined`. A core-code caller would have read a real claim as an empty one with
+no exception, no type error and no failing test. That is 030 §6 rule 1's
+forbidden `if (vertical === "comic")` wearing a field name, and `pnpm arch`'s
+rule 8 cannot see it because there is no vertical literal to match.
+
+**Why the gate is a COMPILE and not a text rule in `scripts/architectureRules.ts`.**
+Every rule in that file is a property of what a file SAYS. This one is a property
+of what a TYPE MEANS: whether `fields.series` is legal depends on the declared
+type of `fields`. A regex for `\.series\b` would fire on `ComicEditionFields.series`
+— a genuinely declared property, read legitimately inside the pack — and miss
+`claim.set` on a `Record<string, unknown>` alias. So the assertion is the
+compiler's.
+
+**The test is `tests/contract/signature-fields-are-not-dot-accessed.test.ts`**,
+**six cases in two describes, of which THREE run a compiler.** The cases are
+named rather than numbered below, and that is a correction rather than a style:
+the first version of this note counted them across two `describe` blocks and got
+the count wrong twice, which the MiniMax adversarial review of PR #89 caught. A
+number that spans two blocks is a number nobody can check against the file.
+
+_First describe, no compiler._ **`is set in the repository's tsconfig`** reads
+`tsconfig.json` and asserts the flag. **`reaches scripts/ and tests/ by
+inheritance, with no override`** reads `tsconfig.check.json` and asserts it
+`extends` the base, declares no `noPropertyAccessFromIndexSignature` of its own,
+and still includes all three source roots.
+
+_Second describe._ **`compiles the scratch tree against the repository's own
+tsconfig`** invokes no compiler at all: it asserts the harness is honest — the
+config is a symlink whose `realpath` and sha-256 match the repository's file, and
+`src/` is a copy rather than a link back. The other three follow E02-D15's rule to
+the letter, because the negative fixture is a `.ts` file under `src/`: `src/` is
+COPIED under `os.tmpdir()` and the fixture is written into the copy, while
+`tsconfig.json`, `package.json` and `node_modules` are SYMLINKED back, so the
+compile that judges the fixture is governed by the repository's real config.
+**`compiles clean with no fixture`** exits 0 over the untouched copy, so a red
+negative is the fixture and not a broken harness. **`refuses fields.series in
+src/services with TS4111`** is the negative. **`accepts the same read through
+brackets`** writes the identical read with `["series"]` and asserts it still
+compiles, so what the negative proves is the DOT and not the file, the import or
+the type.
+
+**The gate was proven able to fail before it was believed — and the rung that
+claim reached is worth naming, because it is not the one CI reaches.** What CI
+runs on every push is the flag-ON state: the flag is set, the dot is refused, the
+bracket twin compiles. Together those establish that the DOT is what the compiler
+rejects. They do NOT, by themselves, establish that the FLAG is why. That was
+established by a LOCAL REPRODUCTION, and the command is written down so the next
+reader re-runs it rather than trusting this sentence:
+
+```
+sed -i 's/"noPropertyAccessFromIndexSignature": true/"noPropertyAccessFromIndexSignature": false/' tsconfig.json
+pnpm vitest run tests/contract/signature-fields-are-not-dot-accessed.test.ts   # 2 failed | 4 passed
+# then restore tsconfig.json from HEAD
+```
+
+The two that fail are `is set in the repository's tsconfig` and `refuses
+fields.series in src/services with TS4111`. The other four stay green, including
+the symlink case, which has no flag to read and could not go red on that
+manipulation. That is the shape a working negative should have, and it is the
+reason the bracket-access case exists.
+
+**No CI job performs that flip, deliberately.** A test that rewrites the
+`tsconfig.json` every other test is judged by is a worse trade than a reproducible
+manual step: it would have to mutate the repository's own config (the same hazard
+E02-D15 forbids for `src/`, one level up), or compile against a MODIFIED COPY —
+and the copy is exactly what `compiles the scratch tree against the repository's
+own tsconfig` exists to rule out. 018 §2 is the rule being followed: a claim may
+not use a stronger rung than its artifact reached, so the flip is recorded as
+REPRODUCED with its command rather than as TESTED in CI. The MiniMax adversarial
+review of PR #89 was right to press on the word "proved" when the only linked runs
+were flag-ON.
+
+**Its cost, and its ceilings, which the E02-D16 note above governs.** Three of
+the six cases spawn a real `tsc` over a copy of the whole tree, so this file adds
+real time to `pnpm test`, and the honest range is wide because the work is
+CPU-bound and this box runs several worktrees at once: **24.6s** run alone,
+**29.1s** inside a full run, **64.9s** inside a full run that also spawned the
+four `depcruise` cases from the pre-commit hook. The three carry `120_000` ceilings for exactly the reason that
+note gives — a ceiling is not a measurement, it says "if this takes two minutes
+something is wrong" — and the default 5s stays untouched, as does
+`vitest.config.ts`. This makes it the second-slowest file in the unit lane after
+`tests/authenticator-service.test.ts`, and that cost is the price of an assertion
+no cheaper mechanism can make. **021 B16 governs what leaves the repository: none
+of these durations may go out as a performance claim.**
+
+`.harness-hash` was re-pinned with `pnpm exec audit-harness init` AFTER this
+edit. Nothing in the Thresholds or Classification sections moved: this is an
+observational note about a new contract test and a compiler flag, not a policy
+change, and no threshold, waiver or coverage floor was touched.
+
 ### The coverage include gained `src/consumers/**` (E02-D07, 2026-09-04)
 
 The floor is unchanged at 80. What changed is its SCOPE: `src/consumers/` now

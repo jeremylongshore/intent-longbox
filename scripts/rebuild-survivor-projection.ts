@@ -17,7 +17,7 @@ import { closePool, getPool, withTransaction } from "../src/db.js";
 import { rebuildSurvivorProjection } from "../src/catalog/index.js";
 
 async function main(): Promise<void> {
-  const url = process.env.DATABASE_URL;
+  const url = process.env["DATABASE_URL"];
   if (!url) {
     console.error("rebuild-survivor-projection: DATABASE_URL is not set");
     process.exit(1);

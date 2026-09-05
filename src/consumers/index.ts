@@ -82,7 +82,7 @@ const resolveShopifyClient: (
   shopId: string,
   keyring: ConnectorKeyring | undefined
 ) => Promise<{ client: ShopifyClient; stub: boolean }> = async (pool, shopId, keyring) => {
-  const apiVersion = process.env.SHOPIFY_API_VERSION ?? "2025-07";
+  const apiVersion = process.env["SHOPIFY_API_VERSION"] ?? "2025-07";
   const outcome = await resolveTokenVersion(pool, shopId, CONNECTOR);
   if (outcome.outcome === "all_retired") {
     const newest = outcome.retired[0];
@@ -109,7 +109,7 @@ const resolveShopifyClient: (
   const shopRes = await pool.query(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
   const shopRow = shopRes.rows[0] as { shopify_domain: string | null } | undefined;
   const adminToken = await resolveShopToken(pool, shopId, "shopify", "SHOPIFY_ADMIN_TOKEN");
-  const storeDomain = shopRow?.shopify_domain ?? process.env.SHOPIFY_STORE_DOMAIN;
+  const storeDomain = shopRow?.shopify_domain ?? process.env["SHOPIFY_STORE_DOMAIN"];
   if (adminToken && storeDomain) {
     const client: ShopifyClient = createShopifyClient({ storeDomain, adminToken, apiVersion });
     return { client, stub: false };

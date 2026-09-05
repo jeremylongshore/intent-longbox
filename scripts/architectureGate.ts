@@ -30,7 +30,7 @@ import {
 function changedFilesPath(): string | null {
   const flag = process.argv.indexOf("--changed");
   if (flag !== -1 && process.argv[flag + 1]) return process.argv[flag + 1]!;
-  return process.env.LONGBOX_CHANGED_FILES ?? null;
+  return process.env["LONGBOX_CHANGED_FILES"] ?? null;
 }
 
 const files = collectSources(join(REPO_ROOT, "src"));

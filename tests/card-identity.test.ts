@@ -349,7 +349,7 @@ describe("the card schema preserves unknown as distinct from absent", () => {
     const nulled = parseIdentityAttributes(SPORTS_CARD_VERTICAL, "edition", { number: "1", parallel: null });
     expect(Object.hasOwn(absent, "parallel")).toBe(false);
     expect(Object.hasOwn(nulled, "parallel")).toBe(true);
-    expect(nulled.parallel).toBeNull();
+    expect(nulled["parallel"]).toBeNull();
     // And the signature deliberately collapses them: a DEDUPE key must not
     // distinguish two records describing one card with different degrees of
     // silence (`editionSignature.ts`).

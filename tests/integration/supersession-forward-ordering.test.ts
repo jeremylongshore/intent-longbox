@@ -44,9 +44,9 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
   let shopId: string;
 
   beforeAll(async () => {
-    delete process.env.PRICECHARTING_TOKEN;
-    delete process.env.EBAY_CLIENT_ID;
-    delete process.env.SHOPIFY_ADMIN_TOKEN;
+    delete process.env["PRICECHARTING_TOKEN"];
+    delete process.env["EBAY_CLIENT_ID"];
+    delete process.env["SHOPIFY_ADMIN_TOKEN"];
 
     migrateUrl = await createFreshDb("longbox_supersession_e02d09");
     await runMigrations(migrateUrl);

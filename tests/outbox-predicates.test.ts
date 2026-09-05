@@ -255,17 +255,17 @@ describe("the PROVISIONAL parameters (043 §5.3)", () => {
   });
 
   it("reads overrides from the environment and refuses a non-positive one", () => {
-    const prev = process.env.OUTBOX_MAX_ATTEMPTS;
+    const prev = process.env["OUTBOX_MAX_ATTEMPTS"];
     try {
-      process.env.OUTBOX_MAX_ATTEMPTS = "12";
+      process.env["OUTBOX_MAX_ATTEMPTS"] = "12";
       expect(loadOutboxParams().maxAttempts).toBe(12); // 018 C3: raising is free
-      process.env.OUTBOX_MAX_ATTEMPTS = "0";
+      process.env["OUTBOX_MAX_ATTEMPTS"] = "0";
       expect(() => loadOutboxParams()).toThrow(/must be a positive integer/);
-      process.env.OUTBOX_MAX_ATTEMPTS = "";
+      process.env["OUTBOX_MAX_ATTEMPTS"] = "";
       expect(loadOutboxParams().maxAttempts).toBe(6);
     } finally {
-      if (prev === undefined) delete process.env.OUTBOX_MAX_ATTEMPTS;
-      else process.env.OUTBOX_MAX_ATTEMPTS = prev;
+      if (prev === undefined) delete process.env["OUTBOX_MAX_ATTEMPTS"];
+      else process.env["OUTBOX_MAX_ATTEMPTS"] = prev;
     }
   });
 });

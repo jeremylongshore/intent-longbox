@@ -460,7 +460,7 @@ describe.skipIf(!dbUp)("the LCID lifecycle (047 §5–§7, §10)", () => {
       // named hardware, never guessed. Until then the block is empty except for
       // its own explanation, and this assertion is what stops someone filling it
       // in with a plausible number.
-      const measurements = raw.measurements as Record<string, unknown>;
+      const measurements = raw["measurements"] as Record<string, unknown>;
       expect(Object.keys(measurements).filter((k) => !k.startsWith("_"))).toEqual([]);
     });
   });

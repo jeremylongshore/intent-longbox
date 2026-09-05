@@ -274,8 +274,8 @@ export function assertSpendCeilingsOrThrow(ceilings: SpendCeilings, defaults: Sp
 export function loadConfig(): AppConfig {
   return {
     port: num("PORT", 3000),
-    databaseUrl: process.env.DATABASE_URL ?? "",
-    uploadsDir: process.env.UPLOADS_DIR ?? "uploads",
+    databaseUrl: process.env["DATABASE_URL"] ?? "",
+    uploadsDir: process.env["UPLOADS_DIR"] ?? "uploads",
     bands: {
       high: num("BAND_HIGH", 0.85),
       medium: num("BAND_MEDIUM", 0.5),
@@ -418,8 +418,8 @@ export class GatewayConfigError extends Error {
  * about the same rule.
  */
 export function assertGatewayConfigOrThrow(env: NodeJS.ProcessEnv = process.env): void {
-  const base = env.LLM_BASE_URL ?? "";
-  const key = env.LLM_API_KEY ?? "";
+  const base = env["LLM_BASE_URL"] ?? "";
+  const key = env["LLM_API_KEY"] ?? "";
   if (base === "" && key === "") return;
   if (base === "" || key === "") {
     throw new GatewayConfigError(

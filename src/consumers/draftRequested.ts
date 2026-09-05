@@ -170,11 +170,11 @@ export function composeDraftInput(facts: DraftFacts, copyKey: string): DraftProd
   const issue = facts.confirmedIssue;
   if (!issue || !facts.pricing) return undefined;
 
-  const issueNumber = boundedText(issue.issue, CAPS.issue);
+  const issueNumber = boundedText(issue["issue"], CAPS.issue);
   const title = [
-    boundedText(issue.title, CAPS.title),
+    boundedText(issue["title"], CAPS.title),
     issueNumber ? `#${issueNumber}` : "",
-    boundedText(issue.variant, CAPS.variant),
+    boundedText(issue["variant"], CAPS.variant),
   ]
     .filter((part) => part.length > 0)
     .join(" ");
@@ -183,7 +183,7 @@ export function composeDraftInput(facts: DraftFacts, copyKey: string): DraftProd
     ? `Condition: ${escapeHtml(a.grade_range_low === a.grade_range_high ? a.grade_range_low : `${a.grade_range_low}-${a.grade_range_high}`, CAPS.issue)}` +
       `${a.defects.length ? `. Noted: ${escapeHtml(a.defects.join(", ").replace(/_/g, " "), CAPS.defects)}` : ""}`
     : "";
-  const provenance = [escapeHtml(issue.publisher, CAPS.publisher), escapeHtml(issue.year, CAPS.year)]
+  const provenance = [escapeHtml(issue["publisher"], CAPS.publisher), escapeHtml(issue["year"], CAPS.year)]
     .filter((part) => part.length > 0)
     .join(", ");
 

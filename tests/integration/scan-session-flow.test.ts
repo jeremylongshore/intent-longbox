@@ -86,11 +86,11 @@ describe.skipIf(!dbUp)("scan-session event flow (service layer)", () => {
     expect(usd).toBeCloseTo((1000 * 3 + 500 * 15) / 1_000_000, 10);
 
     const events = await getSessionEvents(pool, shopId, session.id);
-    expect(events.scan_photo).toHaveLength(2);
-    expect(events.human_confirmation).toHaveLength(1);
-    expect(events.pricing_snapshot).toHaveLength(1);
-    expect(events.shopify_draft).toHaveLength(0);
-    const confirmation = events.human_confirmation![0] as { confirmed_issue: { title: string } };
+    expect(events["scan_photo"]).toHaveLength(2);
+    expect(events["human_confirmation"]).toHaveLength(1);
+    expect(events["pricing_snapshot"]).toHaveLength(1);
+    expect(events["shopify_draft"]).toHaveLength(0);
+    const confirmation = events["human_confirmation"]![0] as { confirmed_issue: { title: string } };
     expect(confirmation.confirmed_issue.title).toBe("Amazing Spider-Man");
 
     // Status transitions on the identity row; events untouched. The write takes

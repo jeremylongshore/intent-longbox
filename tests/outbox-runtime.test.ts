@@ -352,7 +352,7 @@ describe("drainOnce — outcome to attempt kind (043 §5)", () => {
       if (text.includes("SKIP LOCKED")) return { rows: claimRow ? [claimRow] : [] };
       // The post-lock eligibility re-check: the candidate survives it here, so
       // these cases exercise the outcome mapping rather than the race.
-      if (text.includes("o.id = ANY(")) return { rows: claimRow ? [{ id: claimRow.id }] : [] };
+      if (text.includes("o.id = ANY(")) return { rows: claimRow ? [{ id: claimRow["id"] }] : [] };
       if (text.includes("coalesce(max(attempt_no)")) return { rows: [{ n: 1 }] };
       return undefined;
     });
@@ -424,7 +424,7 @@ describe("drainOnce — outcome to attempt kind (043 §5)", () => {
       throw new TypeError("shop 'Gotham City Limit' token shpat-SECRET rejected");
     });
     const detail = JSON.parse(terminal[0]!.values![4] as string) as Record<string, unknown>;
-    expect(detail.error_class).toBe("TypeError");
+    expect(detail["error_class"]).toBe("TypeError");
     expect(JSON.stringify(detail)).not.toContain("shpat-SECRET");
     expect(JSON.stringify(detail)).not.toContain("Gotham");
   });

@@ -104,10 +104,10 @@ export function registerScanSessionRoutes(app: FastifyInstance, deps: ApiDeps): 
     const { shopId, id } = parse(contract.sessionParams, req.params);
     const file = await req.file();
     if (!file) throw new LongboxError("PHOTO_FIELD_REQUIRED");
-    const kindRaw = (file.fields.kind as { value?: string } | undefined)?.value ?? "cover";
+    const kindRaw = (file.fields["kind"] as { value?: string } | undefined)?.value ?? "cover";
     const kind = parse(contract.photoKind, kindRaw);
-    const against = file.fields.against
-      ? parse(contract.againstSchema, JSON.parse(String((file.fields.against as { value: string }).value)))
+    const against = file.fields["against"]
+      ? parse(contract.againstSchema, JSON.parse(String((file.fields["against"] as { value: string }).value)))
       : undefined;
     const ctx = { ...context(req, `${T}/scan-sessions/:id/photos`, shopId, id), sessionId: id };
     return send(

@@ -254,7 +254,7 @@ export function cardEditionSignature(fields: CardEditionFields): string {
 export function cardDefinitionSignature(vertical: string, attributes: Record<string, unknown>): string {
   const subjectKey = SUBJECT_KEY[vertical];
   return [
-    normalizeField(attributes.set as string | null | undefined),
+    normalizeField(attributes["set"] as string | null | undefined),
     normalizeField(subjectKey === undefined ? undefined : (attributes[subjectKey] as string | null)),
   ].join(SIGNATURE_SEPARATOR);
 }
@@ -274,11 +274,11 @@ export function cardSignatureInput(
   editionAttributes: Record<string, unknown>
 ): SignatureFields {
   return {
-    set: definitionAttributes.set as string | null | undefined,
-    number: editionAttributes.number as string | null | undefined,
-    variant: editionAttributes.variant as string | null | undefined,
-    parallel: editionAttributes.parallel as string | null | undefined,
-    language: editionAttributes.language as string | null | undefined,
+    set: definitionAttributes["set"] as string | null | undefined,
+    number: editionAttributes["number"] as string | null | undefined,
+    variant: editionAttributes["variant"] as string | null | undefined,
+    parallel: editionAttributes["parallel"] as string | null | undefined,
+    language: editionAttributes["language"] as string | null | undefined,
   };
 }
 
@@ -303,11 +303,11 @@ export function cardSignatureClaim(claim: unknown): SignatureFields {
     return undefined;
   };
   return {
-    set: text(c.set ?? c.setName),
-    number: text(c.number ?? c.cardNumber),
-    variant: text(c.variant),
-    parallel: text(c.parallel),
-    language: text(c.language ?? c.lang),
+    set: text(c["set"] ?? c["setName"]),
+    number: text(c["number"] ?? c["cardNumber"]),
+    variant: text(c["variant"]),
+    parallel: text(c["parallel"]),
+    language: text(c["language"] ?? c["lang"]),
   };
 }
 
@@ -320,7 +320,7 @@ export function cardSignatureClaim(claim: unknown): SignatureFields {
  * which is a false match, not a lookup.
  */
 export function cardClaimIsUsable(fields: SignatureFields): boolean {
-  return Boolean(fields.set ?? fields.number);
+  return Boolean(fields["set"] ?? fields["number"]);
 }
 
 /**

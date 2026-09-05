@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 
 /** Admin (maintenance) connection URL; database name is replaced per test file. */
 export const ADMIN_URL =
-  process.env.TEST_DATABASE_ADMIN_URL ?? "postgres://longbox:longbox@127.0.0.1:54329/postgres";
+  process.env["TEST_DATABASE_ADMIN_URL"] ?? "postgres://longbox:longbox@127.0.0.1:54329/postgres";
 
 /**
  * True when the lane should run: INTEGRATION=1 AND a Postgres answers on the
@@ -21,7 +21,7 @@ export const ADMIN_URL =
  * so a broken service container can never produce a green job with 0 tests.
  */
 export async function probeDb(): Promise<boolean> {
-  if (process.env.INTEGRATION !== "1") {
+  if (process.env["INTEGRATION"] !== "1") {
     console.warn("[integration] skipping: INTEGRATION=1 not set (use pnpm test:integration)");
     return false;
   }
@@ -33,7 +33,7 @@ export async function probeDb(): Promise<boolean> {
   } catch (err) {
     const where = ADMIN_URL.replace(/\/\/.*@/, "//***@");
     await client.end().catch(() => undefined);
-    if (process.env.CI) {
+    if (process.env["CI"]) {
       throw new Error(
         `[integration] CI=true but no Postgres reachable at ${where} (${(err as Error).message}); ` +
           `refusing to skip the lane in CI`,
@@ -53,8 +53,8 @@ export async function probeDb(): Promise<boolean> {
  * `docker/postgres-init/00-roles.sql` — mounted by docker-compose.test.yml
  * locally, piped through psql by CI. Passwords are throwaway, never secrets.
  */
-export const MIGRATE_ROLE = process.env.TEST_MIGRATE_ROLE ?? "longbox_migrate";
-export const APP_ROLE = process.env.TEST_APP_ROLE ?? "longbox_app";
+export const MIGRATE_ROLE = process.env["TEST_MIGRATE_ROLE"] ?? "longbox_migrate";
+export const APP_ROLE = process.env["TEST_APP_ROLE"] ?? "longbox_app";
 
 /** Rewrite a connection URL to authenticate as `role` (password === role name). */
 function asRole(databaseUrl: string, role: string): string {

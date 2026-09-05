@@ -285,7 +285,7 @@ const VIEWS_SQL = `
  */
 export async function applyAppRoleGrants(
   client: GrantClient,
-  role: string = process.env.APP_DB_ROLE ?? DEFAULT_APP_ROLE
+  role: string = process.env["APP_DB_ROLE"] ?? DEFAULT_APP_ROLE
 ): Promise<{ role: string; plan: GrantPlan; views: string[]; statements: string[] }> {
   assertSafeIdentifier(role, "role name");
   const roleRows = (await client.query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [role])).rows;

@@ -114,7 +114,7 @@ describe("unknown is not absent (the bead's own note)", () => {
   it("keeps an EXPLICIT null as a stated null", () => {
     const parsed = parseIdentityAttributes("comic", "edition", { issue: "300", variant: null });
     expect("variant" in parsed).toBe(true);
-    expect(parsed.variant).toBeNull();
+    expect(parsed["variant"]).toBeNull();
   });
 
   it("survives the JSON round-trip the jsonb column performs", () => {
@@ -147,7 +147,7 @@ describe("the labelled hard examples 014 §8 asks for", () => {
       distribution: "newsstand",
     });
     const direct = parseIdentityAttributes("comic", "edition", { issue: "300", distribution: "direct" });
-    expect(newsstand.distribution).toBe("newsstand");
+    expect(newsstand["distribution"]).toBe("newsstand");
     // Distribution is NOT in 030 §3.3's ratified four, so it must not move the
     // signature — widening the signature is an amendment to a ratified record.
     const definition = { series: "Amazing Spider-Man" };
@@ -237,7 +237,7 @@ describe("comicSignatureClaim — the flat payload mapping (047 A8's third-copy 
   it("drops a field whose value is not a string, rather than stringifying an object", () => {
     // `String({})` is "[object Object]", which would become a signature field and
     // dedupe two unrelated books together. Absent is the honest answer.
-    expect(comicSignatureClaim({ title: "Saga", issue: "1", variant: { a: 1 } }).variant).toBeUndefined();
+    expect(comicSignatureClaim({ title: "Saga", issue: "1", variant: { a: 1 } })["variant"]).toBeUndefined();
   });
 
   it("returns an empty claim for a non-object payload rather than throwing", () => {

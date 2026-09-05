@@ -108,7 +108,7 @@ export function createPriceChartingClient(cfg: PriceChartingConfig): PriceCharti
       // the day the token lands; the shape stays behind PriceChartingClient.
       const comps: Comp[] = [];
       for (const p of body.products ?? []) {
-        const sourceId = p.id !== undefined ? { source_id: String(p.id) } : {};
+        const sourceId = p["id"] !== undefined ? { source_id: String(p["id"]) } : {};
         comps.push({
           title: String(p["product-name"] ?? ""),
           grade_label: "ungraded",

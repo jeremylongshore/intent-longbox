@@ -175,7 +175,7 @@ export function parseComicAttributes(
  * `VerticalPack.claimIsUsable`).
  */
 export function comicClaimIsUsable(fields: SignatureFields): boolean {
-  return Boolean(fields.series ?? fields.issue);
+  return Boolean(fields["series"] ?? fields["issue"]);
 }
 
 /**
@@ -199,13 +199,21 @@ export function comicClaimIsUsable(fields: SignatureFields): boolean {
  */
 export function comicSignatureClaim(claim: unknown): SignatureFields {
   const c = (claim !== null && typeof claim === "object" ? claim : {}) as Record<string, unknown>;
-  const series = (c.series ?? c.title) as string | null | undefined;
+  const series = (c["series"] ?? c["title"]) as string | null | undefined;
   return {
     series: typeof series === "string" || series === null ? series : undefined,
-    issue: typeof c.issue === "string" ? c.issue : typeof c.issue === "number" ? String(c.issue) : undefined,
-    variant: typeof c.variant === "string" || c.variant === null ? (c.variant as string | null) : undefined,
+    issue:
+      typeof c["issue"] === "string"
+        ? c["issue"]
+        : typeof c["issue"] === "number"
+          ? String(c["issue"])
+          : undefined,
+    variant:
+      typeof c["variant"] === "string" || c["variant"] === null ? (c["variant"] as string | null) : undefined,
     printing:
-      typeof c.printing === "string" || c.printing === null ? (c.printing as string | null) : undefined,
+      typeof c["printing"] === "string" || c["printing"] === null
+        ? (c["printing"] as string | null)
+        : undefined,
   };
 }
 
@@ -226,8 +234,8 @@ export function comicSignatureClaim(claim: unknown): SignatureFields {
  */
 export function comicDefinitionSignature(attributes: Record<string, unknown>): string {
   return [
-    normalizeField(attributes.series as string | null | undefined),
-    normalizeField(attributes.volume as string | null | undefined),
+    normalizeField(attributes["series"] as string | null | undefined),
+    normalizeField(attributes["volume"] as string | null | undefined),
   ].join(SIGNATURE_SEPARATOR);
 }
 
@@ -253,9 +261,9 @@ export function comicSignatureInput(
   editionAttributes: Record<string, unknown>
 ): SignatureFields {
   return {
-    series: definitionAttributes.series as string | null | undefined,
-    issue: editionAttributes.issue as string | null | undefined,
-    variant: editionAttributes.variant as string | null | undefined,
-    printing: editionAttributes.printing as string | null | undefined,
+    series: definitionAttributes["series"] as string | null | undefined,
+    issue: editionAttributes["issue"] as string | null | undefined,
+    variant: editionAttributes["variant"] as string | null | undefined,
+    printing: editionAttributes["printing"] as string | null | undefined,
   };
 }

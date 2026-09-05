@@ -373,7 +373,7 @@ async function bootstrapDevice(
 ): Promise<{ secret: string } | undefined> {
   const pin = process.env[BOOTSTRAP_PIN_ENV] ?? "";
   if (pin === "") return undefined;
-  if ((process.env.NODE_ENV ?? "development") === "production") {
+  if ((process.env["NODE_ENV"] ?? "development") === "production") {
     throw new Error(
       `${BOOTSTRAP_PIN_ENV} is set and NODE_ENV is production. This flag enrols a phone and ` +
         `writes an operator PIN, which in production would be a credential nobody at the shop ` +

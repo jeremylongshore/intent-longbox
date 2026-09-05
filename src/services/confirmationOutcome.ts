@@ -161,11 +161,11 @@ function bag(payload: unknown): Record<string, unknown> {
  */
 function comicConfirmationKey(payload: unknown): string | null {
   const p = bag(payload);
-  const title = normalizeField(p.title);
-  const issue = normalizeIssue(p.issue);
+  const title = normalizeField(p["title"]);
+  const issue = normalizeIssue(p["issue"]);
   // A missing variant, an empty string and an explicit null are the same claim:
   // "no variant designator". Only a non-empty designator distinguishes.
-  const variant = normalizeField(p.variant);
+  const variant = normalizeField(p["variant"]);
   if (title === "" && issue === "") return null;
   return [title, issue, variant].join(SEP);
 }
@@ -208,11 +208,11 @@ function comicConfirmationKey(payload: unknown): string | null {
  */
 function cardConfirmationKey(payload: unknown): string | null {
   const p = bag(payload);
-  const set = normalizeField(p.set ?? p.setName);
-  const number = normalizeCardNumber(p.number ?? p.cardNumber);
-  const variant = normalizeField(p.variant);
-  const parallel = normalizeField(p.parallel);
-  const language = normalizeLanguage(p.language ?? p.lang);
+  const set = normalizeField(p["set"] ?? p["setName"]);
+  const number = normalizeCardNumber(p["number"] ?? p["cardNumber"]);
+  const variant = normalizeField(p["variant"]);
+  const parallel = normalizeField(p["parallel"]);
+  const language = normalizeLanguage(p["language"] ?? p["lang"]);
   // A set or a number. Neither means the payload named no card at all, and a key
   // over five empty fields would compare equal to every other empty claim.
   if (set === "" && number === "") return null;

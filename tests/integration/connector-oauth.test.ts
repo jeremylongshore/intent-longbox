@@ -264,8 +264,8 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     // check somebody could forget.
     await expect(completeInstall(deps, query, fakeExchange)).rejects.toThrow();
     const then = await counts();
-    expect(then.connector_token_version).toBe(after.connector_token_version);
-    expect(then.connector_install_state_use).toBe(after.connector_install_state_use);
+    expect(then["connector_token_version"]).toBe(after["connector_token_version"]);
+    expect(then["connector_install_state_use"]).toBe(after["connector_install_state_use"]);
   });
 
   it("REFUSES a callback whose signature does not verify, having written NOTHING", async () => {
@@ -309,8 +309,8 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     // after the app's configuration is fixed, rather than being told to start
     // again for a failure that was ours.
     const then = await counts();
-    expect(then.connector_token_version).toBe(before.connector_token_version);
-    expect(then.connector_install_state_use).toBe(before.connector_install_state_use);
+    expect(then["connector_token_version"]).toBe(before["connector_token_version"]);
+    expect(then["connector_install_state_use"]).toBe(before["connector_install_state_use"]);
   });
 
   it("REFUSES a grant missing a required scope", async () => {

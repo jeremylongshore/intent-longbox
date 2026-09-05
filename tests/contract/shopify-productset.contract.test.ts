@@ -172,9 +172,9 @@ describe("Shopify productSet — outgoing request contract", () => {
       copyKey: COPY_KEY,
     });
     const { body } = sentRequest(spy);
-    expect(body.variables.input.status).toBe("DRAFT");
-    expect(body.variables.input.files).toEqual([]);
-    expect(body.variables.input.variants).toEqual([
+    expect(body.variables.input["status"]).toBe("DRAFT");
+    expect(body.variables.input["files"]).toEqual([]);
+    expect(body.variables.input["variants"]).toEqual([
       { price: "0.05", optionValues: [{ optionName: "Title", name: "Default" }] },
     ]);
   });
@@ -183,7 +183,7 @@ describe("Shopify productSet — outgoing request contract", () => {
     const spy = captureFetch(RECORDED_USER_ERRORS);
     await createShopifyClient(cfg).createDraft(draft);
     const { body } = sentRequest(spy);
-    expect(body.variables.input.status).toBe("DRAFT");
+    expect(body.variables.input["status"]).toBe("DRAFT");
     expect(body.variables.input).not.toHaveProperty("publishedAt");
     expect(body.variables.input).not.toHaveProperty("publications");
     expect(body.query).not.toContain("publishablePublish");

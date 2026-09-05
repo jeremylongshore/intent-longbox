@@ -42,15 +42,15 @@ describe("buildConsumerRegistry (043 §4.1, A2)", () => {
 
 describe("resolveShopifyClientForShop — and the stub flag 043 §5.3 segments on", () => {
   const saved = {
-    domain: process.env.SHOPIFY_STORE_DOMAIN,
-    token: process.env.SHOPIFY_ADMIN_TOKEN,
-    version: process.env.SHOPIFY_API_VERSION,
+    domain: process.env["SHOPIFY_STORE_DOMAIN"],
+    token: process.env["SHOPIFY_ADMIN_TOKEN"],
+    version: process.env["SHOPIFY_API_VERSION"],
   };
 
   beforeEach(() => {
-    delete process.env.SHOPIFY_STORE_DOMAIN;
-    delete process.env.SHOPIFY_ADMIN_TOKEN;
-    delete process.env.SHOPIFY_API_VERSION;
+    delete process.env["SHOPIFY_STORE_DOMAIN"];
+    delete process.env["SHOPIFY_ADMIN_TOKEN"];
+    delete process.env["SHOPIFY_API_VERSION"];
   });
 
   afterEach(() => {
@@ -90,13 +90,13 @@ describe("resolveShopifyClientForShop — and the stub flag 043 §5.3 segments o
     // Half a configuration is not a configuration: `createShopifyClient` needs
     // both, and reporting stub=false on a client that cannot reach a store would
     // put a real-credential label on a call that never happened.
-    process.env.SHOPIFY_ADMIN_TOKEN = "shpat-test-token";
+    process.env["SHOPIFY_ADMIN_TOKEN"] = "shpat-test-token";
     const r = await resolveShopifyClientForShop(poolFor({ domain: null }).pool, SHOP);
     expect(r.stub).toBe(true);
   });
 
   it("reports stub=false only when BOTH a token and a store domain resolve", async () => {
-    process.env.SHOPIFY_ADMIN_TOKEN = "shpat-test-token";
+    process.env["SHOPIFY_ADMIN_TOKEN"] = "shpat-test-token";
     const r = await resolveShopifyClientForShop(
       poolFor({ domain: "gotham-city-limit.myshopify.com" }).pool,
       SHOP
@@ -105,8 +105,8 @@ describe("resolveShopifyClientForShop — and the stub flag 043 §5.3 segments o
   });
 
   it("prefers the shop row's domain over the global env fallback", async () => {
-    process.env.SHOPIFY_ADMIN_TOKEN = "shpat-test-token";
-    process.env.SHOPIFY_STORE_DOMAIN = "fallback.myshopify.com";
+    process.env["SHOPIFY_ADMIN_TOKEN"] = "shpat-test-token";
+    process.env["SHOPIFY_STORE_DOMAIN"] = "fallback.myshopify.com";
     const { pool } = poolFor({ domain: "per-shop.myshopify.com" });
     const r = await resolveShopifyClientForShop(pool, SHOP);
     // Multi-shop is real: a per-shop row wins over the global variable, which is
@@ -149,8 +149,8 @@ describe("resolveShopifyClientForShop — and the stub flag 043 §5.3 segments o
     // Falling through to `SHOPIFY_ADMIN_TOKEN` here would let a shop whose app
     // was uninstalled keep drafting through a credential nobody revoked, and the
     // "deletion" would have made the system carry on working.
-    process.env.SHOPIFY_ADMIN_TOKEN = "shpat-test-token";
-    process.env.SHOPIFY_STORE_DOMAIN = "fallback.myshopify.com";
+    process.env["SHOPIFY_ADMIN_TOKEN"] = "shpat-test-token";
+    process.env["SHOPIFY_STORE_DOMAIN"] = "fallback.myshopify.com";
     const { pool } = connectorPool([
       {
         id: "11111111-1111-4111-8111-111111111112",

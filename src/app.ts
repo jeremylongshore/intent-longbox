@@ -190,7 +190,7 @@ export async function buildApp(
       clientId: "",
       clientSecret: "",
       redirectUri: "",
-      apiVersion: process.env.SHOPIFY_API_VERSION ?? "2025-07",
+      apiVersion: process.env["SHOPIFY_API_VERSION"] ?? "2025-07",
     },
   });
 

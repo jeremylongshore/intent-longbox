@@ -42,8 +42,8 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createShopifyClient } from "../../src/services/shopify.js";
 
-const domain = process.env.SHOPIFY_DEV_STORE_DOMAIN;
-const token = process.env.SHOPIFY_DEV_ADMIN_TOKEN;
+const domain = process.env["SHOPIFY_DEV_STORE_DOMAIN"];
+const token = process.env["SHOPIFY_DEV_ADMIN_TOKEN"];
 const configured = Boolean(domain && token);
 
 if (!configured) {
@@ -60,7 +60,7 @@ describe.skipIf(!configured)("043 A11 — the customId upsert is immediately con
   const client = createShopifyClient({
     storeDomain: domain!,
     adminToken: token!,
-    apiVersion: process.env.SHOPIFY_DEV_API_VERSION ?? "2025-07",
+    apiVersion: process.env["SHOPIFY_DEV_API_VERSION"] ?? "2025-07",
   });
 
   it("a productSet CREATE is matched by an IMMEDIATE productSet upsert on the same customId", async () => {

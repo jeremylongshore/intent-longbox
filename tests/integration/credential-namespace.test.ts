@@ -13,12 +13,13 @@
 // this connection.
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appUrl, createFreshDb, probeDb, runMigrations } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations } from "./helpers.js";
 
 const DB = "longbox_test_credential_namespace";
 
 let enabled = false;
 let pool: pg.Pool | undefined;
+let ownerPool: pg.Pool | undefined;
 let shopId: string | undefined;
 let orgId: string;
 
@@ -27,14 +28,20 @@ beforeAll(async () => {
   if (!enabled) return;
   const migrateUrl = await createFreshDb(DB);
   await runMigrations(migrateUrl);
+  // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+  // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+  // tenant IS the row being created — which makes onboarding a schema-owner act
+  // enforced by the database rather than by convention. Everything the suite
+  // EXERCISES still runs on the least-privileged pool.
+  ownerPool = new pg.Pool({ connectionString: migrateUrl });
   pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
   // `migrations/019` gives `shop` a validated CHECK that it names a legal party
   // (034 §4.3 A4), so every shop this suite writes carries an organization —
   // including the ones it expects to be REFUSED, or they would be refused for
   // the wrong reason and the slug charset would stop being what is under test.
-  const org = await pool.query(`INSERT INTO organization (name) VALUES ('Namespace Org') RETURNING id`);
+  const org = await ownerPool.query(`INSERT INTO organization (name) VALUES ('Namespace Org') RETURNING id`);
   orgId = (org.rows[0] as { id: string }).id;
-  const res = await pool.query(
+  const res = await ownerPool.query(
     `INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3) RETURNING id`,
     ["Namespace Test Shop", "nstest", orgId]
   );
@@ -43,15 +50,19 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await pool?.end();
+  await ownerPool?.end();
 });
 
 async function insertCredential(keyRef: string, baseUrl: string | null): Promise<void> {
-  await pool!.query(`INSERT INTO shop_credentials (shop_id, kind, key_ref, base_url) VALUES ($1,$2,$3,$4)`, [
-    shopId,
-    "anthropic",
-    keyRef,
-    baseUrl,
-  ]);
+  // `shop_credentials` carries a `shop_id` and therefore a tenant policy
+  // (E03-B04), and this suite holds the APP-role pool — so the fixture names the
+  // shop it is writing for, exactly as the running system does. Without it the
+  // `WITH CHECK` refuses first and every CHECK-constraint assertion below would be
+  // asserting the wrong refusal.
+  await asShop(pool!, shopId!).query(
+    `INSERT INTO shop_credentials (shop_id, kind, key_ref, base_url) VALUES ($1,$2,$3,$4)`,
+    [shopId, "anthropic", keyRef, baseUrl]
+  );
 }
 
 describe("shop_credentials refuses a row that could exfiltrate a key (migrations/014)", () => {
@@ -122,7 +133,7 @@ describe("shop_credentials refuses a row that could exfiltrate a key (migrations
     // entered from the other end.
     for (const bad of ["gotham_city", "gotham.city", "Gotham", "gotham city"]) {
       await expect(
-        pool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
+        ownerPool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
           "Bad Slug Shop",
           bad,
           orgId,
@@ -130,7 +141,7 @@ describe("shop_credentials refuses a row that could exfiltrate a key (migrations
       ).rejects.toThrow(/shop_slug_charset/);
     }
     await expect(
-      pool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
+      ownerPool!.query(`INSERT INTO shop (name, slug, organization_id) VALUES ($1, $2, $3)`, [
         "Sibling Shop",
         "gotham-city",
         orgId,
@@ -155,9 +166,10 @@ describe("shop_credentials refuses a row that could exfiltrate a key (migrations
     expect((who.rows[0] as { role: string }).role).toBe("longbox_app");
     // Proof the role can write this table at all — otherwise every refusal above
     // would be a permission error wearing a constraint's name.
-    const count = await pool!.query(`SELECT count(*)::int AS n FROM shop_credentials WHERE shop_id = $1`, [
-      shopId,
-    ]);
+    const count = await asShop(pool!, shopId!).query(
+      `SELECT count(*)::int AS n FROM shop_credentials WHERE shop_id = $1`,
+      [shopId]
+    );
     expect((count.rows[0] as { n: number }).n).toBeGreaterThan(0);
   });
 });

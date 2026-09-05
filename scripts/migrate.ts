@@ -21,6 +21,7 @@ import "dotenv/config";
 //      ledger if one exists and creates nothing, not even its own table.
 import pg from "pg";
 import { applyAppRoleGrants } from "../src/db/appRoleGrants.js";
+import { applyRowLevelSecurity } from "../src/db/rowLevelSecurity.js";
 import { resolveMigrateUrl } from "./migrateUrl.js";
 import { lintMigration, planMigrations, readMigrations, type LedgerRow } from "./migrationDiscipline.js";
 
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
       const pending = migrationPlan.filter((p) => p.action === "apply").length;
       console.log(`  ${pending} to apply, ${migrationPlan.length - pending} already applied`);
       console.log("grants  skipped (--dry-run)");
+      console.log("rls     skipped (--dry-run)");
       return;
     }
 
@@ -123,6 +125,21 @@ async function main(): Promise<void> {
       ]);
     }
     console.log("migrations up to date");
+    // ⚠ **POLICIES BEFORE PRIVILEGES, AND THE ORDER IS THE SECURITY LENS'S F6.**
+    // Both steps are re-derived from the live schema on every run, because
+    // neither a POLICY nor a GRANT is inherited by a table a later migration
+    // creates. This one is DESIGNED TO THROW — on a table with no `shop_id` and
+    // no declared exemption, on a relation kind that cannot carry RLS — and the
+    // grant step is what makes a new table readable at all. Granting first meant
+    // a run that failed here left the new table GRANTED and UNPOLICIED, with a
+    // process already serving from it. Failing this way round leaves it
+    // unreadable instead, which is the direction to fail in.
+    const rls = await applyRowLevelSecurity(client);
+    console.log(
+      `rls     ${rls.plan.policied.length} policied (${rls.plan.serviceScoped.length} also service-scoped), ` +
+        `${rls.plan.exempt.length} declared exempt (no tenant column), ` +
+        `${rls.plan.views.length} view(s) security_invoker`
+    );
     const { role, plan, views } = await applyAppRoleGrants(client);
     console.log(
       `grants  ${role}: ${plan.appendOnly.length} append-only (SELECT, INSERT), ` +

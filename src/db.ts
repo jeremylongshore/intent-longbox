@@ -1,4 +1,19 @@
 import pg from "pg";
+import {
+  beginWithContext,
+  describeContext,
+  type ServiceScope,
+  type TenantContext,
+} from "./db/tenantContext.js";
+
+export {
+  SERVICE_SCOPES,
+  SERVICE_SETTING,
+  SHOP_ID_SETTING,
+  isServiceScope,
+  type ServiceScope,
+  type TenantContext,
+} from "./db/tenantContext.js";
 
 let pool: pg.Pool | undefined;
 
@@ -43,6 +58,29 @@ export function isRetryablePgError(err: unknown): boolean {
 }
 
 export interface TransactionOptions {
+  /**
+   * WHICH TENANT THIS TRANSACTION IS ABOUT (E03-B04, 034 §3.2).
+   *
+   * Set as `SET LOCAL longbox.shop_id` in the same round trip as `BEGIN`, before
+   * any statement and before any lock — so every row-level-security policy in
+   * `migrations/029` has a value to read from the transaction's FIRST statement
+   * onward, and the connection carries nothing back to the pool.
+   *
+   * **It takes no lock, so it is not a fifth position in 042 §5.3(b)'s order.**
+   * It is a `set_config` call: it reads nothing, writes no row and blocks on
+   * nothing. What `pnpm arch` asserts about it is that it PRECEDES the
+   * `request_idempotency` INSERT, which it does by construction — it travels with
+   * `BEGIN`, and there is no way to express it later.
+   *
+   * **Optional in the type, required in `src/`.** Omitting it is not a
+   * convenience: a transaction with no context sets both GUCs empty and every
+   * policy then matches nothing, so an omission is a loud zero rather than a
+   * quiet everything. It stays optional here because the migrate-role callers
+   * (the CLIs, the fixtures, the migration runner) own the schema and bypass RLS
+   * by ownership; `scripts/architectureRules.ts` requires every `withTransaction`
+   * call under `src/` to declare one.
+   */
+  tenant?: TenantContext;
   /**
    * 041 §4.2: `READ COMMITTED` is the default, with explicit locks (a constraint
    * first, then `SELECT … FOR UPDATE` on the anchor row). `SERIALIZABLE` is
@@ -131,6 +169,9 @@ export async function withTransactionResult<T>(
 
   const log = opts?.log ?? defaultTransactionLog;
   const label = opts?.label ?? "transaction";
+  // Built once, outside the retry loop: the shape check on `shopId` must throw
+  // BEFORE a connection is checked out, not once per attempt with a client held.
+  const begin = beginWithContext(opts?.tenant, isolation === "serializable");
 
   let attempts = 0;
   for (;;) {
@@ -142,7 +183,7 @@ export async function withTransactionResult<T>(
     // is carried to release(), which destroys the connection instead.
     let destroyWith: Error | undefined;
     try {
-      await client.query(isolation === "serializable" ? "BEGIN ISOLATION LEVEL SERIALIZABLE" : "BEGIN");
+      await client.query(begin);
       const value = await fn(client);
       await client.query("COMMIT");
       if (attempts > 1) log(`[tx] ${label}: committed after ${attempts} attempts (retried)`);
@@ -170,4 +211,56 @@ export async function withTransactionResult<T>(
       client.release(destroyWith);
     }
   }
+}
+
+/**
+ * A `Queryable` that carries a tenant context on every statement it runs.
+ *
+ * **Why this exists at all.** Row-level security reads a transaction-local
+ * setting, so a statement that is not inside a transaction has no context and
+ * therefore sees nothing (`migrations/029`). Most of the read path in
+ * `src/services/` is exactly that: a `pool.query` before or between the writes,
+ * with a provider call in the middle that must NOT happen with a connection held
+ * (041 §4.1, I13). So each such read gets its own small transaction rather than
+ * one long one — the context travels with the handle, the connection is held for
+ * one statement, and nothing is sticky.
+ *
+ * **The cost, stated rather than hidden.** A read through this handle is `BEGIN` +
+ * `set_config` (one round trip, one string), the statement, and `COMMIT` — two
+ * extra round trips against a database on the same host. That is the price of the
+ * boundary being in Postgres rather than in every `WHERE` clause, and it is paid
+ * on reads that were already separate pooled calls, never on the mutating path,
+ * which runs inside ONE transaction that sets the context once (042 §5.3(a)).
+ *
+ * **It is not a pool.** It has no `connect`, so it cannot be passed where a
+ * transaction is expected: `runIdempotent` and `withTransaction` still take the
+ * real `pg.Pool` and declare their own context. That is deliberate — 041 §4.1's
+ * rule is that a writer takes a `Tx`, and a handle that could be either would let
+ * a writer silently fall back to a per-statement transaction.
+ */
+export function scopedDb(pool: pg.Pool, tenant: TenantContext): Queryable {
+  return {
+    query: (text: string, values?: unknown[]) =>
+      withTransaction(pool, (tx) => tx.query(text, values), {
+        tenant,
+        label: `scoped-read:${describeContext(tenant)}`,
+      }),
+  };
+}
+
+/** `scopedDb` for the ordinary case: every statement is about ONE shop. */
+export function tenantDb(pool: pg.Pool, shopId: string): Queryable {
+  return scopedDb(pool, { shopId });
+}
+
+/**
+ * `scopedDb` for a statement that is cross-tenant by construction.
+ *
+ * The scope is a member of a closed union whose every member carries the sentence
+ * that justifies it (`src/db/tenantContext.ts`), and `pnpm arch` holds the number
+ * of call sites at an exact count. Reach for this only when the statement CANNOT
+ * name a shop — not when naming one is inconvenient.
+ */
+export function serviceDb(pool: pg.Pool, service: ServiceScope): Queryable {
+  return scopedDb(pool, { service });
 }

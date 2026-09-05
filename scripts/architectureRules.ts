@@ -921,6 +921,245 @@ export function collectSources(dir: string): SourceFile[] {
 }
 
 /** Every non-graph rule, in one call. */
+// ---------------------------------------------------------------------------
+// Rule 9 — E03-B04: every transaction under `src/` NAMES its tenant, and the
+// GUC is written in exactly one file.
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY A LINT AND NOT A TYPE. `TransactionOptions.tenant` is optional, because the
+ * migrate-role callers — the CLIs, the fixture generator, the migration runner —
+ * own the schema and bypass the policies by ownership, and making the field
+ * required would force them to invent a tenant they do not have. Inside `src/`
+ * there is no such caller: every transaction on the request path, the worker path
+ * or the authentication path is about one shop or is one of the declared
+ * cross-tenant scopes, and a transaction that names neither reads and writes
+ * nothing (`migrations/029`). That failure is SILENT — an empty result, never an
+ * error — which is exactly the shape `checkLockOrder`'s history says a rule has to
+ * exist for.
+ *
+ * The check is textual and deliberately narrow: a `withTransaction(`/
+ * `withTransactionResult(` call under `src/` must have a `tenant:` within the 600
+ * characters that follow it. That window is long enough for the callback bodies in
+ * this repository and short enough that it cannot be satisfied by the NEXT call's
+ * option object — and a false negative here costs a missed detection, never a
+ * false alarm, which is the direction 000-docs/044 §2 argues for.
+ */
+/**
+ * Comments are stripped before either of the two rules below reads a file.
+ *
+ * Both ask "which files DO this", and both are documented in prose in the files
+ * that do it — `src/db.ts` explains the `SET LOCAL` it delegates, and
+ * `src/db/rowLevelSecurity.ts` names the scopes in the reason it gives for a row.
+ * A rule that counted those would be counting explanations, which is the fastest
+ * way to teach an author to stop writing them. Line comments and block comments
+ * only: a `--` inside a SQL template literal is SQL and stays.
+ */
+export function stripJsComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+const TRANSACTION_CALL = /\bwithTransaction(?:Result)?\s*\(/g;
+const TENANT_OPTION = /tenant\s*:/;
+
+/**
+ * The text of one call, from its opening paren to the paren that closes it.
+ *
+ * Paren-balanced rather than a fixed window, and the difference is not pedantry:
+ * the callbacks in this repository run to hundreds of lines with option objects
+ * at the end, so a window wide enough to cover them would also cover the NEXT
+ * call's options and report green on a call that declared nothing. Quotes and
+ * template literals are skipped so a paren inside a SQL string cannot unbalance
+ * the count.
+ */
+export function callText(text: string, openParen: number): string {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openParen; i < text.length; i += 1) {
+    const ch = text[i]!;
+    const prev = i > 0 ? text[i - 1] : "";
+    if (quote !== null) {
+      if (ch === quote && prev !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return text.slice(openParen, i + 1);
+    }
+  }
+  return text.slice(openParen);
+}
+
+export function checkTransactionsDeclareTenant(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const file of files) {
+    if (!file.path.startsWith("src/")) continue;
+    // `src/db.ts` DEFINES the helper and calls it from `scopedDb`, where the
+    // context is the parameter; it is the one file the rule cannot ask about.
+    if (file.path === "src/db.ts") continue;
+    const text = stripJsComments(file.text);
+    for (const match of text.matchAll(TRANSACTION_CALL)) {
+      const open = (match.index ?? 0) + match[0].length - 1;
+      if (TENANT_OPTION.test(callText(text, open))) continue;
+      const line = text.slice(0, match.index ?? 0).split("\n").length;
+      findings.push({
+        rule: "transaction-declares-its-tenant",
+        message:
+          `${file.path}:${String(line)} opens a transaction without a \`tenant\` (E03-B04, 034 §3.2). ` +
+          `Every transaction under src/ is about ONE shop — \`{ tenant: { shopId } }\`, taken from ` +
+          `the session (048 §6.1) — or is one of the declared cross-tenant scopes in ` +
+          `src/db/tenantContext.ts. A transaction that names neither sees no rows and writes none, ` +
+          `and it fails as an empty result rather than as an error.`,
+      });
+    }
+  }
+  return findings;
+}
+
+/**
+ * The tenant GUC is written in ONE file, and read only by the policies.
+ *
+ * `src/db/tenantContext.ts` builds the `BEGIN` + `set_config` statement and
+ * validates the uuid it interpolates; a second site would be a second place that
+ * shape check could be forgotten, and interpolation is the whole of that defence.
+ * The rule is also what stops a well-meaning caller from "just setting it" outside
+ * a transaction — the sticky-connection hazard 034 §3.2 names and 046 K-5
+ * reproduces.
+ */
+export const TENANT_GUC_WRITER = "src/db/tenantContext.ts";
+
+// `set_config(` with no argument pattern, deliberately: `tenantContext.ts` builds
+// the setting NAME from a constant, so a rule keyed on the literal `'longbox.` saw
+// nothing at all and reported the writer as "nothing" — a rule that passes for the
+// wrong reason. Nothing else in this repository calls `set_config`.
+const SET_CONFIG = /set_config\s*\(/gi;
+const SET_LOCAL = /SET\s+LOCAL\s+longbox\./gi;
+
+export function checkTenantGucWriters(files: readonly SourceFile[]): Finding[] {
+  const writers = files
+    .filter((f) => f.path.startsWith("src/"))
+    .filter((f) => {
+      const text = stripJsComments(f.text);
+      return (text.match(SET_CONFIG) ?? []).length > 0 || (text.match(SET_LOCAL) ?? []).length > 0;
+    })
+    .map((f) => f.path)
+    .sort();
+
+  if (writers.length === 1 && writers[0] === TENANT_GUC_WRITER) return [];
+  return [
+    {
+      rule: "tenant-context-has-one-writer",
+      message:
+        `the tenant GUC is set from [${writers.join(", ") || "nothing"}]; the only writer may be ` +
+        `${TENANT_GUC_WRITER} (E03-B04). It validates the uuid it interpolates and travels with ` +
+        `\`BEGIN\`, so a second site is both a second place that shape check can be forgotten and ` +
+        `a place the context could be set OUTSIDE a transaction — which is sticky connection state ` +
+        `and outlives the request (034 §3.2, 046 K-5).`,
+    },
+  ];
+}
+
+/**
+ * The cross-tenant scopes are an EXACT INVENTORY, never a ceiling.
+ *
+ * A service scope is the one hole in the tenant boundary: inside one, a statement
+ * sees every shop's rows on the tables that carry the second policy. The union in
+ * `src/db/tenantContext.ts` says WHICH scopes exist and why; this says how many
+ * places may name each, and the count is exact for the reason 000-docs/044 §6
+ * gives for every other inventory here — a NEW occurrence fails the gate, and a
+ * REMOVED one also fails it until somebody lowers the number, so the list shrinks
+ * deliberately instead of drifting.
+ */
+export const SERVICE_SCOPE_SITES: readonly { scope: string; count: number }[] = [
+  // `resolvePrincipal`'s reads.
+  { scope: "session-resolution", count: 1 },
+  // The poller's shop enumeration — the ONE read a per-shop drain cannot scope,
+  // because `shop` is policied on its own `id` (the invariant review's WARN 3).
+  { scope: "outbox-sweep", count: 1 },
+  // The credential lookup and the failure row it may append.
+  { scope: "device-session-open", count: 2 },
+  // `verifyInvitation` and `verifyEnrollmentCode` — both presented with no session.
+  { scope: "code-redemption", count: 2 },
+  // `myShops`, the one read whose correct answer spans tenants.
+  { scope: "my-shops", count: 1 },
+  // The three MFA CLIs; the routes that replace them are E03-D11's.
+  { scope: "second-factor", count: 3 },
+  // The OAuth callback's state lookup, its cross-tenant domain-claim check (F8),
+  // the webhook's domain lookup, and the webhook's own transaction (whose receipt
+  // may carry a NULL shop_id).
+  { scope: "connector-inbound", count: 4 },
+];
+
+/**
+ * The files that DECLARE rather than USE: the scope union itself, the table-to-scope
+ * map that names each scope in its reasons, the transaction helper that TAKES a
+ * scope as a parameter, and this rule's own file.
+ */
+const SCOPE_DECLARATION_FILES = [
+  TENANT_GUC_WRITER,
+  "src/db/rowLevelSecurity.ts",
+  "src/db.ts",
+  "scripts/architectureRules.ts",
+];
+
+/**
+ * Every way of ENTERING a scope, counted independently of the scope names.
+ *
+ * ⚠ **THE SECURITY LENS'S F7, AND IT IS THE HOLE A LITERAL COUNT ALWAYS HAS.** The
+ * per-scope counts below match string literals, so a scope reached through a
+ * variable — `serviceDb(pool, scopeFromSomewhere)` — contributes ZERO to every one
+ * of them and the inventory reports green while a seventh call site exists. So the
+ * two counts are taken separately and required to agree: the number of ways INTO a
+ * scope must equal the number of times a scope is NAMED. A variable-driven call
+ * makes the first exceed the second, and the rule says so.
+ */
+const SCOPE_ENTRY = /\bserviceDb\s*\(|\bservice\s*:/g;
+
+export function checkServiceScopeSites(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const searchable = files
+    .filter((f) => f.path.startsWith("src/") || f.path.startsWith("scripts/"))
+    .filter((f) => !SCOPE_DECLARATION_FILES.includes(f.path))
+    .map((f) => ({ path: f.path, text: stripJsComments(f.text) }));
+
+  let declaredTotal = 0;
+  for (const { scope, count } of SERVICE_SCOPE_SITES) {
+    declaredTotal += count;
+    const pattern = new RegExp(`["'\`]${scope}["'\`]`, "g");
+    const seen = searchable.flatMap((f) => (f.text.match(pattern) ?? []).map(() => f.path));
+    if (seen.length === count) continue;
+    findings.push({
+      rule: "service-scope-inventory",
+      message:
+        `the cross-tenant scope "${scope}" is named at ${String(seen.length)} site(s) ` +
+        `[${[...new Set(seen)].join(", ") || "nothing"}]; the declared count is ${String(count)} ` +
+        `(E03-B04). A service scope is the one place a statement sees every shop's rows, so the ` +
+        `number is exact rather than a ceiling: a new site is a widening of the tenant boundary ` +
+        `and belongs in 000-docs/056 with its reason, and a removed one lowers the number here.`,
+    });
+  }
+
+  const entries = searchable.flatMap((f) => (f.text.match(SCOPE_ENTRY) ?? []).map(() => f.path));
+  if (entries.length !== declaredTotal) {
+    findings.push({
+      rule: "service-scope-entry-count",
+      message:
+        `${String(entries.length)} call site(s) ENTER a cross-tenant scope ` +
+        `[${[...new Set(entries)].join(", ") || "nothing"}] while the per-scope literal counts add up ` +
+        `to ${String(declaredTotal)} (E03-B04, security lens F7). The two disagree when a scope is ` +
+        `passed as a VARIABLE — which every literal count in this file is blind to — so the entry ` +
+        `count is taken separately and required to match. A scope reached through a variable is a ` +
+        `cross-tenant read nobody can grep for.`,
+    });
+  }
+  return findings;
+}
+
 export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
   return [
     ...checkSelectStar(files),
@@ -932,5 +1171,13 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkSupersedesWriters(files),
     ...checkIdentityFunctionSeparation(files),
     ...checkNoVerticalBranching(files),
+    ...checkTransactionsDeclareTenant(files),
+    ...checkTenantGucWriters(files),
+    // NOTE: `checkServiceScopeSites` is NOT called here. It needs the `scripts/`
+    // tree as well as `src/`, and a pure rule that reaches for the filesystem is
+    // not a pure rule — the invariant review's NOTE 5. `scripts/architectureGate.ts`
+    // collects both trees and calls it; `tests/contract/architecture-gate.test.ts`
+    // does the same, so the rule is exercised with its inputs supplied rather than
+    // discovered.
   ];
 }

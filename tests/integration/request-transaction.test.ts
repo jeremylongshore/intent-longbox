@@ -19,7 +19,7 @@
 // §5.3; 042 §5.3(a)/(b), A5; 029 §12.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction, withTransactionResult } from "../../src/db.js";
+import { type Tx, withTransaction, withTransactionResult } from "../../src/db.js";
 import {
   createScanSession,
   insertHumanConfirmation,
@@ -28,7 +28,7 @@ import {
   lockScanSession,
   setSessionStatus,
 } from "../../src/services/scanSession.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
@@ -37,7 +37,28 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
   let pool: pg.Pool;
+  let ownerPool: pg.Pool;
   let shopId: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d04_request_tx_test");
@@ -55,27 +76,34 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     //
     // A small pool, sized so a blocked transaction cannot starve its own test:
     // every case below holds at most two connections at once.
+    // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+    // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+    // tenant IS the row being created — which makes onboarding a schema-owner act
+    // enforced by the database rather than by convention. Everything the suite
+    // EXERCISES still runs on the least-privileged pool.
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 6 });
-    shopId = await seedShop(pool, { name: "Transaction Test Shop" });
+    shopId = await seedShop(ownerPool, { name: "Transaction Test Shop" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
-  const newSession = async () => (await createScanSession(pool, shopId)).id;
+  const newSession = async () => (await createScanSession(asShop(pool, shopId), shopId)).id;
 
   const countConfirmations = async (sessionId: string) =>
     Number(
       (
-        await pool.query(`SELECT count(*)::int AS n FROM human_confirmation WHERE scan_session_id = $1`, [
+        await shopQuery(`SELECT count(*)::int AS n FROM human_confirmation WHERE scan_session_id = $1`, [
           sessionId,
         ])
       ).rows[0].n
     );
 
   const statusOf = async (sessionId: string) =>
-    (await pool.query(`SELECT status FROM scan_session WHERE id = $1`, [sessionId])).rows[0].status;
+    (await shopQuery(`SELECT status FROM scan_session WHERE id = $1`, [sessionId])).rows[0].status;
 
   // --- (a) atomicity ---------------------------------------------------------
 
@@ -84,7 +112,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     const boom = new Error("draft composition blew up after the insert");
 
     await expect(
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         await lockScanSession(tx, shopId, sessionId);
         await insertHumanConfirmation(tx, {
           sessionId,
@@ -106,7 +134,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
 
   it("commits the append and the status write together", async () => {
     const sessionId = await newSession();
-    await withTransaction(pool, async (tx) => {
+    await shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       await insertHumanConfirmation(tx, {
         sessionId,
@@ -132,7 +160,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     // appends. Without the anchor lock both read "no prior" and both append a
     // 'correct' — the lost update this test exists to make impossible.
     const confirm = async (tag: string, holdMs: number) =>
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         await lockScanSession(tx, shopId, sessionId);
         order.push(`${tag}:locked`);
         const prior = await tx.query(
@@ -168,7 +196,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     // B did not even reach its lock until A had committed.
     expect(order).toEqual(["A:locked", "A:committed", "B:locked", "B:committed"]);
 
-    const outcomes = await pool.query(
+    const outcomes = await shopQuery(
       `SELECT outcome FROM human_confirmation WHERE scan_session_id = $1 ORDER BY created_at, id`,
       [sessionId]
     );
@@ -187,7 +215,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
   const openHoldCount = async (sessionId: string) =>
     Number(
       (
-        await pool.query(
+        await shopQuery(
           `SELECT count(*)::int AS n FROM retention_hold h
            WHERE h.target_table = 'scan_session' AND h.target_id = $1
              AND NOT EXISTS (SELECT 1 FROM retention_hold_release r WHERE r.hold_id = h.id)`,
@@ -201,7 +229,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     const events: string[] = [];
 
     // The draft path: check for an open hold, do some work, then write.
-    const draft = withTransaction(pool, async (tx) => {
+    const draft = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       const holds = await tx.query(
         `SELECT id FROM retention_hold WHERE target_table = 'scan_session' AND target_id = $1`,
@@ -223,7 +251,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
 
     await sleep(60);
     // 041 §4.2's decision: the hold-placement path takes the SAME anchor lock.
-    const hold = withTransaction(pool, async (tx) => {
+    const hold = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       await placeHold(tx, sessionId);
       events.push("hold:committed");
@@ -240,7 +268,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     const sessionId = await newSession();
     const events: string[] = [];
 
-    const draft = withTransaction(pool, async (tx) => {
+    const draft = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       const holds = await tx.query(
         `SELECT id FROM retention_hold WHERE target_table = 'scan_session' AND target_id = $1`,
@@ -264,7 +292,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     // and no constraint tying it to the session, so nothing in the SCHEMA stops
     // this. It commits in the middle of the draft's check-to-write window —
     // the write skew 041 §4.2 names, reproduced.
-    const hold = withTransaction(pool, async (tx) => {
+    const hold = shopTx(async (tx) => {
       await placeHold(tx, sessionId);
       events.push("hold:committed");
     });
@@ -281,24 +309,28 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     const sessionId = await newSession();
     let attemptsSeen = 0;
 
-    const { value, attempts } = await withTransactionResult(pool, async (tx) => {
-      attemptsSeen += 1;
-      await lockScanSession(tx, shopId, sessionId);
-      await insertHumanConfirmation(tx, {
-        sessionId,
-        shopId,
-        confirmedIssue: ISSUE,
-        source: "one_tap",
-        outcome: "confirm",
-        sessionSeq: 6,
-      });
-      if (attemptsSeen === 1) {
-        const err = new Error("simulated serialization failure") as Error & { code: string };
-        err.code = "40001";
-        throw err;
-      }
-      return "committed";
-    });
+    const { value, attempts } = await withTransactionResult(
+      pool,
+      async (tx) => {
+        attemptsSeen += 1;
+        await lockScanSession(tx, shopId, sessionId);
+        await insertHumanConfirmation(tx, {
+          sessionId,
+          shopId,
+          confirmedIssue: ISSUE,
+          source: "one_tap",
+          outcome: "confirm",
+          sessionSeq: 6,
+        });
+        if (attemptsSeen === 1) {
+          const err = new Error("simulated serialization failure") as Error & { code: string };
+          err.code = "40001";
+          throw err;
+        }
+        return "committed";
+      },
+      { tenant: { shopId } }
+    );
 
     expect(value).toBe("committed");
     expect(attempts).toBe(2);
@@ -313,7 +345,7 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     const sessionId = await newSession();
     let attemptsSeen = 0;
     await expect(
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         attemptsSeen += 1;
         await lockScanSession(tx, shopId, sessionId);
         await insertHumanConfirmation(tx, {
@@ -337,14 +369,14 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     let firstCommittedAt = 0;
     let secondAcquiredAt = 0;
 
-    const first = withTransaction(pool, async (tx) => {
+    const first = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       await sleep(400); // the connection is HELD; the lock is held with it
       firstCommittedAt = Date.now();
     });
 
     await sleep(80);
-    const second = withTransaction(pool, async (tx) => {
+    const second = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, sessionId);
       secondAcquiredAt = Date.now();
     });
@@ -362,13 +394,13 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
     let bFinishedAt = 0;
     let aCommittedAt = 0;
 
-    const holdA = withTransaction(pool, async (tx) => {
+    const holdA = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, a);
       await sleep(300);
       aCommittedAt = Date.now();
     });
     await sleep(60);
-    const touchB = withTransaction(pool, async (tx) => {
+    const touchB = shopTx(async (tx) => {
       await lockScanSession(tx, shopId, b);
       bFinishedAt = Date.now();
     });
@@ -380,8 +412,8 @@ describe.skipIf(!dbUp)("the request transaction (041 §4)", () => {
 
   it("the anchor lock is shop-scoped: another shop's id locks nothing (T24)", async () => {
     const sessionId = await newSession();
-    const otherShop = await seedShop(pool, { name: "Other Shop", slug: `other-${Date.now()}` });
-    const locked = await withTransaction(pool, (tx) => lockScanSession(tx, otherShop, sessionId));
+    const otherShop = await seedShop(ownerPool, { name: "Other Shop", slug: `other-${Date.now()}` });
+    const locked = await shopTx((tx) => lockScanSession(tx, otherShop, sessionId));
     expect(locked).toBeUndefined();
   });
 });

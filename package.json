@@ -23,6 +23,7 @@
     "prepare": "husky",
     "migrate": "tsx scripts/migrate.ts",
     "grant-app-role": "tsx scripts/grant-app-role.ts",
+    "audit:cross-tenant": "tsx scripts/audit-cross-tenant.ts",
     "register-shop": "tsx scripts/register-shop.ts",
     "register-pack": "tsx scripts/register-pack.ts",
     "issue-invitation": "tsx scripts/issue-invitation.ts",

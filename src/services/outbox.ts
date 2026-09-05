@@ -48,7 +48,7 @@
 
 import type pg from "pg";
 import { randomUUID } from "node:crypto";
-import { withTransaction, type Queryable, type Tx } from "../db.js";
+import { serviceDb, tenantDb, withTransaction, type Queryable, type Tx } from "../db.js";
 import { catalogueEntry, isCatalogueEvent } from "../events/catalogue.js";
 
 // ---------------------------------------------------------------------------
@@ -664,7 +664,20 @@ export async function claimBatch(
       }
       return claims;
     },
-    { label: "outbox-claim" }
+    // THE WORKER'S TENANT (E03-B04). A background job has no session, so 034 §3.2's
+    // context has to come from somewhere else — and the answer taken here is the
+    // one the bead prefers: the poller drains ONE SHOP AT A TIME and the claim
+    // runs under that shop's own context, rather than a `longbox.service` bypass
+    // policy over the whole `outbox` table. The rejected alternative is recorded
+    // in 000-docs/056 §5: it would have made every row of the busiest table in the
+    // system readable inside a declared scope, in order to save one query per
+    // shop per tick.
+    //
+    // With no `shopId` the transaction sets no context, and for the APPLICATION
+    // role that means it claims nothing — fail closed. It is not an error case:
+    // the migrate-role callers in the integration lane own the tables and bypass
+    // the policies, which is how a test drives a claim without naming a shop.
+    { label: "outbox-claim", ...(opts.shopId ? { tenant: { shopId: opts.shopId } } : {}) }
   );
 }
 
@@ -807,7 +820,7 @@ export async function drainOnce(
     if (!consumer) {
       // A deployment defect, not a transient one: retrying cannot register a
       // handler. Dead-letter on the first attempt with a code that says which.
-      await recordAttempt(pool, {
+      await recordAttempt(tenantDb(pool, claim.shopId), {
         shopId: claim.shopId,
         outboxId: claim.outboxId,
         attemptNo: claim.attemptNo,
@@ -834,7 +847,10 @@ export async function drainOnce(
     const durationMs = Date.now() - startedAt;
 
     if (outcome.status === "delivered") {
-      await recordAttempt(pool, {
+      // Every attempt row is written through the claimed row's OWN tenant context
+      // (E03-B04): `outbox_attempt` carries a `shop_id` and therefore a policy, and
+      // a pool-level INSERT with no context would be refused by its `WITH CHECK`.
+      await recordAttempt(tenantDb(pool, claim.shopId), {
         shopId: claim.shopId,
         outboxId: claim.outboxId,
         attemptNo: claim.attemptNo,
@@ -846,7 +862,7 @@ export async function drainOnce(
     }
 
     if (outcome.status === "dead_letter") {
-      await recordAttempt(pool, {
+      await recordAttempt(tenantDb(pool, claim.shopId), {
         shopId: claim.shopId,
         outboxId: claim.outboxId,
         attemptNo: claim.attemptNo,
@@ -862,7 +878,7 @@ export async function drainOnce(
     // ceiling is reached (§5.3).
     const terminal = isTerminalFailure(outcome, claim.attemptNo, params.maxAttempts);
     if (terminal) {
-      await recordAttempt(pool, {
+      await recordAttempt(tenantDb(pool, claim.shopId), {
         shopId: claim.shopId,
         outboxId: claim.outboxId,
         attemptNo: claim.attemptNo,
@@ -876,7 +892,7 @@ export async function drainOnce(
       });
       deadLettered += 1;
     } else {
-      await recordAttempt(pool, {
+      await recordAttempt(tenantDb(pool, claim.shopId), {
         shopId: claim.shopId,
         outboxId: claim.outboxId,
         attemptNo: claim.attemptNo,
@@ -888,6 +904,63 @@ export async function drainOnce(
   }
 
   return { claimed: claims.length, delivered, failed, deadLettered };
+}
+
+/**
+ * Every shop in the estate, oldest first — the poller's outer loop (E03-B04).
+ *
+ * `shop` is the ONE table a sweep may read without a tenant: it carries no
+ * `shop_id` column, so it carries no policy, and `src/db/rowLevelSecurity.ts`
+ * records why with the reason on its exemption row. Everything the sweep does
+ * AFTER this — the claim, the dispatch, every attempt row — happens under one
+ * shop's context at a time.
+ */
+async function shopIdsToDrain(pool: pg.Pool): Promise<string[]> {
+  // THE ONE READ THIS SWEEP CANNOT SCOPE, and it now says so. `shop` used to carry
+  // no policy at all; the invariant review found the two reasons for that had
+  // stopped holding, so the tenant table is policied on its own `id` and asking
+  // WHICH shops exist is a declared cross-tenant scope. Everything after this line
+  // — the claim, the dispatch, every attempt row — runs under one shop's context.
+  const res = await serviceDb(pool, "outbox-sweep").query(`SELECT id FROM shop ORDER BY created_at`);
+  return (res.rows as Array<{ id: string }>).map((r) => r.id);
+}
+
+/**
+ * One drain cycle across EVERY shop, one shop at a time (E03-B04).
+ *
+ * **The cost is one claim query per shop per tick, and it is stated rather than
+ * hidden.** The alternative was a cross-tenant claim inside a declared service
+ * scope — one query per tick whatever the estate looks like — and it was rejected
+ * because it would put a permissive policy on `outbox`, the busiest shop-scoped
+ * table in the system, to save a query on a v0 with a handful of shops
+ * (000-docs/056 §5). The number to watch is shops × ticks; when it stops being
+ * negligible the fix is a service-scoped read of the shops that HAVE work, which
+ * is a smaller widening than a cross-tenant claim and is E13-B03's to make.
+ *
+ * `batchSize` becomes per shop rather than per cycle, which is the second
+ * consequence and the reason it is written here: a cycle can now do up to
+ * shops × batchSize units of work.
+ */
+export async function drainAllShops(
+  pool: pg.Pool,
+  registry: ConsumerRegistry,
+  params: OutboxParams,
+  opts: { limit?: number; jitterExpr?: string; logger?: DrainLogger } = {}
+): Promise<DrainResult> {
+  const total: { claimed: number; delivered: number; failed: number; deadLettered: number } = {
+    claimed: 0,
+    delivered: 0,
+    failed: 0,
+    deadLettered: 0,
+  };
+  for (const shopId of await shopIdsToDrain(pool)) {
+    const result = await drainOnce(pool, registry, params, { ...opts, shopId });
+    total.claimed += result.claimed;
+    total.delivered += result.delivered;
+    total.failed += result.failed;
+    total.deadLettered += result.deadLettered;
+  }
+  return total;
 }
 
 /**
@@ -928,7 +1001,7 @@ export function startOutboxPoller(
   const timer = setInterval(() => {
     if (running) return;
     running = true;
-    void drainOnce(pool, registry, params, { logger })
+    void drainAllShops(pool, registry, params, { logger })
       .then((result) => {
         // The liveness signal fires on EVERY cycle, including an empty one — a
         // heartbeat that only beats when there is work is not a heartbeat.

@@ -3,7 +3,7 @@ import { assertGatewayConfigOrThrow, loadConfig } from "./config.js";
 import { getPool } from "./db.js";
 import { buildApp } from "./app.js";
 import { assertAppendOnlyTriggersOrThrow, scheduleAppendOnlyCheck } from "./services/appendOnlyDetector.js";
-import { assertRoleSeparationOrThrow } from "./services/roleSeparation.js";
+import { assertRoleSeparationOrThrow, assertTenantIsolationOrThrow } from "./services/roleSeparation.js";
 import { loadOutboxParams, startOutboxPoller } from "./services/outbox.js";
 import { buildConsumerRegistry } from "./consumers/index.js";
 
@@ -29,6 +29,14 @@ async function main(): Promise<void> {
   // a misconfigured deployment sees names the actual defect — the wrong role in
   // DATABASE_URL — rather than a downstream symptom.
   await assertRoleSeparationOrThrow(db);
+  // THE TENANT BOUNDARY, CHECKED BEFORE A PORT IS BOUND (E03-B04, 019 T24).
+  // Third in the sequence and for the same fail-closed reason as the two around
+  // it: 034 §3.4 says row-level security "fails to a database misconfiguration",
+  // and a restored dump, a policy dropped during an incident or a role granted
+  // BYPASSRLS all leave a server that reads and writes perfectly well with no
+  // tenant boundary at all. T24 is non-waivable, so this process does not serve
+  // requests it cannot promise are isolated.
+  await assertTenantIsolationOrThrow(db);
   await assertAppendOnlyTriggersOrThrow(db);
   const app = await buildApp(db, config);
   scheduleAppendOnlyCheck(db, app.log);

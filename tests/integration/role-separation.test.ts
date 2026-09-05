@@ -15,10 +15,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import {
-  appUrl,
   APP_ROLE,
-  createFreshDb,
   MIGRATE_ROLE,
+  appUrl,
+  asShop,
+  createFreshDb,
   probeDb,
   runMigrations,
   seedShop,
@@ -154,7 +155,11 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
   // ── What it CAN do: append, read, and edit exactly the exempt tables ──
 
   it("INSERT is allowed on an append-only table; UPDATE and DELETE never reach the trigger", async () => {
-    const inserted = await appPool.query(
+    // THROUGH THE SHOP'S TENANT CONTEXT (E03-B04). `cost_log` carries a `shop_id`
+    // and therefore a policy, so an INSERT with no context is refused by the
+    // `WITH CHECK` before the GRANT this test is about is ever consulted — and the
+    // assertion below would be about the wrong refusal.
+    const inserted = await asShop(appPool, shopId).query(
       // `spend_owner` is NOT NULL for every row written after `023` (E03-B05,
       // 050 §6.1) — enforced by a `NOT VALID` CHECK, which still binds every
       // INSERT, so a fixture names an owner like any other writer.
@@ -190,10 +195,14 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
   });
 
   it("UPDATE is allowed on a declared-exempt config table", async () => {
-    const res = await appPool.query(`UPDATE shop SET name = $1 WHERE id = $2 RETURNING name`, [
-      `renamed-${randomUUID().slice(0, 8)}`,
-      shopId,
-    ]);
+    // THROUGH THE SHOP'S CONTEXT (E03-B04): `shop` is policied on its own `id`
+    // since the invariant review's WARN 3, so an UPDATE with no context matches no
+    // row and SUCCEEDS with zero changes — which would have made this assertion
+    // about the privilege pass for the wrong reason (056 §6.2's rule).
+    const res = await asShop(appPool, shopId).query(
+      `UPDATE shop SET name = $1 WHERE id = $2 RETURNING name`,
+      [`renamed-${randomUUID().slice(0, 8)}`, shopId]
+    );
     expect(res.rowCount).toBe(1);
   });
 
@@ -256,10 +265,17 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
        VALUES ($1,$2,$3,'longbox.commerce.draft_requested','outbox',$1,'human')`,
       [outboxId, shopId, sessionId]
     );
+    // ⚠ BOTH STATEMENTS RUN IN THE SHOP'S CONTEXT, AND THE UPDATE IS WHY.
+    // Row-level security filters the rows a statement can SEE, so an UPDATE with
+    // no tenant context matches nothing and SUCCEEDS — zero rows changed, no
+    // error, no trigger. The trigger's refusal is only reachable by a statement
+    // that can see the row, which is exactly what makes this assertion about the
+    // trigger rather than about the boundary above it (E03-B04).
+    const appAsShop = asShop(appPool, shopId);
     await expect(
-      appPool.query(`SELECT id FROM outbox WHERE id = $1 FOR UPDATE SKIP LOCKED`, [outboxId])
+      appAsShop.query(`SELECT id FROM outbox WHERE id = $1 FOR UPDATE SKIP LOCKED`, [outboxId])
     ).resolves.toBeDefined();
-    await expect(appPool.query(`UPDATE outbox SET event = 'x' WHERE id = $1`, [outboxId])).rejects.toThrow(
+    await expect(appAsShop.query(`UPDATE outbox SET event = 'x' WHERE id = $1`, [outboxId])).rejects.toThrow(
       /append-only/
     );
   });

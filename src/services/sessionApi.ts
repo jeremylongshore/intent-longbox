@@ -32,7 +32,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { mediaPolicy, type AppConfig } from "../config.js";
-import type { Queryable, Tx } from "../db.js";
+import { tenantDb, type Queryable, type Tx } from "../db.js";
 import { LongboxError } from "../contracts/v1/errors.js";
 import {
   EVENT_PROJECTIONS,
@@ -178,10 +178,16 @@ function project<T extends Record<string, unknown>>(
 }
 
 export async function getSessionDetail(
-  db: Queryable,
+  deps: ApiDeps,
   shopId: string,
   sessionId: string
 ): Promise<SessionDetail> {
+  // THE HANDLE IS BUILT HERE AND NOT PASSED IN (E03-B04). The route used to hand
+  // this function `deps.pool`, and it cannot hand it a tenant-scoped one instead:
+  // `src/routes/` may not import `src/db.ts` at all (029 §3.1, the
+  // `routes-do-not-import-the-db-module` rule). So the signature takes the deps
+  // and the read builds its context from the `shopId` the hook resolved.
+  const db = tenantDb(deps.pool, shopId);
   const session = await getScanSession(db, shopId, sessionId);
   if (!session) throw new LongboxError("SESSION_NOT_FOUND");
   const [raw, transitions, flags] = await Promise.all([
@@ -219,7 +225,7 @@ export async function getSessionDetail(
 // ---------------------------------------------------------------------------
 
 export async function createSession(deps: ApiDeps, ctx: CallContext): Promise<IdempotentOutcome> {
-  const shop = await requireShop(deps.pool, ctx.shopId);
+  const shop = await requireShop(tenantDb(deps.pool, ctx.shopId), ctx.shopId);
   return runIdempotent(deps.pool, idempotentRequest(ctx, {}), async (tx) => {
     // 041 §8.4 / 042 I1: `created_by` is NOT passed. A personal identifier is not
     // a value in the log, and a comment saying a column is deprecated with
@@ -260,13 +266,14 @@ export async function uploadPhoto(
   upload: PhotoUpload,
   against: Against | undefined
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const db = tenantDb(deps.pool, ctx.shopId);
+  const session = await requireSession(db, ctx.shopId, ctx.sessionId);
   const policy = mediaPolicy(deps.config);
 
   // THE QUOTA IS THE CHEAPEST REJECTION AND SO IT IS THE FIRST (046 §4 B4).
   // A session or a shop that is already at its ceiling is refused before a byte
   // reaches the disk the ceiling exists to protect.
-  const breach = quotaBreach(await photoUsage(deps.pool, ctx.shopId, session.id), policy);
+  const breach = quotaBreach(await photoUsage(db, ctx.shopId, session.id), policy);
   if (breach) throw new LongboxError("PHOTO_QUOTA_EXCEEDED", { ...breach });
 
   const dir = join(deps.config.uploadsDir, session.id);
@@ -409,8 +416,9 @@ export async function readPhoto(
   sessionId: string,
   photoId: string
 ): Promise<PhotoBytes> {
-  await requireSession(deps.pool, shopId, sessionId);
-  const photo = await findSessionPhoto(deps.pool, shopId, sessionId, photoId);
+  const db = tenantDb(deps.pool, shopId);
+  await requireSession(db, shopId, sessionId);
+  const photo = await findSessionPhoto(db, shopId, sessionId, photoId);
   if (!photo) throw new LongboxError("PHOTO_NOT_FOUND");
 
   const contentType = SERVABLE_TYPES[extname(photo.storage_url).toLowerCase()];
@@ -491,7 +499,8 @@ export async function identify(
   ctx: CallContext & { sessionId: string },
   body: z.infer<typeof identifyRequest>
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const db = tenantDb(deps.pool, ctx.shopId);
+  const session = await requireSession(db, ctx.shopId, ctx.sessionId);
   const idem = idempotentRequest(ctx, {
     barcode_digits: body.barcode_digits ?? null,
     against: body.against,
@@ -504,7 +513,7 @@ export async function identify(
   // retried identify over the counter's bad Wi-Fi would otherwise cost the shop
   // a second call to answer with the first call's stored response. 042 §5.3's
   // "the cheapest possible rejection path" applied where it costs money.
-  const replay = await replayIfSettled(deps.pool, idem);
+  const replay = await replayIfSettled(db, idem);
   if (replay) return replay;
 
   // 042 §8.3 — THE METERED CLASS FAILS CLOSED TO THE MANUAL PATH, NEVER TO AN
@@ -525,14 +534,14 @@ export async function identify(
   // separate function from `resolveVisionProvider`. Asking the resolver instead
   // would make a shop with a broken credential AND a spent budget answer 503
   // where 050 §2 Q4(d) requires the manual path.
-  const owner = await spendOwnerFor(deps.pool, ctx.shopId);
+  const owner = await spendOwnerFor(db, ctx.shopId);
   const budget = deps.limiter.takeMetered(ctx.shopId, owner);
 
   let provider = MANUAL_PATH_PROVIDER;
   let credentialVersionId: string | null = null;
   if (budget.allowed) {
     try {
-      const resolved = await resolveVisionProvider(deps.pool, ctx.shopId);
+      const resolved = await resolveVisionProvider(db, ctx.shopId);
       provider = resolved.provider;
       credentialVersionId = resolved.credentialVersionId;
     } catch {
@@ -555,7 +564,7 @@ export async function identify(
   };
 
   const plan = budget.allowed
-    ? await planIdentify(deps.pool, args)
+    ? await planIdentify(db, args)
     : { band: "low" as const, contradiction: false, contradictionReasons: [], error: "metered budget spent" };
 
   return runIdempotent(deps.pool, idem, async (tx) => {
@@ -591,7 +600,7 @@ export async function confirm(
   ctx: CallContext & { sessionId: string },
   body: z.infer<typeof confirmRequest>
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const session = await requireSession(tenantDb(deps.pool, ctx.shopId), ctx.shopId, ctx.sessionId);
 
   return runIdempotent(deps.pool, idempotentRequest(ctx, body), async (tx) => {
     await lockOrRefuse(tx, ctx.shopId, session.id);
@@ -696,7 +705,7 @@ export async function assessCondition(
   ctx: CallContext & { sessionId: string },
   body: z.infer<typeof conditionRequest>
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const session = await requireSession(tenantDb(deps.pool, ctx.shopId), ctx.shopId, ctx.sessionId);
   if (!validGradeRange(body.grade_range_low, body.grade_range_high)) {
     throw new LongboxError("VALIDATION_FAILED", {
       fieldErrors: { grade_range_low: ["must not exceed grade_range_high"] },
@@ -760,14 +769,15 @@ export async function price(
   ctx: CallContext & { sessionId: string },
   body: z.infer<typeof priceRequest>
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
+  const db = tenantDb(deps.pool, ctx.shopId);
+  const session = await requireSession(db, ctx.shopId, ctx.sessionId);
   // Same reasoning as `identify`, one layer cheaper: this route calls eBay and
   // PriceCharting before its transaction, and a replay should not re-ask
   // somebody else's server for an answer it already stored.
   const idem = idempotentRequest(ctx, body);
-  const replay = await replayIfSettled(deps.pool, idem);
+  const replay = await replayIfSettled(db, idem);
   if (replay) return replay;
-  const found = await latestPolicy(deps.pool, ctx.shopId);
+  const found = await latestPolicy(db, ctx.shopId);
 
   const query: PricingQuery = {
     title: body.title ?? body.query!,
@@ -780,8 +790,8 @@ export async function price(
   // ALL configured pricing providers run; each falls back to a clearly flagged
   // stub when its creds are missing (per-shop `key_ref` override, global env
   // fallback — the same resolution as every other credential).
-  const pcToken = await resolveShopToken(deps.pool, ctx.shopId, "pricecharting", "PRICECHARTING_TOKEN");
-  const ebayCreds = await resolveEbayCredentials(deps.pool, ctx.shopId);
+  const pcToken = await resolveShopToken(db, ctx.shopId, "pricecharting", "PRICECHARTING_TOKEN");
+  const ebayCreds = await resolveEbayCredentials(db, ctx.shopId);
   const providers: PricingProvider[] = [
     pcToken ? createPriceChartingProvider({ token: pcToken }) : createPriceChartingProvider({}),
     ebayCreds ? createEbayProvider(ebayCreds) : createStubEbayProvider(),
@@ -833,8 +843,9 @@ export async function requestDraft(
   ctx: CallContext & { sessionId: string },
   body: z.infer<typeof draftRequest>
 ): Promise<IdempotentOutcome> {
-  const session = await requireSession(deps.pool, ctx.shopId, ctx.sessionId);
-  const flags = await readWitnessFlags(deps.pool, ctx.shopId, session.id);
+  const db = tenantDb(deps.pool, ctx.shopId);
+  const session = await requireSession(db, ctx.shopId, ctx.sessionId);
+  const flags = await readWitnessFlags(db, ctx.shopId, session.id);
   if (!flags.confirmed) {
     throw new LongboxError("SESSION_HAS_NO_CONFIRMATION");
   }

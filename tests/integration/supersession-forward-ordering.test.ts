@@ -26,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { SUPERSEDABLE_TABLES } from "../../src/services/supersession.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 import { signIn, type AuthedInject } from "./authHelpers.js";
@@ -42,6 +42,23 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
   /** `app.inject` carrying a live device + operator session (048 I1). */
   let inject: AuthedInject;
   let shopId: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
 
   beforeAll(async () => {
     delete process.env["PRICECHARTING_TOKEN"];
@@ -77,7 +94,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
   /** A fresh session, on the app connection. */
   async function newSession(): Promise<string> {
-    const r = await pool.query(
+    const r = await shopQuery(
       `INSERT INTO scan_session (shop_id, created_by) VALUES ($1, 'op') RETURNING id`,
       [shopId]
     );
@@ -86,7 +103,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
   /** A confirmation at an EXPLICIT `session_seq`, so ordering can be constructed. */
   async function confirmAt(session: string, seq: number | null, supersedes?: string): Promise<string> {
-    const r = await pool.query(
+    const r = await shopQuery(
       `INSERT INTO human_confirmation
          (scan_session_id, shop_id, confirmed_issue, source, confirmed_by, session_seq, supersedes_id)
        VALUES ($1,$2,'{"t":"x"}'::jsonb,'one_tap','op',$3,$4) RETURNING id`,
@@ -100,7 +117,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const s = await newSession();
       const first = await confirmAt(s, 1);
       const second = await confirmAt(s, 2, first);
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect((view.rows[0] as { id: string }).id).toBe(second);
@@ -124,7 +141,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const first = await confirmAt(s, 4);
       // A different table, so the per-table UNIQUE cannot be what refuses it.
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO condition_assessment
              (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, session_seq, supersedes_id)
            VALUES ($1,$2,'VG','FN',ARRAY[]::text[],4,$3)`,
@@ -135,14 +152,14 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
         // supersession space. The same-table case is below.
       ).rejects.toThrow();
 
-      const c1 = await pool.query(
+      const c1 = await shopQuery(
         `INSERT INTO condition_assessment
            (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, session_seq)
          VALUES ($1,$2,'VG','FN',ARRAY[]::text[],7) RETURNING id`,
         [s, shopId]
       );
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO condition_assessment
              (scan_session_id, shop_id, grade_range_low, grade_range_high, defects, session_seq, supersedes_id)
            VALUES ($1,$2,'FN','VF',ARRAY[]::text[],7,$3)`,
@@ -167,14 +184,14 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const s = await newSession();
       const legacy = await confirmAt(s, null);
       const fixed = await confirmAt(s, 1, legacy);
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect((view.rows[0] as { id: string }).id).toBe(fixed);
     });
 
     it("carries the trigger on every table that has supersedes_id, ENABLE ALWAYS", async () => {
-      const rows = await pool.query(
+      const rows = await shopQuery(
         `SELECT c.relname AS table_name, tg.tgenabled::text AS enabled
            FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
           WHERE NOT tg.tgisinternal AND tg.tgname LIKE '%\\_supersession\\_forward'
@@ -199,7 +216,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       // second successor for A.
       await expect(confirmAt(s, 3, a)).rejects.toThrow(/supersedes_once_idx/);
       // And the session still answers with exactly one current row — never zero.
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect(view.rows).toHaveLength(1);
@@ -235,7 +252,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
     it("leaves the app role unable to disable it (041 §1 E15)", async () => {
       await expect(
-        pool.query(`ALTER TABLE human_confirmation DISABLE TRIGGER human_confirmation_supersession_forward`)
+        shopQuery(`ALTER TABLE human_confirmation DISABLE TRIGGER human_confirmation_supersession_forward`)
       ).rejects.toThrow(/must be owner|permission denied/i);
     });
   });
@@ -249,13 +266,13 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const a = await confirmAt(s, 1);
       const b = await confirmAt(s, 2, a);
       const c = await confirmAt(s, 3, b);
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect(view.rows).toHaveLength(1);
       expect((view.rows[0] as { id: string }).id).toBe(c);
       // …and the trail is complete (041 I9 / §3.6): nothing is hidden at source.
-      const all = await pool.query(
+      const all = await shopQuery(
         `SELECT count(*)::int AS n FROM human_confirmation WHERE scan_session_id = $1`,
         [s]
       );
@@ -268,7 +285,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       // shipped with — would have made it current. `NULLS LAST` is what stops that.
       const counted = await confirmAt(s, 1);
       await confirmAt(s, null);
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect((view.rows[0] as { id: string }).id).toBe(counted);
@@ -284,7 +301,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       const s = await newSession();
       const higher = await confirmAt(s, 5); // written first, higher counter
       const later = await confirmAt(s, 2); // written second, lower counter
-      const view = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const view = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect(view.rows).toHaveLength(1);
@@ -293,7 +310,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
       // And the two rows really do disagree — otherwise the assertion above would
       // pass for the wrong reason.
-      const times = await pool.query(
+      const times = await shopQuery(
         `SELECT id, created_at, session_seq FROM human_confirmation
           WHERE scan_session_id = $1 ORDER BY created_at`,
         [s]
@@ -306,7 +323,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
     it("returns zero rows only when nothing was written (041 §3.4)", async () => {
       const s = await newSession();
-      const empty = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+      const empty = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
         s,
       ]);
       expect(empty.rows).toHaveLength(0);
@@ -315,7 +332,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
     it("carries the envelope columns the views used to freeze out", async () => {
       // `003`/`004` expanded `c.*` at creation, so the views did not carry `007`'s
       // columns — a read model that disagreed with its table. `013` replaced them.
-      const cols = await pool.query(
+      const cols = await shopQuery(
         `SELECT column_name FROM information_schema.columns
           WHERE table_name = 'human_confirmation_current' AND column_name IN ('session_seq','authored_by')
           ORDER BY column_name`
@@ -360,7 +377,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       });
       expect(second.status).toBe(201);
 
-      const rows = await pool.query(
+      const rows = await shopQuery(
         `SELECT id, supersedes_id, session_seq FROM human_confirmation
           WHERE scan_session_id = $1 ORDER BY session_seq`,
         [sid]
@@ -373,7 +390,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
 
       // The view resolves to the owner's answer, which is what 037 §4.4's
       // correction path exists to make true.
-      const current = await pool.query(
+      const current = await shopQuery(
         `SELECT confirmed_issue FROM human_confirmation_current WHERE scan_session_id = $1`,
         [sid]
       );
@@ -399,7 +416,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       });
       expect(second.status).toBe(201);
 
-      const rows = await pool.query(
+      const rows = await shopQuery(
         `SELECT id, supersedes_id, grade_range_low FROM condition_assessment
           WHERE scan_session_id = $1 ORDER BY session_seq`,
         [sid]
@@ -409,7 +426,7 @@ describe.skipIf(!dbUp)("R4 — supersession runs forward (041 §3.2, I4c)", () =
       expect(a!.supersedes_id).toBeNull();
       expect(b!.supersedes_id).toBe(a!.id);
 
-      const current = await pool.query(
+      const current = await shopQuery(
         `SELECT grade_range_low, grade_range_high FROM condition_assessment_current WHERE scan_session_id = $1`,
         [sid]
       );

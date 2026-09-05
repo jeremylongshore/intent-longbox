@@ -43,7 +43,7 @@
 //       rejection path touches no session row at all.
 import { createHash } from "node:crypto";
 import type pg from "pg";
-import { withTransaction, type Queryable, type Tx } from "../db.js";
+import { tenantDb, withTransaction, type Queryable, type Tx } from "../db.js";
 import { LongboxError } from "../contracts/v1/errors.js";
 
 /** What a handler hands back for the wire, and what a replay stores. */
@@ -267,7 +267,14 @@ export async function runIdempotent(
 ): Promise<IdempotentOutcome> {
   const hash = requestHash(req);
 
-  const settled = await replayIfSettled(pool, req);
+  // `request_idempotency` carries a `shop_id` and therefore a tenant policy
+  // (E03-B04), so the two reads OUTSIDE the transaction below need a context of
+  // their own or they would find nothing and turn every replay into a repeat.
+  // Both take it from `req.shopId` — the same value the transaction sets, which
+  // the hook took from the session (048 §6.1).
+  const db = tenantDb(pool, req.shopId);
+
+  const settled = await replayIfSettled(db, req);
   if (settled) return settled;
 
   try {
@@ -286,11 +293,19 @@ export async function runIdempotent(
         await completeIdempotency(tx, id, result);
         return { ...result, replayed: false };
       },
-      { label: req.route }
+      // THE TENANT CONTEXT OF EVERY MUTATING REQUEST IN THE SYSTEM (E03-B04).
+      // Taken from `req.shopId`, which the caller took from `ctx.shopId`, which
+      // the authentication hook took from the SESSION and never from a body or a
+      // URL (048 §6.1) — so the value the row-level-security policies read is the
+      // value the request was authorized against. Set here rather than in fourteen
+      // handlers for 048 R10's reason: a rule enforced by fourteen copies has
+      // thirteen places to be forgotten. It travels with `BEGIN`, so it precedes
+      // the idempotency INSERT and therefore every lock in 042 §5.3(b)'s order.
+      { label: req.route, tenant: { shopId: req.shopId } }
     );
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    const stored = await readIdempotency(pool, req.shopId, req.idempotencyKey);
+    const stored = await readIdempotency(db, req.shopId, req.idempotencyKey);
     if (!stored) throw err;
     return replayOrRefuse(stored, hash, req.idempotencyKey);
   }

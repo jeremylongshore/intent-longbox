@@ -97,7 +97,7 @@ export function registerScanSessionRoutes(app: FastifyInstance, deps: ApiDeps): 
 
   app.get("/scan-sessions/:id", async (req) => {
     const { shopId, id } = parse(contract.sessionParams, req.params);
-    return api.getSessionDetail(deps.pool, shopId, id);
+    return api.getSessionDetail(deps, shopId, id);
   });
 
   app.post("/scan-sessions/:id/photos", async (req, reply) => {

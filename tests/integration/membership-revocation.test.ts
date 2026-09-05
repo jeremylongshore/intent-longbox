@@ -21,7 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import {
   readOperatorPin,
   retireOperatorPins,
@@ -29,7 +29,7 @@ import {
   setOperatorPin,
   verifyOperatorPin,
 } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { TEST_PIN, grant, insertUser, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
@@ -40,6 +40,26 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
   let pool: pg.Pool;
   let shopId: string;
   let identity: SeededIdentity;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_revocation");
@@ -59,7 +79,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
   async function staffMember(): Promise<{ appUserId: string; membershipId: string }> {
     const appUserId = await insertUser(pool, `staff-${randomUUID()}@example.invalid`, "Staff");
     const membershipId = await grant(pool, appUserId, shopId, "operator");
-    const set = await withTransaction(pool, (tx) =>
+    const set = await shopTx((tx) =>
       setOperatorPin(tx, {
         shopId,
         deviceId: identity.deviceId,
@@ -73,7 +93,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
   }
 
   async function verify(appUserId: string, pin = TEST_PIN): Promise<string> {
-    const verdict = await withTransaction(pool, (tx) =>
+    const verdict = await shopTx((tx) =>
       verifyOperatorPin(tx, {
         shopId,
         deviceId: identity.deviceId,
@@ -90,10 +110,10 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     const { appUserId, membershipId } = await staffMember();
     expect(await verify(appUserId)).toBe("ok");
 
-    const pinBefore = await readOperatorPin(pool, identity.deviceId, appUserId);
+    const pinBefore = await readOperatorPin(asShop(pool, shopId), identity.deviceId, appUserId);
     expect(pinBefore?.retired).toBe(false);
 
-    const out = await withTransaction(pool, (tx) =>
+    const out = await shopTx((tx) =>
       revokeMembership(tx, { membershipId, revokedBy: identity.ownerId, reason: "left the shop" })
     );
     expect(out.revoked).toBe(true);
@@ -104,7 +124,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     expect(await verify(appUserId)).toBe("retired");
 
     // The fact exists, names the revocation, and says why.
-    const retirement = await pool.query(
+    const retirement = await shopQuery(
       `SELECT r.reason, r.membership_revocation_id, r.authored_by, r.retired_pin_updated_at
          FROM operator_pin_retirement r WHERE r.operator_pin_id = $1`,
       [pinBefore!.id]
@@ -138,7 +158,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     // distinguishes the two mechanisms: `retired_at` is still NULL and
     // `updated_at` is unchanged, so the lockout anchor was not written from a
     // path that is not a PIN verification.
-    const pinAfter = await readOperatorPin(pool, identity.deviceId, appUserId);
+    const pinAfter = await readOperatorPin(asShop(pool, shopId), identity.deviceId, appUserId);
     expect(pinAfter?.retired_at).toBeNull();
     expect(pinAfter?.updated_at.getTime()).toBe(pinBefore!.updated_at.getTime());
     expect(pinAfter?.retired_by_fact).toBe(true);
@@ -147,12 +167,12 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
 
   it("revokes every live session of that person in the same transaction (048 §3.4)", async () => {
     const { appUserId, membershipId } = await staffMember();
-    const before = await pool.query(
+    const before = await shopQuery(
       `SELECT count(*)::int AS n FROM app_session_revocation r
         JOIN app_session s ON s.chain_id = r.chain_id WHERE s.app_user_id = $1`,
       [appUserId]
     );
-    const out = await withTransaction(pool, (tx) =>
+    const out = await shopTx((tx) =>
       revokeMembership(tx, { membershipId, revokedBy: identity.ownerId, reason: "role change" })
     );
     // No live sessions were opened for this person, so the count is zero and
@@ -164,21 +184,17 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
 
   it("is idempotent: a second revocation writes nothing new and refuses nothing", async () => {
     const { appUserId, membershipId } = await staffMember();
-    const first = await withTransaction(pool, (tx) =>
-      revokeMembership(tx, { membershipId, reason: "first" })
-    );
+    const first = await shopTx((tx) => revokeMembership(tx, { membershipId, reason: "first" }));
     expect(first).toMatchObject({ revoked: true, pinsRetired: 1 });
 
-    const second = await withTransaction(pool, (tx) =>
-      revokeMembership(tx, { membershipId, reason: "second" })
-    );
+    const second = await shopTx((tx) => revokeMembership(tx, { membershipId, reason: "second" }));
     // `UNIQUE (membership_id)` on the revocation and
     // `UNIQUE (operator_pin_id, retired_pin_updated_at)` on the retirement both
     // absorb it — which is the idempotence a status column cannot give.
     expect(second.revoked).toBe(false);
     expect(second.pinsRetired).toBe(0);
 
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT count(*)::int AS n FROM membership_revocation WHERE membership_id = $1`,
       [membershipId]
     );
@@ -193,7 +209,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     // row, so a retirement keyed on the row alone could never be written twice
     // and a re-hired-then-fired employee's PIN would stay live forever.
     const { appUserId, membershipId } = await staffMember();
-    await withTransaction(pool, (tx) => revokeMembership(tx, { membershipId, reason: "left" }));
+    await shopTx((tx) => revokeMembership(tx, { membershipId, reason: "left" }));
     expect(await verify(appUserId)).toBe("retired");
 
     // Re-hired: a new grant and a new PIN. Setting the PIN bumps `updated_at`, so
@@ -201,7 +217,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     // predicate reads live — with no UPDATE to any retirement row and nothing
     // deleted.
     const second = await grant(pool, appUserId, shopId, "operator");
-    const set = await withTransaction(pool, (tx) =>
+    const set = await shopTx((tx) =>
       setOperatorPin(tx, {
         shopId,
         deviceId: identity.deviceId,
@@ -214,14 +230,12 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
     expect(await verify(appUserId, REPLACEMENT_PIN)).toBe("ok");
 
     // And fired again: a SECOND retirement row, naming the new version.
-    const out = await withTransaction(pool, (tx) =>
-      revokeMembership(tx, { membershipId: second, reason: "left again" })
-    );
+    const out = await shopTx((tx) => revokeMembership(tx, { membershipId: second, reason: "left again" }));
     expect(out.pinsRetired).toBe(1);
     expect(await verify(appUserId, REPLACEMENT_PIN)).toBe("retired");
 
-    const pin = await readOperatorPin(pool, identity.deviceId, appUserId);
-    const facts = await pool.query(
+    const pin = await readOperatorPin(asShop(pool, shopId), identity.deviceId, appUserId);
+    const facts = await shopQuery(
       `SELECT count(*)::int AS n FROM operator_pin_retirement WHERE operator_pin_id = $1`,
       [pin!.id]
     );
@@ -231,7 +245,7 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
   it("retires only the named person's PINs, and only at the named shop", async () => {
     const mine = await staffMember();
     const colleague = await staffMember();
-    await withTransaction(pool, (tx) =>
+    await shopTx((tx) =>
       retireOperatorPins(tx, {
         appUserId: mine.appUserId,
         shopId,
@@ -244,15 +258,13 @@ describe.skipIf(!dbUp)("a revocation retires the PIN as a FACT (048 §3.4, §3.5
 
   it("the retirement table is append-only: no UPDATE, no DELETE, from the app role", async () => {
     const { appUserId } = await staffMember();
-    await withTransaction(pool, (tx) =>
-      retireOperatorPins(tx, { appUserId, shopId, reason: "for the trigger test" })
-    );
-    const pin = await readOperatorPin(pool, identity.deviceId, appUserId);
+    await shopTx((tx) => retireOperatorPins(tx, { appUserId, shopId, reason: "for the trigger test" }));
+    const pin = await readOperatorPin(asShop(pool, shopId), identity.deviceId, appUserId);
     await expect(
-      pool.query(`UPDATE operator_pin_retirement SET reason = 'edited' WHERE operator_pin_id = $1`, [pin!.id])
+      shopQuery(`UPDATE operator_pin_retirement SET reason = 'edited' WHERE operator_pin_id = $1`, [pin!.id])
     ).rejects.toThrow();
     await expect(
-      pool.query(`DELETE FROM operator_pin_retirement WHERE operator_pin_id = $1`, [pin!.id])
+      shopQuery(`DELETE FROM operator_pin_retirement WHERE operator_pin_id = $1`, [pin!.id])
     ).rejects.toThrow();
   });
 });

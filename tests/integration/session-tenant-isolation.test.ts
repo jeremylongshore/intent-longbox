@@ -12,13 +12,14 @@
 // **I1 failed on the tree as it stood, by design** (048 §11): every route was
 // anonymous, and a test asserting otherwise was the gate doing its job.
 import { randomUUID } from "node:crypto";
+import { serviceDb } from "../../src/db.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { API_PREFIX } from "../../src/contracts/v1/schemas.js";
 import { DEVICE_COOKIE, OPERATOR_COOKIE } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import {
   TEST_PIN,
   cookieHeader,
@@ -45,6 +46,23 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
   let deviceA: Awaited<ReturnType<typeof openDevice>>;
   let operatorA: Awaited<ReturnType<typeof openOperator>>;
 
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopA).query(sql, values);
+
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_tenant_isolation");
     await runMigrations(migrateUrl);
@@ -68,7 +86,12 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
   const authed = cookieHeader.bind(null);
 
   async function attemptCount(): Promise<number> {
-    const res = await pool.query(`SELECT count(*)::int AS n FROM auth_attempt`);
+    // The `device-session-open` scope, because the rows this counts have a NULL
+    // `shop_id` — a failed device-session open names no shop yet (E03-B04), and a
+    // NULL matches no tenant policy, ever.
+    const res = await serviceDb(pool, "device-session-open").query(
+      `SELECT count(*)::int AS n FROM auth_attempt`
+    );
     return (res.rows[0] as { n: number }).n;
   }
   const bothCookies = (): string => cookieHeader(deviceA.token, operatorA.token);
@@ -185,7 +208,11 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     const before = await app.inject({ method: "GET", url: `${API_PREFIX}/shops`, headers: { cookie } });
     expect((before.json() as { shops: Array<{ id: string }> }).shops.map((s) => s.id)).toEqual([shopB]);
 
-    await pool.query(
+    // Shop B's context: the revocation is a fact about shop B's grant, and this
+    // suite's default context is shop A's (E03-B04). Under the wrong one the
+    // SELECT feeding the INSERT sees no membership and the statement writes
+    // nothing — a silent no-op, which is the failure mode worth naming.
+    await asShop(pool, shopB).query(
       `INSERT INTO membership_revocation (shop_id, membership_id, reason)
        SELECT shop_id, id, 'test' FROM membership WHERE app_user_id = $1 AND shop_id = $2`,
       [solo.operatorId, shopB]
@@ -329,12 +356,12 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
   });
 
   it("refuses the moment the membership is revoked, without waiting for an expiry", async () => {
-    const person = await pool.query(
+    const person = await shopQuery(
       `INSERT INTO app_user (email, display_name) VALUES ($1,'Leaver') RETURNING id`,
       [`leaver-${randomUUID()}@example.invalid`]
     );
     const appUserId = (person.rows[0] as { id: string }).id;
-    const membership = await pool.query(
+    const membership = await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
        VALUES ($1,$2,'shop','operator') RETURNING id`,
       [appUserId, shopA]
@@ -350,7 +377,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     // Past the tenant check; the session id is simply unknown.
     expect(before.json().error.code).toBe("SESSION_NOT_FOUND");
 
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership_revocation (shop_id, membership_id, reason) VALUES ($1,$2,'left')`,
       [shopA, (membership.rows[0] as { id: string }).id]
     );
@@ -380,7 +407,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     expect(created.statusCode).toBe(201);
     const sessionId = (created.json() as { session: { id: string } }).session.id;
 
-    const row = await pool.query(
+    const row = await shopQuery(
       `SELECT operator_id, actor_verified, created_by FROM scan_session WHERE id = $1`,
       [sessionId]
     );
@@ -400,7 +427,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
       payload: { issue: { title: "A Book", issue: "1" }, source: "grid_pick" },
     });
     expect(confirm.statusCode).toBe(201);
-    const confirmed = await pool.query(
+    const confirmed = await shopQuery(
       `SELECT operator_id, actor_verified FROM human_confirmation WHERE scan_session_id = $1`,
       [sessionId]
     );
@@ -425,7 +452,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
   // -------------------------------------------------------------------------
 
   it("carries EXACTLY 034's four roles in the CHECK, and resolves the one no pilot shop has", async () => {
-    const check = await pool.query(
+    const check = await shopQuery(
       `SELECT pg_get_constraintdef(c.oid) AS def
          FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
         WHERE t.relname = 'membership' AND c.conname = 'membership_role_check'`
@@ -435,7 +462,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
       expect(def, role).toContain(role);
     }
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role) VALUES ($1,$2,'shop','district')`,
         [idA.operatorId, shopA]
       )
@@ -446,12 +473,12 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     // the 19% with a second storefront), which is exactly why it is the role an
     // implementation drops silently and a second shop discovers by being unable
     // to express its own staffing.
-    const manager = await pool.query(
+    const manager = await shopQuery(
       `INSERT INTO app_user (email, display_name) VALUES ($1,'Manager') RETURNING id`,
       [`manager-${randomUUID()}@example.invalid`]
     );
     const managerId = (manager.rows[0] as { id: string }).id;
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, location_id, role)
        VALUES ($1,$2,'location',$3,'manager')`,
       [managerId, shopA, idA.locationId]
@@ -472,12 +499,12 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     // `actor_verified` false. 034 §4.4 and `003:44-51` forbid backfilling it,
     // and the append-only trigger makes the prohibition structural rather than
     // procedural.
-    const legacy = await pool.query(
+    const legacy = await shopQuery(
       `INSERT INTO scan_session (shop_id, created_by) VALUES ($1,'employee') RETURNING id`,
       [shopA]
     );
     const id = (legacy.rows[0] as { id: string }).id;
-    const row = await pool.query(`SELECT operator_id, actor_verified FROM scan_session WHERE id = $1`, [id]);
+    const row = await shopQuery(`SELECT operator_id, actor_verified FROM scan_session WHERE id = $1`, [id]);
     expect(row.rows[0]).toEqual({ operator_id: null, actor_verified: false });
   });
 

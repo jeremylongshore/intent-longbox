@@ -49,8 +49,17 @@ async function main(): Promise<void> {
     // `auth_attempt` row a failure appends is what the growing delay is derived
     // from, and rolling it back would hand an unlimited budget to whoever is
     // guessing. The refusal is raised out here, after the commit.
-    const verdict = await withTransaction(pool, (tx) =>
-      redeemRecoveryCode(tx, { appUserId: user, code, pepper, now: new Date() })
+    const verdict = await withTransaction(
+      pool,
+      (tx) => redeemRecoveryCode(tx, { appUserId: user, code, pepper, now: new Date() }),
+      // A PERSON-SCOPED ACT, DECLARED AS ONE (E03-B04). `user_authenticator`,
+      // `recovery_code` and `app_user` carry no `shop_id`, and the `auth_attempt`
+      // row a failure appends carries a NULL one — so there is no tenant for this
+      // transaction to name. This CLI runs as the schema owner and would bypass
+      // the policies anyway; the scope is declared so the transaction SAYS what it
+      // is, and so the route E03-D11 turns this into starts with a context that is
+      // already right rather than one somebody has to remember to add.
+      { tenant: { service: "second-factor" } }
     ).catch((err: unknown) => {
       // The loser of a concurrent redemption: `UNIQUE (code_id)` refused the use row
       // and the transaction rolled back with it, so nothing was retired.

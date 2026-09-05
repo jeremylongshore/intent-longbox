@@ -22,7 +22,7 @@ import type pg from "pg";
 import * as api from "../src/services/sessionApi.js";
 import { findSessionPhoto } from "../src/services/scanSession.js";
 import { ShopRateLimiter } from "../src/services/rateLimit.js";
-import { fakePool } from "./fakes.js";
+import { fakePool, fakeTxPool } from "./fakes.js";
 import { testConfig } from "./testConfig.js";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
@@ -46,9 +46,17 @@ afterAll(() => {
   rmSync(outside, { recursive: true, force: true });
 });
 
-/** A pool that answers the session lookup, then the photo lookup. */
+/**
+ * A pool that answers the session lookup, then the photo lookup.
+ *
+ * `fakeTxPool` rather than `fakePool` since E03-B04: `readPhoto` reads through a
+ * TENANT-SCOPED handle, and a scoped read is a transaction (`BEGIN` +
+ * `set_config` + the statement + `COMMIT`) because that is the only place a
+ * transaction-local tenant context can live (034 §3.2). A query-only fake has no
+ * `connect()` and the read would fail before it reached the assertion.
+ */
 function poolFor(storageUrl: string | null): { pool: pg.Pool; calls: { text: string }[] } {
-  const { pool, calls } = fakePool((text) => {
+  const { pool, calls } = fakeTxPool((text) => {
     if (text.includes("FROM scan_session")) return { rows: [{ id: SESSION, shop_id: SHOP }] };
     if (text.includes("FROM scan_photo")) {
       return storageUrl === null
@@ -194,7 +202,7 @@ describe("readPhoto (the read that replaced the public mount)", () => {
   });
 
   it("refuses before the photo lookup when the session is not this shop's", async () => {
-    const { pool } = fakePool((text) => (text.includes("FROM scan_session") ? { rows: [] } : undefined));
+    const { pool } = fakeTxPool((text) => (text.includes("FROM scan_session") ? { rows: [] } : undefined));
     // SESSION_NOT_FOUND, not PHOTO_NOT_FOUND: the session rung refuses first, so
     // a cross-shop caller learns nothing about the session either. Both are 404.
     expect(await refusalCode(api.readPhoto(deps(pool), SHOP, SESSION, PHOTO))).toBe("SESSION_NOT_FOUND");

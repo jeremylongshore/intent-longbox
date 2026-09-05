@@ -14,39 +14,59 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { enqueue, recordAttempt } from "../../src/services/outbox.js";
 import { DRAFT_REQUESTED } from "../../src/events/catalogue.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
 describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
   let pool: pg.Pool;
   let shopId: string;
+  let ownerPool: pg.Pool;
+
+  /**
+   * The statements this suite issues itself, inside its own shop's tenant context
+   * (E03-B04). The pool is the APP role, which is subject to every policy, so a
+   * fixture with no context is refused by `WITH CHECK` exactly as a cross-tenant
+   * write would be.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId } });
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d07_enqueue");
     await runMigrations(url);
+    // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+    // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+    // tenant IS the row being created — which makes onboarding a schema-owner act
+    // enforced by the database rather than by convention. Everything the suite
+    // EXERCISES still runs on the least-privileged pool.
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 6 });
-    shopId = await seedShop(pool, { name: "Outbox Test Shop" });
+    shopId = await seedShop(ownerPool, { name: "Outbox Test Shop" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
-  const newSession = async () => (await createScanSession(pool, shopId)).id;
+  const newSession = async () => (await createScanSession(asShop(pool, shopId), shopId)).id;
   const countOutbox = async (sessionId: string) =>
     Number(
-      (await pool.query(`SELECT count(*)::int AS n FROM outbox WHERE scan_session_id = $1`, [sessionId]))
+      (await shopQuery(`SELECT count(*)::int AS n FROM outbox WHERE scan_session_id = $1`, [sessionId]))
         .rows[0]!.n
     );
 
   it("I1(b): the outbox row commits WITH the fact that justifies it", async () => {
     const sessionId = await newSession();
-    const res = await withTransaction(pool, async (tx) => {
+    const res = await shopTx(async (tx) => {
       await tx.query(
         `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
          VALUES ($1,$2,'{}','one_tap')`,
@@ -70,7 +90,7 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
     // nothing recorded it (043 §1 E4).
     const sessionId = await newSession();
     await expect(
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         await enqueue(tx, {
           shopId,
           event: DRAFT_REQUESTED,
@@ -85,10 +105,10 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
 
   it("the self-referencing command row really does point at itself (043 §3.4)", async () => {
     const sessionId = await newSession();
-    const res = await withTransaction(pool, (tx) =>
+    const res = await shopTx((tx) =>
       enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })
     );
-    const row = (await pool.query(`SELECT id, ref_table, ref_id FROM outbox WHERE id = $1`, [res.id]))
+    const row = (await shopQuery(`SELECT id, ref_table, ref_id FROM outbox WHERE id = $1`, [res.id]))
       .rows[0] as { id: string; ref_table: string; ref_id: string };
     expect(row.ref_table).toBe("outbox");
     expect(row.ref_id).toBe(row.id);
@@ -97,14 +117,14 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
   it("a reference-shaped event is de-duplicated by the UNIQUE constraint, not by a check", async () => {
     const sessionId = await newSession();
     const draft = (
-      await pool.query(
+      await shopQuery(
         `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status)
          VALUES ($1,$2,'gid://x','draft') RETURNING id`,
         [sessionId, shopId]
       )
     ).rows[0] as { id: string };
 
-    const first = await withTransaction(pool, (tx) =>
+    const first = await shopTx((tx) =>
       enqueue(tx, {
         shopId,
         event: "longbox.commerce.draft_recorded",
@@ -113,7 +133,7 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
         authoredBy: "system",
       })
     );
-    const second = await withTransaction(pool, (tx) =>
+    const second = await shopTx((tx) =>
       enqueue(tx, {
         shopId,
         event: "longbox.commerce.draft_recorded",
@@ -130,24 +150,39 @@ describe.skipIf(!dbUp)("the outbox append (043 §2.1)", () => {
 describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2)", () => {
   let pool: pg.Pool;
   let shopId: string;
+  let ownerPool: pg.Pool;
   let outboxId: string;
+
+  /**
+   * The statements this suite issues itself, inside its own shop's tenant context
+   * (E03-B04). The pool is the APP role, which is subject to every policy, so a
+   * fixture with no context is refused by `WITH CHECK` exactly as a cross-tenant
+   * write would be.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId } });
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d07_appendonly");
     await runMigrations(url);
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 4 });
-    shopId = await seedShop(pool, { name: "Outbox Immutability Shop" });
-    const sessionId = (await createScanSession(pool, shopId)).id;
+    shopId = await seedShop(ownerPool, { name: "Outbox Immutability Shop" });
+    const sessionId = (await createScanSession(asShop(pool, shopId), shopId)).id;
     outboxId = (
-      await withTransaction(pool, (tx) =>
+      await shopTx((tx) =>
         enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })
       )
     ).id;
-    await recordAttempt(pool, { shopId, outboxId, attemptNo: 1, kind: "failed" });
+    await recordAttempt(asShop(pool, shopId), { shopId, outboxId, attemptNo: 1, kind: "failed" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
   // TWO LAYERS REFUSE A MUTATION HERE, AND THE TESTS SAY WHICH ONE FIRES.
@@ -164,23 +199,23 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
   //   * Neither table grants DELETE, so DELETE is refused by privilege on both.
 
   it("the TRIGGER refuses an UPDATE on outbox, with the row-lock privilege held", async () => {
-    await expect(pool.query(`UPDATE outbox SET event = 'x' WHERE id = $1`, [outboxId])).rejects.toThrow(
+    await expect(shopQuery(`UPDATE outbox SET event = 'x' WHERE id = $1`, [outboxId])).rejects.toThrow(
       /append-only/
     );
   });
 
   it("the app role cannot DELETE from either table at all — no grant, no path", async () => {
-    await expect(pool.query(`DELETE FROM outbox WHERE id = $1`, [outboxId])).rejects.toThrow(
+    await expect(shopQuery(`DELETE FROM outbox WHERE id = $1`, [outboxId])).rejects.toThrow(
       /permission denied/
     );
-    await expect(pool.query(`DELETE FROM outbox_attempt WHERE outbox_id = $1`, [outboxId])).rejects.toThrow(
+    await expect(shopQuery(`DELETE FROM outbox_attempt WHERE outbox_id = $1`, [outboxId])).rejects.toThrow(
       /permission denied/
     );
   });
 
   it("the app role cannot even attempt an UPDATE on outbox_attempt — it holds no UPDATE grant", async () => {
     await expect(
-      pool.query(`UPDATE outbox_attempt SET kind = 'delivered' WHERE outbox_id = $1`, [outboxId])
+      shopQuery(`UPDATE outbox_attempt SET kind = 'delivered' WHERE outbox_id = $1`, [outboxId])
     ).rejects.toThrow(/permission denied/);
   });
 
@@ -190,7 +225,7 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     // created at the default would be governed by a trigger anyone with a psql
     // prompt could step around.
     const rows = (
-      await pool.query(
+      await shopQuery(
         `SELECT tg.tgname, tg.tgenabled FROM pg_trigger tg
            JOIN pg_class c ON c.oid = tg.tgrelid
           WHERE c.relname IN ('outbox','outbox_attempt') AND NOT tg.tgisinternal`
@@ -213,7 +248,7 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     // trigger still refuses an actual UPDATE *with the privilege held*, which is
     // a stronger assertion than the same test made before this row existed.
     const rows = (
-      await pool.query(
+      await shopQuery(
         `SELECT table_name, privilege_type FROM information_schema.role_table_grants
           WHERE grantee = current_user AND table_name IN ('outbox','outbox_attempt')
           ORDER BY table_name, privilege_type`
@@ -234,21 +269,21 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     // fails with `permission denied for table outbox`, and the whole outbox
     // runtime is unrunnable as the least-privileged role.
     await expect(
-      withTransaction(pool, (tx) => tx.query(`SELECT id FROM outbox FOR UPDATE SKIP LOCKED LIMIT 1`))
+      shopTx((tx) => tx.query(`SELECT id FROM outbox FOR UPDATE SKIP LOCKED LIMIT 1`))
     ).resolves.toBeDefined();
   });
 
   it("the app role can read the dead-letter VIEW but cannot write through it", async () => {
-    await expect(pool.query(`SELECT count(*) FROM outbox_dead_letter`)).resolves.toBeDefined();
+    await expect(shopQuery(`SELECT count(*) FROM outbox_dead_letter`)).resolves.toBeDefined();
   });
 
   it("the UNIQUE (outbox_id, attempt_no, kind) constraint refuses a second history", async () => {
     // 043 §5.1: a duplicate attempt row is a LOUD failure rather than a silent
     // second history — the construction 041 §5.3 uses for
     // UNIQUE (scan_session_id, session_seq), applied to a different counter.
-    await expect(recordAttempt(pool, { shopId, outboxId, attemptNo: 1, kind: "failed" })).rejects.toThrow(
-      /duplicate key|unique/i
-    );
+    await expect(
+      recordAttempt(asShop(pool, shopId), { shopId, outboxId, attemptNo: 1, kind: "failed" })
+    ).rejects.toThrow(/duplicate key|unique/i);
   });
 
   it("refuses a replay_requested with no operator and no reason, by CHECK (043 §6.3)", async () => {
@@ -260,7 +295,7 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     // operator_id has no app_user to name (034 §4.1), so 043 §6.3 rules that the
     // replay path is not built before it (E10-B09).
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO outbox_attempt (shop_id, outbox_id, attempt_no, kind, authored_by)
          VALUES ($1,$2,2,'replay_requested','human')`,
         [shopId, outboxId]
@@ -268,7 +303,7 @@ describe.skipIf(!dbUp)("both tables are append-only IN THE DATABASE (043 §11 I2
     ).rejects.toThrow(/outbox_attempt_replay_names_a_person/);
 
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO outbox_attempt (shop_id, outbox_id, attempt_no, kind, authored_by, operator_id, reason)
          VALUES ($1,$2,2,'replay_requested','human',$3,'   ')`,
         [shopId, outboxId, randomUUID()]

@@ -19,7 +19,7 @@ import { buildApp } from "../../src/app.js";
 import { buildConsumerRegistry } from "../../src/consumers/index.js";
 import { DEFAULT_OUTBOX_PARAMS, drainOnce } from "../../src/services/outbox.js";
 import { fakeShopifyClient } from "../fakes.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 import { signIn, type AuthedInject } from "./authHelpers.js";
 
@@ -33,6 +33,23 @@ describe.skipIf(!dbUp)("the draft is composed from the CURRENT records (041 I8)"
   let inject: AuthedInject;
   let shopId: string;
   let base: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
 
   beforeAll(async () => {
     delete process.env["SHOPIFY_ADMIN_TOKEN"];
@@ -91,12 +108,12 @@ describe.skipIf(!dbUp)("the draft is composed from the CURRENT records (041 I8)"
 
     // BOTH rows are in the log — a correction appends (locked decision 4) — and
     // exactly one of them is current.
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT id, supersedes_id FROM human_confirmation WHERE scan_session_id = $1 ORDER BY session_seq`,
       [sid]
     );
     expect(rows.rowCount).toBe(2);
-    const current = await pool.query(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
+    const current = await shopQuery(`SELECT id FROM human_confirmation_current WHERE scan_session_id = $1`, [
       sid,
     ]);
     expect((current.rows[0] as { id: string }).id).toBe(right);

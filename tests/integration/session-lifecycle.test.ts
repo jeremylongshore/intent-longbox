@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Queryable, type Tx, serviceDb, withTransaction } from "../../src/db.js";
 import {
   ROTATION_GRACE_MS,
   lockAndRotate,
@@ -21,7 +21,7 @@ import {
   tokenHash,
   type SessionRow,
 } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { openDevice, openOperator, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 
 const dbUp = await probeDb();
@@ -30,6 +30,38 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   let pool: pg.Pool;
   let shopId: string;
   let identity: SeededIdentity;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  /**
+   * The session reads run in the SAME service scope the hook uses (E03-B04).
+   *
+   * A cookie is resolved by digest before anyone knows which shop the caller is
+   * at — the row it finds IS the tenant (048 §6.1) — so `app_session` and its
+   * revocation table carry a second, `service_context` policy and the reads name
+   * that scope. Calling these with a bare pool would return zero rows and every
+   * assertion below would read "unknown token", which is exactly the wrong kind
+   * of green.
+   */
+  const sessionDb = (): Queryable => serviceDb(pool, "session-resolution");
+
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_session_lifecycle");
@@ -56,7 +88,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   }
 
   async function live(token: string): Promise<boolean> {
-    const out = await resolveToken(pool, token, new Date());
+    const out = await resolveToken(sessionDb(), token, new Date());
     return !("refusal" in out);
   }
 
@@ -69,21 +101,21 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     // Rotate by hand with a clock past the rotation period, which is what a
     // request arriving after that period does.
     const later = new Date(Date.now() + 60 * 60 * 1000);
-    const successor = await withTransaction(pool, (tx) => lockAndRotate(tx, operator.row, later));
+    const successor = await shopTx((tx) => lockAndRotate(tx, operator.row, later));
     expect(successor).toBeDefined();
 
     // The successor is live; the predecessor is spent. Presented outside the
     // grace window it is REUSE — evidence the cookie was copied, because the
     // legitimate client received the successor.
     const outside = new Date(successor!.row.issued_at.getTime() + ROTATION_GRACE_MS + 1_000);
-    const verdict = await resolveToken(pool, operator.token, outside);
+    const verdict = await resolveToken(sessionDb(), operator.token, outside);
     expect("refusal" in verdict && verdict.refusal).toBe("token_reuse");
 
     // …and the response to that evidence is to revoke the OPERATOR chain, never
     // the device chain: a false positive that signs out an operator costs one
     // PIN; one that signs out a DEVICE costs an owner, an enrollment code and a
     // walk to the back room, during trading hours.
-    await withTransaction(pool, (tx) => revokeForReuse(tx, operator.row));
+    await shopTx((tx) => revokeForReuse(tx, operator.row));
     expect(await live(successor!.token)).toBe(false);
     expect(await live(device.token)).toBe(true);
   });
@@ -91,9 +123,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   it("(ii) refuses a revoked chain on the NEXT REQUEST, with no sweep anywhere", async () => {
     const { operator } = await freshPair();
     expect(await live(operator.token)).toBe(true);
-    await withTransaction(pool, (tx) =>
-      revokeChain(tx, { chainId: operator.row.chain_id, shopId, reason: "signed_out" })
-    );
+    await shopTx((tx) => revokeChain(tx, { chainId: operator.row.chain_id, shopId, reason: "signed_out" }));
     // Nothing ran between the two lines but one INSERT. Liveness is DERIVED, so
     // there is no state to sweep and no job to have missed.
     expect(await live(operator.token)).toBe(false);
@@ -102,14 +132,14 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   it("(iii) refuses a session past its ABSOLUTE expiry", async () => {
     const { operator } = await freshPair();
     const after = new Date(operator.row.absolute_expires_at.getTime() + 1_000);
-    const verdict = await resolveToken(pool, operator.token, after);
+    const verdict = await resolveToken(sessionDb(), operator.token, after);
     expect("refusal" in verdict && verdict.refusal).toBe("absolutely_expired");
   });
 
   it("(iv) refuses a session past its IDLE expiry — the control against a copied cookie", async () => {
     const { operator } = await freshPair();
     const after = new Date(operator.row.idle_expires_at.getTime() + 1_000);
-    const verdict = await resolveToken(pool, operator.token, after);
+    const verdict = await resolveToken(sessionDb(), operator.token, after);
     // 048 R4 struck the claim that reuse DETECTION is the defence: it fires only
     // when the legitimate client subsequently rotates. This is the control that
     // bounds a stolen cookie before the fact.
@@ -125,7 +155,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     expect(await live(a.token)).toBe(true);
     expect(await live(b.token)).toBe(true);
 
-    await withTransaction(pool, async (tx) => {
+    await shopTx(async (tx) => {
       const ended = await revokeSessionsOf(tx, person);
       expect(ended).toBeGreaterThanOrEqual(2);
       await tx.query(
@@ -144,7 +174,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   });
 
   it("(vi) leaves no status column to disagree with the derivation (I4)", async () => {
-    const cols = await pool.query(
+    const cols = await shopQuery(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'app_session'
           AND column_name IN ('status','active','revoked','expired','last_seen_at')`
@@ -164,11 +194,11 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     // is the double-tap: if the loser treated its own token as reused, the
     // control would manufacture the outage it exists to prevent.
     const [first, second] = await Promise.allSettled([
-      withTransaction(pool, (tx) => lockAndRotate(tx, operator.row, later)),
-      withTransaction(pool, (tx) => lockAndRotate(tx, operator.row, later)),
+      shopTx((tx) => lockAndRotate(tx, operator.row, later)),
+      shopTx((tx) => lockAndRotate(tx, operator.row, later)),
     ]);
 
-    const successors = await pool.query(`SELECT id FROM app_session WHERE rotated_from = $1`, [
+    const successors = await shopQuery(`SELECT id FROM app_session WHERE rotated_from = $1`, [
       operator.row.id,
     ]);
     // `UNIQUE (rotated_from)` — a session is superseded at most once, so the
@@ -182,12 +212,12 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     // The LOSER — a request still holding the spent token — re-reads inside the
     // grace window and proceeds as the successor, setting no cookie (the winner's
     // response already carried it; the server never holds the token).
-    const winner = await pool.query(`SELECT id, issued_at FROM app_session WHERE rotated_from = $1`, [
+    const winner = await shopQuery(`SELECT id, issued_at FROM app_session WHERE rotated_from = $1`, [
       operator.row.id,
     ]);
     const issuedAt = (winner.rows[0] as { issued_at: Date }).issued_at;
     const inside = new Date(issuedAt.getTime() + ROTATION_GRACE_MS / 2);
-    const accepted = await resolveToken(pool, operator.token, inside);
+    const accepted = await resolveToken(sessionDb(), operator.token, inside);
     expect("refusal" in accepted).toBe(false);
     if (!("refusal" in accepted)) {
       expect(accepted.adoptedSuccessor).toBe(true);
@@ -199,14 +229,14 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     const { operator } = await freshPair();
     const later = new Date(Date.now() + 60 * 60 * 1000);
     await expect(
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         await lockAndRotate(tx, operator.row, later);
         // The handler throws AFTER the rotation, exactly as a refused write does.
         throw new Error("handler refused");
       })
     ).rejects.toThrow("handler refused");
 
-    const successors = await pool.query(`SELECT id FROM app_session WHERE rotated_from = $1`, [
+    const successors = await shopQuery(`SELECT id FROM app_session WHERE rotated_from = $1`, [
       operator.row.id,
     ]);
     expect(successors.rows).toEqual([]);
@@ -227,13 +257,20 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     const membershipDone = { value: false };
     try {
       await held.query("BEGIN");
+      // ⚠ THE CONTEXT IS PART OF THE LOCK (E03-B04). `FOR NO KEY UPDATE` locks the
+      // rows a statement can SEE, and a connection with no tenant context sees
+      // none — so without this line the lock below is silently a no-op and the
+      // interleaving this test forbids would appear to be permitted. That is the
+      // one failure mode of row-level security worth naming in a test: a missing
+      // context is not an error, it is an empty result.
+      await held.query(`SELECT set_config('longbox.shop_id', $1, true)`, [shopId]);
       await held.query(`SELECT id FROM app_session WHERE id = $1 FOR NO KEY UPDATE`, [session.row.id]);
 
       // …while a membership write tries to take the same lock over every live
       // session of that person. "Same transaction" orders the membership write
       // against the rotation and NEITHER against the request; the lock is what
       // orders them, and this is the assertion that it does.
-      const membership = withTransaction(pool, async (tx) => {
+      const membership = shopTx(async (tx) => {
         await lockLiveSessionsOf(tx, person);
         membershipDone.value = true;
       });
@@ -260,13 +297,13 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     let currentRow: SessionRow = deepPair.operator.row;
     let currentToken = deepPair.operator.token;
     for (let i = 0; i < 40; i += 1) {
-      const rotated = await withTransaction(pool, (tx) =>
+      const rotated = await shopTx((tx) =>
         lockAndRotate(tx, currentRow, new Date(Date.now() + (i + 1) * 60 * 60 * 1000))
       );
       currentRow = rotated!.row;
       currentToken = rotated!.token;
     }
-    const depth = await pool.query(`SELECT count(*)::int AS n FROM app_session WHERE chain_id = $1`, [
+    const depth = await shopQuery(`SELECT count(*)::int AS n FROM app_session WHERE chain_id = $1`, [
       deepPair.operator.row.chain_id,
     ]);
     expect((depth.rows[0] as { n: number }).n).toBe(41);
@@ -295,7 +332,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     // that chains one person's session onto another's is a SILENT PRIVILEGE
     // TRANSFER that every liveness check in §3.3 would happily accept.
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO app_session
            (chain_id, kind, shop_id, location_id, device_id, device_credential_id, app_user_id,
             parent_session_id, parent_chain_id, token_hash, rotated_from,
@@ -320,7 +357,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
 
   it("(xi-b) REFUSES a device-chain successor on another device, where the K5 FK cannot reach", async () => {
     const device = await openDevice(pool, identity);
-    const otherDevice = await pool.query(
+    const otherDevice = await shopQuery(
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'other phone','phone')
        RETURNING id`,
       [shopId, identity.locationId]
@@ -330,7 +367,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     // constraint is inert on exactly the longer-lived chain. The second FK,
     // whose columns are never NULL, is what covers it.
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO app_session
            (chain_id, kind, shop_id, location_id, device_id, device_credential_id, token_hash,
             rotated_from, rotate_after, idle_expires_at, absolute_expires_at)
@@ -352,7 +389,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   // -------------------------------------------------------------------------
 
   async function insertPerson(): Promise<string> {
-    const res = await pool.query(
+    const res = await shopQuery(
       `INSERT INTO app_user (email, display_name) VALUES ($1,'Person') RETURNING id`,
       [`person-${randomUUID()}@example.invalid`]
     );
@@ -360,7 +397,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   }
 
   async function grantShop(appUserId: string): Promise<void> {
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, role) VALUES ($1,$2,'shop','operator')`,
       [appUserId, shopId]
     );
@@ -376,7 +413,7 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
     loops: number;
     rowsRead: number;
   }> {
-    const res = await pool.query(
+    const res = await shopQuery(
       `EXPLAIN (ANALYZE, FORMAT JSON)
        SELECT s.id,
               EXISTS (SELECT 1 FROM app_session_revocation r WHERE r.chain_id = s.chain_id) AS chain_revoked,

@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Queryable, type Tx, serviceDb, withTransaction } from "../../src/db.js";
 import {
   enrollAuthenticator,
   liveAuthenticator,
@@ -25,7 +25,7 @@ import {
 } from "../../src/services/auth/index.js";
 import { mintTotpSecret, stepAt, totpCode } from "../../src/services/auth/totp.js";
 import { open } from "../../src/services/auth/aead.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { grant, insertUser } from "./authHelpers.js";
 import {
   TEST_AUTHENTICATOR_KEY_V1,
@@ -40,6 +40,37 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
   let pool: pg.Pool;
   let shopId: string;
   const keyring = testKeyring();
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  /**
+   * THE SECOND FACTOR IS A PERSON'S ACT, NOT A SHOP'S (E03-B04, 048 §4/§8).
+   *
+   * `user_authenticator`, `recovery_code` and `app_user` carry no `shop_id` at
+   * all — they are declared exemptions in `src/db/rowLevelSecurity.ts` — and the
+   * `auth_attempt` row a failed factor appends carries a NULL one, which matches
+   * no tenant policy by construction. So these calls declare the `second-factor`
+   * service scope, exactly as the three CLIs that reach them in production do.
+   */
+  const mfaTx = <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { service: "second-factor" } });
+
+  const mfaDb = (): Queryable => serviceDb(pool, "second-factor");
+
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_totp");
@@ -68,7 +99,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     ring = keyring
   ): Promise<{ secret: Buffer; codes: readonly string[] }> {
     const secret = mintTotpSecret();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId,
         secret,
@@ -90,7 +121,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const id = await insertUser(pool, `op-${randomUUID()}@example.invalid`, "Operator Person");
     await grant(pool, id, shopId, "operator");
     const secret = mintTotpSecret();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId: id,
         secret,
@@ -106,7 +137,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
 
   it("writes NOTHING when the confirming code does not verify (048 §4.3)", async () => {
     const id = await freshOwner();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId: id,
         secret: mintTotpSecret(),
@@ -118,7 +149,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     );
     expect(out).toEqual({ ok: false, refusal: "code_did_not_verify" });
     expect(await liveAuthenticator(pool, id)).toBeUndefined();
-    const codes = await pool.query(`SELECT id FROM recovery_code WHERE app_user_id = $1`, [id]);
+    const codes = await shopQuery(`SELECT id FROM recovery_code WHERE app_user_id = $1`, [id]);
     expect(codes.rowCount).toBe(0);
   });
 
@@ -181,14 +212,10 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const later = new Date(now.getTime() + 30_000);
     const code = totpCode(secret, stepAt(later));
 
-    const first = await withTransaction(pool, (tx) =>
-      verifyTotp(tx, { appUserId: id, code, keyring, now: later })
-    );
+    const first = await mfaTx((tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later }));
     expect(first).toEqual({ ok: true, step: stepAt(later) });
 
-    const replay = await withTransaction(pool, (tx) =>
-      verifyTotp(tx, { appUserId: id, code, keyring, now: later })
-    );
+    const replay = await mfaTx((tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later }));
     expect(replay).toEqual({ ok: false, reason: "replayed" });
 
     // The refusal is the DATABASE's: the guard moved, and it moved to the step
@@ -197,7 +224,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     expect(Number(row.last_used_step)).toBe(stepAt(later));
     // …and the replay was recorded as its own failure class, where only the
     // lockout derivation and an audited break-glass query can read it.
-    const attempts = await pool.query(
+    const attempts = await mfaDb().query(
       `SELECT failure_class FROM auth_attempt WHERE app_user_id = $1 AND method = 'totp'`,
       [id]
     );
@@ -214,7 +241,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const now = new Date();
     const { secret } = await enrol(id, now);
     const t2 = new Date(now.getTime() + 60_000);
-    const accepted = await withTransaction(pool, (tx) =>
+    const accepted = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(secret, stepAt(t2)), keyring, now: t2 })
     );
     expect(accepted.ok).toBe(true);
@@ -222,9 +249,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // One step BEHIND the one just spent — still inside the window a moment later,
     // and refused because `last_used_step` is already higher.
     const behind = totpCode(secret, stepAt(t2) - 1);
-    const out = await withTransaction(pool, (tx) =>
-      verifyTotp(tx, { appUserId: id, code: behind, keyring, now: t2 })
-    );
+    const out = await mfaTx((tx) => verifyTotp(tx, { appUserId: id, code: behind, keyring, now: t2 }));
     expect(out).toEqual({ ok: false, reason: "replayed" });
   });
 
@@ -232,7 +257,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const id = await freshOwner();
     const now = new Date();
     const { secret } = await enrol(id, now);
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(secret, stepAt(now)), keyring, now })
     );
     // Whoever was standing behind the owner during enrollment saw that code.
@@ -249,8 +274,8 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // Two connections, genuinely in flight together. The anchor serialises them;
     // the conditional UPDATE decides which one wins.
     const [a, b] = await Promise.all([
-      withTransaction(pool, (tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later })),
-      withTransaction(pool, (tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later })),
+      mfaTx((tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later })),
+      mfaTx((tx) => verifyTotp(tx, { appUserId: id, code, keyring, now: later })),
     ]);
     const verdicts = [a, b];
     expect(verdicts.filter((v) => v.ok)).toHaveLength(1);
@@ -259,14 +284,16 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
 
   it("answers a person with NO authenticator without saying so, and records the attempt", async () => {
     const id = await freshOwner();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: "123456", keyring, now: new Date() })
     );
     expect(out).toEqual({ ok: false, reason: "no_authenticator" });
     // The decoy did the work: what a caller sees is a refusal, and what the
     // system keeps is the class — in the table only the lockout and an audited
     // break-glass query may read (048 §9.1's substrate rule, R17).
-    const attempts = await pool.query(`SELECT failure_class FROM auth_attempt WHERE app_user_id = $1`, [id]);
+    const attempts = await mfaDb().query(`SELECT failure_class FROM auth_attempt WHERE app_user_id = $1`, [
+      id,
+    ]);
     expect((attempts.rows[0] as { failure_class: string }).failure_class).toBe("no_authenticator");
   });
 
@@ -276,7 +303,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const { secret } = await enrol(id, now);
     const row = (await liveAuthenticator(pool, id))!;
 
-    const written = await withTransaction(pool, (tx) =>
+    const written = await mfaTx((tx) =>
       retireAuthenticator(tx, {
         authenticatorId: row.id,
         appUserId: id,
@@ -287,7 +314,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     expect(written).toBe(1);
 
     const later = new Date(now.getTime() + 30_000);
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(secret, stepAt(later)), keyring, now: later })
     );
     expect(out).toEqual({ ok: false, reason: "no_authenticator" });
@@ -295,19 +322,19 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // BOTH DIRECTIONS, for the reason `membership-revocation.test.ts` gives: a
     // test that only checked "it no longer verifies" would pass under a
     // `retired_at` UPDATE too, and the whole point is that this ending is a row.
-    const ending = await pool.query(
+    const ending = await shopQuery(
       `SELECT reason, retired_by FROM user_authenticator_retirement WHERE authenticator_id = $1`,
       [row.id]
     );
     expect(ending.rows[0]).toMatchObject({ reason: "lost_authenticator", retired_by: id });
-    const after = await pool.query(
+    const after = await shopQuery(
       `SELECT enrolled_at, last_used_step FROM user_authenticator WHERE id = $1`,
       [row.id]
     );
     expect(after.rowCount).toBe(1);
 
     // A second retirement writes nothing: one ending per factor.
-    const again = await withTransaction(pool, (tx) =>
+    const again = await mfaTx((tx) =>
       retireAuthenticator(tx, { authenticatorId: row.id, appUserId: id, reason: "offboarding" })
     );
     expect(again).toBe(0);
@@ -322,14 +349,14 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const live = (await liveAuthenticator(pool, id))!;
 
     expect(live.id).not.toBe(first.id);
-    const endings = await pool.query(
+    const endings = await shopQuery(
       `SELECT reason FROM user_authenticator_retirement WHERE authenticator_id = $1`,
       [first.id]
     );
     expect((endings.rows[0] as { reason: string }).reason).toBe("replaced");
     // The old secret is dead even though its row is still there.
     const later = new Date(now.getTime() + 30_000);
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(second, stepAt(later)), keyring, now: later })
     );
     expect(out.ok).toBe(true);
@@ -353,7 +380,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // and nothing having been migrated — which is the whole reason `key_version`
     // is on the row from day one.
     const later = new Date(Date.now() + 90_000);
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       verifyTotp(tx, {
         appUserId: old,
         code: totpCode(oldSecret, stepAt(later)),
@@ -367,7 +394,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // re-encrypted refuses them, as an incident rather than as a wrong code.
     const v2Only = requireAuthenticatorKey({ LONGBOX_AUTHENTICATOR_KEY_V2: TEST_AUTHENTICATOR_KEY_V2 });
     const evenLater = new Date(later.getTime() + 30_000);
-    const refused = await withTransaction(pool, (tx) =>
+    const refused = await mfaTx((tx) =>
       verifyTotp(tx, {
         appUserId: old,
         code: totpCode(oldSecret, stepAt(evenLater)),
@@ -393,17 +420,15 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     const id = await freshOwner();
     await enrol(id);
     const row = (await liveAuthenticator(pool, id))!;
-    const moved = await pool.query(`UPDATE user_authenticator SET last_used_step = 1 WHERE id = $1`, [
-      row.id,
-    ]);
+    const moved = await shopQuery(`UPDATE user_authenticator SET last_used_step = 1 WHERE id = $1`, [row.id]);
     expect(moved.rowCount).toBe(1);
     await expect(
-      pool.query(`UPDATE user_authenticator_retirement SET reason = 'offboarding' WHERE app_user_id = $1`, [
+      shopQuery(`UPDATE user_authenticator_retirement SET reason = 'offboarding' WHERE app_user_id = $1`, [
         id,
       ])
     ).rejects.toThrow();
     await expect(
-      pool.query(`UPDATE recovery_code SET code_hash = 'x' WHERE app_user_id = $1`, [id])
+      shopQuery(`UPDATE recovery_code SET code_hash = 'x' WHERE app_user_id = $1`, [id])
     ).rejects.toThrow();
   });
 
@@ -411,7 +436,7 @@ describe.skipIf(!dbUp)("the second factor, in the database (048 §4, I16)", () =
     // 047 §5.1 / 048 §3.3's rule, asserted the way `invitation.test.ts` asserts it:
     // liveness is a predicate over facts, so a column that could disagree with the
     // facts must not exist.
-    const cols = await pool.query(
+    const cols = await shopQuery(
       `SELECT table_name, column_name FROM information_schema.columns
         WHERE table_schema = 'public'
           AND table_name IN ('user_authenticator','recovery_code','recovery_code_use',

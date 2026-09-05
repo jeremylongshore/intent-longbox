@@ -7,6 +7,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import pg from "pg";
+import { withTransaction } from "../../src/db.js";
+
+/** What `asShop` hands back: `pg`'s result, not the narrower `Queryable`. */
+export interface TenantQueryable {
+  query(text: string, values?: unknown[]): Promise<pg.QueryResult>;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -166,10 +172,39 @@ export async function seedShop(
     [opts.name ?? "Test Shop", opts.slug ?? `test-shop-${Date.now()}`, (org.rows[0] as { id: string }).id]
   );
   const shopId = (res.rows[0] as { id: string }).id;
-  await db.query(
+  // `organization` and `shop` carry no `shop_id` and therefore no policy; the
+  // pricing policy DOES, so it is written through the new shop's own tenant
+  // context (E03-B04). A suite holding an app-role pool would otherwise be
+  // refused here by `WITH CHECK` — correctly, because a write with no tenant is
+  // a write that names no shop.
+  await asShop(db, shopId).query(
     `INSERT INTO shop_pricing_policy (shop_id, comp_percent, floor_cents, rounding_rule)
      VALUES ($1, $2, $3, 'nearest_99')`,
     [shopId, opts.compPercent ?? 90, opts.floorCents ?? 300]
   );
   return shopId;
+}
+
+/**
+ * A handle that runs every statement inside ONE shop's tenant context (E03-B04).
+ *
+ * The lane's suites come in two flavours and this is why it is exported. A suite
+ * on the MIGRATE-role URL owns the tables and bypasses the policies, so it needs
+ * nothing; a suite on `appUrl()` is the least-privileged role and is subject to
+ * every policy, so a bare `pool.query` INSERT into a shop-scoped table is refused
+ * and a bare SELECT returns nothing. Wrapping the seed in the shop it is about is
+ * both the fix and the thing under test: it is exactly what the running system
+ * does on every request (`src/db.ts`'s `tenantDb`).
+ */
+export function asShop(pool: pg.Pool, shopId: string): TenantQueryable {
+  // The same mechanism `tenantDb` uses — one transaction per statement, the
+  // context set with `BEGIN` — spelled here so the lane keeps `rowCount`, which
+  // several suites assert on and which the narrower `Queryable` does not carry.
+  return {
+    query: (text, values) =>
+      withTransaction(pool, (tx) => tx.query(text, values), {
+        tenant: { shopId },
+        label: "test-scoped-read",
+      }),
+  };
 }

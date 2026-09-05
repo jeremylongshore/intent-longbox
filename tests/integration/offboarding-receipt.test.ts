@@ -14,7 +14,7 @@
 // LACKS as about what it says.
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appUrl, createFreshDb, probeDb, runMigrations } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations } from "./helpers.js";
 import { introduceCredentialVersion, nextVersionNo } from "../../src/providers/credentialVersions.js";
 import {
   OFFBOARDING_REASON_CODE,
@@ -34,27 +34,56 @@ const CANARY = "test-offboarding-canary-key";
 
 let enabled = false;
 let pool: pg.Pool | undefined;
+let ownerPool: pg.Pool | undefined;
 let shopId: string;
 let versionId: string;
 let restoreRefusals: () => void;
+
+/**
+ * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+ *
+ * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+ * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+ * every policy. So a fixture INSERT with no tenant context is refused by
+ * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+ * statement would be. These two helpers name the tenant the way the running
+ * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+ * context is set inside the statement's own transaction and reverts with it.
+ *
+ * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+ * cross-tenant fixture stays visible rather than reading like the ordinary case.
+ */
+const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+  asShop(pool!, shopId).query(sql, values);
 
 beforeAll(async () => {
   enabled = await probeDb();
   if (!enabled) return;
   const migrateUrl = await createFreshDb(DB);
   await runMigrations(migrateUrl);
+  // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+  // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+  // tenant IS the row being created — which makes onboarding a schema-owner act
+  // enforced by the database rather than by convention. Everything the suite
+  // EXERCISES still runs on the least-privileged pool.
+  ownerPool = new pg.Pool({ connectionString: migrateUrl });
   pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
-  const org = await pool.query(`INSERT INTO organization (name) VALUES ('Offboarding Org') RETURNING id`);
-  const shop = await pool.query(
+  // THE OWNING CONNECTION (E03-B04). `organization` carries no tenant and `shop`
+  // is policied on its own `id`, so an INSERT can never satisfy the policy — the
+  // tenant IS the row being created. Creating a shop is a schema-owner act.
+  const org = await ownerPool.query(
+    `INSERT INTO organization (name) VALUES ('Offboarding Org') RETURNING id`
+  );
+  const shop = await ownerPool.query(
     `INSERT INTO shop (name, slug, organization_id) VALUES ($1,$2,$3) RETURNING id`,
     ["Offboarding Test Shop", SLUG, (org.rows[0] as { id: string }).id]
   );
   shopId = (shop.rows[0] as { id: string }).id;
-  versionId = await introduceCredentialVersion(pool, {
+  versionId = await introduceCredentialVersion(asShop(pool, shopId), {
     shopId,
     kind: "anthropic",
     keyRef: KEY_REF,
-    versionNo: await nextVersionNo(pool, shopId, "anthropic"),
+    versionNo: await nextVersionNo(asShop(pool, shopId), shopId, "anthropic"),
   });
   restoreRefusals = setCredentialRefusalSink(() => undefined) as never;
 }, 120_000);
@@ -62,13 +91,14 @@ beforeAll(async () => {
 afterAll(async () => {
   if (restoreRefusals) setCredentialRefusalSink(restoreRefusals as never);
   await pool?.end();
+  await ownerPool?.end();
 });
 
 describe("I10 — the offboarding receipt", () => {
   it("appends a retirement with reason_code='offboarding' and returns the receipt", async () => {
     if (!enabled) return;
     const instructed = new Date("2026-09-04T12:00:00Z");
-    const receipt = await offboardCredentialVersion(pool!, {
+    const receipt = await offboardCredentialVersion(asShop(pool!, shopId), {
       shopId,
       credentialVersionId: versionId,
       kind: "anthropic",
@@ -79,7 +109,7 @@ describe("I10 — the offboarding receipt", () => {
     expect(receipt.credential_version_id).toBe(versionId);
     expect(receipt.provider_revocation_instructed_at).toBe(instructed.toISOString());
 
-    const row = await pool!.query(
+    const row = await shopQuery(
       `SELECT reason_code, provider_revocation_instructed_at
          FROM shop_credential_retirement WHERE credential_version_id = $1`,
       [versionId]
@@ -149,7 +179,7 @@ describe("I10 — the offboarding receipt", () => {
     if (!enabled) return;
     process.env[KEY_REF] = CANARY;
     try {
-      await expect(resolveVisionProvider(pool!, shopId)).rejects.toThrow(/retired/);
+      await expect(resolveVisionProvider(asShop(pool!, shopId), shopId)).rejects.toThrow(/retired/);
     } finally {
       delete process.env[KEY_REF];
     }
@@ -164,7 +194,7 @@ describe("I10 — the offboarding receipt", () => {
  * `022`'s unique constraint exists to have.
  */
 async function offboardReceiptFor(instructed: Date | null) {
-  const row = await pool!.query(
+  const row = await shopQuery(
     `SELECT retired_at, provider_revocation_instructed_at
        FROM shop_credential_retirement WHERE credential_version_id = $1`,
     [versionId]

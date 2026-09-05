@@ -29,7 +29,7 @@
 // module touches a table.
 import { createHash, randomBytes } from "node:crypto";
 import type pg from "pg";
-import { withTransaction, type Queryable, type Tx } from "../../../db.js";
+import { serviceDb, withTransaction, type Queryable, type Tx } from "../../../db.js";
 import type { ShopRateLimiter } from "../../rateLimit.js";
 import {
   introduceTokenVersion,
@@ -154,6 +154,11 @@ export type CallbackRefusal =
   | "state_expired"
   | "state_replayed"
   | "domain_mismatch"
+  // E03-B04 (security lens F8): a store already carrying another shop's live
+  // token. A separate member from `domain_mismatch`, which is about the state row
+  // rather than about the estate — the handler maps both to one registry code, and
+  // the distinction is for this server's own reasoning.
+  | "domain_claimed"
   | "scope_insufficient"
   | "scope_excessive"
   | "rate_limited"
@@ -420,7 +425,11 @@ export async function completeInstall(
     throw new ConnectorCallbackError("unknown_state", "the callback carried no state or no code");
   }
 
-  const found = await deps.pool.query(
+  // PRE-TENANT, AND DECLARED AS SUCH (E03-B04). The callback names its shop only
+  // through `state_digest`, so the row this finds IS the tenant — the same shape
+  // as a session cookie's lookup (048 §6.1) and the same answer: a declared
+  // service scope, rather than a table left outside the boundary.
+  const found = await serviceDb(deps.pool, "connector-inbound").query(
     `SELECT s.id, s.shop_id, s.shop_domain, s.requested_scopes, s.expires_at,
             (u.id IS NOT NULL) AS spent
        FROM connector_install_state s
@@ -461,7 +470,34 @@ export async function completeInstall(
     );
   }
 
+  // ⚠ **A STORE BELONGS TO AT MOST ONE SHOP, AND THIS IS WHERE THAT IS DECIDED**
+  // (security lens F8). `shop_domain` carried no constraint across tenants, so a
+  // second shop could install the same store — and then an `app/uninstalled` for
+  // that store, which retires EVERY live token granted for it (053 §7.3), would
+  // end the FIRST shop's authority as a side effect of the second's install. A
+  // unique index cannot express it: a rotation legitimately leaves two live
+  // versions for one shop (050 §2 Q2), so the constraint is "at most one SHOP",
+  // not "at most one row". It is refused here rather than at the index, in the one
+  // place a new authority is created, and the read runs in the same inbound scope
+  // that found the state.
+  const claimed = await serviceDb(deps.pool, "connector-inbound").query(
+    `SELECT DISTINCT v.shop_id FROM connector_token_version v
+      WHERE v.connector = $1 AND v.shop_domain = $2 AND v.shop_id <> $3
+        AND NOT EXISTS (SELECT 1 FROM connector_token_retirement r
+                         WHERE r.connector_token_version_id = v.id)`,
+    [CONNECTOR, shopDomain, row.shop_id]
+  );
+  if (claimed.rows.length > 0) {
+    throw new ConnectorCallbackError(
+      "domain_claimed",
+      "another shop already holds a live connector token for that store; uninstall it there first"
+    );
+  }
+
   const ring = deps.keyring ?? requireConnectorKey();
+  // The tenant is KNOWN from here: the state row named it. So the token version
+  // and the use row commit under an ordinary tenant context rather than under the
+  // scope that found them.
   await withTransaction(
     deps.pool,
     async (tx: Tx) => {
@@ -483,7 +519,7 @@ export async function completeInstall(
         [row.shop_id, row.id, versionId]
       );
     },
-    { label: "connector-install" }
+    { label: "connector-install", tenant: { shopId: row.shop_id } }
   );
 
   return { connector: CONNECTOR, shop_domain: shopDomain, granted_scopes: granted };
@@ -620,7 +656,9 @@ export async function receiveWebhook(
   // exactly ONE shop; otherwise it stays NULL, which is what §5.5 made the column
   // nullable for. `shop.shopify_domain` survives for the LEGACY static path and
   // is read there by shop id, never as a lookup key.
-  const installed = await deps.pool.query(
+  // PRE-TENANT for the scope's second reason: a webhook identifies its store by a
+  // DOMAIN, and which shop that is — if any — is what this query answers.
+  const installed = await serviceDb(deps.pool, "connector-inbound").query(
     `SELECT DISTINCT v.shop_id
        FROM connector_token_version v
       WHERE v.connector = $1 AND v.shop_domain = $2`,
@@ -635,6 +673,10 @@ export async function receiveWebhook(
     throw new WebhookRateLimitedError("too many webhooks for this shop");
   }
 
+  // STILL the inbound scope, and here it is load-bearing rather than tidy: a
+  // webhook that matches no install writes a receipt with a NULL `shop_id`
+  // (053 §5.5), and a NULL matches no tenant policy — so this transaction cannot
+  // be a tenant one even when `shopId` happens to be known.
   return withTransaction(
     deps.pool,
     async (tx: Tx) => {
@@ -674,7 +716,7 @@ export async function receiveWebhook(
 
       return { acknowledged: true as const, duplicate: false, receiptId: first.id, topic, retired };
     },
-    { label: "connector-webhook" }
+    { label: "connector-webhook", tenant: { service: "connector-inbound" } }
   );
 }
 

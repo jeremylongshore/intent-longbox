@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, serviceDb, withTransaction } from "../../src/db.js";
 import {
   DEVICE_COOKIE,
   ENROLLMENT_CODE_LENGTH,
@@ -36,7 +36,7 @@ import {
   verifyEnrollmentCode,
   type EnrollmentCodeRow,
 } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { seedIdentity, type SeededIdentity } from "./authHelpers.js";
 import { testConfig } from "../testConfig.js";
 
@@ -46,14 +46,38 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   let pool: pg.Pool;
   let app: FastifyInstance;
   let shopId: string;
+  // ⚠ AN OWNER POOL, KEPT OPEN (E03-B04). `shop` is policied on its own `id`, so
+  // an INSERT can never satisfy `id = current_shop_id()` — the tenant IS the row
+  // being created — and creating a shop is therefore a schema-owner act enforced
+  // by the database, which is what `pnpm register-shop` already was by convention.
+  let ownerPool: pg.Pool;
   let identity: SeededIdentity;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_enrollment");
     await runMigrations(migrateUrl);
-    const ownerPool = new pg.Pool({ connectionString: migrateUrl });
+    ownerPool = new pg.Pool({ connectionString: migrateUrl });
     shopId = await seedShop(ownerPool, { name: "Shop D", slug: `enr-${Date.now()}` });
-    await ownerPool.end();
     const url = appUrl(migrateUrl);
     pool = new pg.Pool({ connectionString: url });
     identity = await seedIdentity(pool, shopId);
@@ -63,10 +87,11 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   afterAll(async () => {
     await app?.close();
     await pool?.end();
+    await ownerPool?.end();
   });
 
   async function issue(): Promise<{ code: string; codeId: string }> {
-    const out = await withTransaction(pool, (tx) =>
+    const out = await shopTx((tx) =>
       issueEnrollmentCode(tx, {
         shopId,
         locationId: identity.locationId,
@@ -117,14 +142,14 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     const res = await redeem(code);
     expect(res.status).toBe(201);
 
-    const use = await pool.query(
+    const use = await shopQuery(
       `SELECT u.device_id, u.device_credential_id FROM device_enrollment_code_use u WHERE u.code_id = $1`,
       [codeId]
     );
     expect(use.rows).toHaveLength(1);
     const row = use.rows[0] as { device_id: string; device_credential_id: string };
 
-    const device = await pool.query(
+    const device = await shopQuery(
       `SELECT d.shop_id, d.location_id, d.label, d.kind FROM device d WHERE d.id = $1`,
       [row.device_id]
     );
@@ -138,7 +163,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     // The credential was minted, hashed and DISCARDED: the phone holds a session
     // cookie and no secret. The response body carries no secret either — 048 I9's
     // rule applied to a new surface.
-    const credential = await pool.query(
+    const credential = await shopQuery(
       `SELECT c.token_hash, c.enrolled_by FROM device_credential c WHERE c.id = $1`,
       [row.device_credential_id]
     );
@@ -167,7 +192,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     expect(second.status).toBe(401);
     expect(second.error).toBe("ENROLLMENT_CODE_INVALID");
 
-    const uses = await pool.query(
+    const uses = await shopQuery(
       `SELECT count(*)::int AS n FROM device_enrollment_code_use WHERE code_id = $1`,
       [codeId]
     );
@@ -177,15 +202,15 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   it("leaves exactly ONE phone when two redemptions race, and no orphan device", async () => {
     const { code, codeId } = await issue();
     const verdicts = await Promise.all([
-      withTransaction(pool, (tx) => verifyEnrollmentCode(tx, { code, now: new Date() })),
-      withTransaction(pool, (tx) => verifyEnrollmentCode(tx, { code, now: new Date() })),
+      shopTx((tx) => verifyEnrollmentCode(tx, { code, now: new Date() })),
+      shopTx((tx) => verifyEnrollmentCode(tx, { code, now: new Date() })),
     ]);
     for (const v of verdicts) expect(v.ok).toBe(true);
     const row = (verdicts[0] as { ok: true; code: EnrollmentCodeRow }).code;
 
     const devicesBefore = await countDevices();
     const results = await Promise.allSettled(
-      verdicts.map(() => withTransaction(pool, (tx) => enrollDevice(tx, { code: row })))
+      verdicts.map(() => shopTx((tx) => enrollDevice(tx, { code: row })))
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
@@ -194,7 +219,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     // throw — a spent code must not leave a phantom phone in the shop's
     // inventory, which is the whole reason the three rows share one transaction.
     expect(await countDevices()).toBe(devicesBefore + 1);
-    const uses = await pool.query(
+    const uses = await shopQuery(
       `SELECT count(*)::int AS n FROM device_enrollment_code_use WHERE code_id = $1`,
       [codeId]
     );
@@ -207,7 +232,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     // are in the past — the state a real code reaches by the clock moving.
     const code = "EXPIREDENROLLMENTCODEZZZZZ";
     expect(code).toHaveLength(ENROLLMENT_CODE_LENGTH);
-    await pool.query(
+    await shopQuery(
       `INSERT INTO device_enrollment_code
          (shop_id, location_id, device_label, device_kind, code_digest, expires_at, issued_by, created_at)
        VALUES ($1,$2,'late phone','phone',$3, now() - interval '1 minute', $4, now() - interval '20 minutes')`,
@@ -217,7 +242,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     expect(res.status).toBe(401);
     expect(res.error).toBe("ENROLLMENT_CODE_INVALID");
 
-    const columns = await pool.query(
+    const columns = await shopQuery(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'device_enrollment_code'`
     );
     const names = (columns.rows as Array<{ column_name: string }>).map((r) => r.column_name);
@@ -227,14 +252,18 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   });
 
   it("records an unknown code as a failure with a NULL shop, because it names no shop", async () => {
-    const before = await pool.query(
+    // A NULL `shop_id` matches NO tenant policy — that is what "names no shop"
+    // means once E03-B04 is in force — so the count is read in the same
+    // `code-redemption` scope the redemption itself runs in.
+    const inbound = serviceDb(pool, "code-redemption");
+    const before = await inbound.query(
       `SELECT count(*)::int AS n FROM auth_attempt
         WHERE method = 'enrollment_code' AND shop_id IS NULL`
     );
     const res = await redeem("ZZZZZZZZZZZZZZZZZZZZZZZZZZ");
     expect(res.status).toBe(401);
     expect(res.error).toBe("ENROLLMENT_CODE_INVALID");
-    const after = await pool.query(
+    const after = await inbound.query(
       `SELECT count(*)::int AS n FROM auth_attempt
         WHERE method = 'enrollment_code' AND shop_id IS NULL`
     );
@@ -246,13 +275,32 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   });
 
   it("refuses to issue past the per-shop outstanding ceiling (048 §7.1a)", async () => {
-    const ceilingShop = await seedShop(pool, {
+    const ceilingShop = await seedShop(ownerPool, {
       name: "Shop E",
       slug: `enr-ceiling-${randomUUID().slice(0, 8)}`,
     });
     const ceiling = await seedIdentity(pool, ceilingShop);
+    // THE CEILING SHOP'S CONTEXT, because the act is about that shop (E03-B04):
+    // `issueEnrollmentCode` records an `authorization_decision` row for the shop it
+    // is deciding about, and such a row written under another shop's context is
+    // refused by the policy's `WITH CHECK`.
     for (let i = 0; i < MAX_OUTSTANDING_ENROLLMENT_CODES_PER_SHOP; i += 1) {
-      const out = await withTransaction(pool, (tx) =>
+      const out = await shopTx(
+        (tx) =>
+          issueEnrollmentCode(tx, {
+            shopId: ceilingShop,
+            locationId: ceiling.locationId,
+            deviceLabel: "phone",
+            deviceKind: "phone",
+            issuedBy: ceiling.ownerId,
+            now: new Date(),
+          }),
+        ceilingShop
+      );
+      expect(out.ok).toBe(true);
+    }
+    const over = await shopTx(
+      (tx) =>
         issueEnrollmentCode(tx, {
           shopId: ceilingShop,
           locationId: ceiling.locationId,
@@ -260,25 +308,14 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
           deviceKind: "phone",
           issuedBy: ceiling.ownerId,
           now: new Date(),
-        })
-      );
-      expect(out.ok).toBe(true);
-    }
-    const over = await withTransaction(pool, (tx) =>
-      issueEnrollmentCode(tx, {
-        shopId: ceilingShop,
-        locationId: ceiling.locationId,
-        deviceLabel: "phone",
-        deviceKind: "phone",
-        issuedBy: ceiling.ownerId,
-        now: new Date(),
-      })
+        }),
+      ceilingShop
     );
     expect(over).toEqual({ ok: false, refusal: "too_many_outstanding" });
   });
 
   it("refuses an issuer who is only an OPERATOR, and a location from another shop", async () => {
-    const notPrivileged = await withTransaction(pool, (tx) =>
+    const notPrivileged = await shopTx((tx) =>
       issueEnrollmentCode(tx, {
         shopId,
         locationId: identity.locationId,
@@ -291,12 +328,12 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     );
     expect(notPrivileged).toEqual({ ok: false, refusal: "not_permitted" });
 
-    const elsewhere = await seedShop(pool, {
+    const elsewhere = await seedShop(ownerPool, {
       name: "Shop F",
       slug: `enr-other-${randomUUID().slice(0, 8)}`,
     });
     const other = await seedIdentity(pool, elsewhere);
-    const wrongLocation = await withTransaction(pool, (tx) =>
+    const wrongLocation = await shopTx((tx) =>
       issueEnrollmentCode(tx, {
         shopId,
         // Another shop's location. 034 I7 makes `device.location_id` NOT NULL, so
@@ -330,12 +367,12 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     const { code, codeId } = await issue();
     const devicesBefore = await countDevices();
 
-    const verdict = await withTransaction(pool, (tx) => verifyEnrollmentCode(tx, { code, now: new Date() }));
+    const verdict = await shopTx((tx) => verifyEnrollmentCode(tx, { code, now: new Date() }));
     expect(verdict.ok).toBe(true);
     const row = (verdict as { ok: true; code: EnrollmentCodeRow }).code;
 
     await expect(
-      withTransaction(pool, async (tx) => {
+      shopTx(async (tx) => {
         await enrollDevice(tx, { code: row });
         // Stands in for anything that can fail after the rows are written — a
         // dead connection, a refused session INSERT, a process that dies.
@@ -344,7 +381,7 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
     ).rejects.toThrow(/crash after the device rows/);
 
     expect(await countDevices()).toBe(devicesBefore);
-    const uses = await pool.query(
+    const uses = await shopQuery(
       `SELECT count(*)::int AS n FROM device_enrollment_code_use WHERE code_id = $1`,
       [codeId]
     );
@@ -360,13 +397,13 @@ describe.skipIf(!dbUp)("device enrollment is single-use by constraint (048 §7.3
   it("appends to both tables and can UPDATE neither", async () => {
     const { codeId } = await issue();
     await expect(
-      pool.query(`UPDATE device_enrollment_code SET expires_at = now() WHERE id = $1`, [codeId])
+      shopQuery(`UPDATE device_enrollment_code SET expires_at = now() WHERE id = $1`, [codeId])
     ).rejects.toThrow();
-    await expect(pool.query(`DELETE FROM device_enrollment_code WHERE id = $1`, [codeId])).rejects.toThrow();
+    await expect(shopQuery(`DELETE FROM device_enrollment_code WHERE id = $1`, [codeId])).rejects.toThrow();
   });
 
   async function countDevices(): Promise<number> {
-    const res = await pool.query(`SELECT count(*)::int AS n FROM device WHERE shop_id = $1`, [shopId]);
+    const res = await shopQuery(`SELECT count(*)::int AS n FROM device WHERE shop_id = $1`, [shopId]);
     return (res.rows[0] as { n: number }).n;
   }
 });

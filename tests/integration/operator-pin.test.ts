@@ -38,7 +38,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import {
   BACKOFF_BASE_MS,
   PAIR_FREE_ATTEMPTS,
@@ -48,7 +48,7 @@ import {
   setOperatorPin,
   verifyOperatorPin,
 } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { TEST_PIN, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
@@ -75,6 +75,26 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
   let identity: SeededIdentity;
   let otherShopIdentity: SeededIdentity;
 
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
+
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_operator_pin");
     await runMigrations(migrateUrl);
@@ -93,19 +113,17 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
 
   /** A fresh (device, person) pair with its own PIN, so tests do not share a budget. */
   async function freshPair(pin = TEST_PIN): Promise<{ deviceId: string; appUserId: string }> {
-    const device = await pool.query(
+    const device = await shopQuery(
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'phone','phone') RETURNING id`,
       [shopId, identity.locationId]
     );
-    const person = await pool.query(
+    const person = await shopQuery(
       `INSERT INTO app_user (email, display_name) VALUES ($1,'Person') RETURNING id`,
       [`pin-${randomUUID()}@example.invalid`]
     );
     const deviceId = (device.rows[0] as { id: string }).id;
     const appUserId = (person.rows[0] as { id: string }).id;
-    await withTransaction(pool, (tx) =>
-      setOperatorPin(tx, { shopId, deviceId, appUserId, pin, pepper: TEST_PIN_PEPPER })
-    );
+    await shopTx((tx) => setOperatorPin(tx, { shopId, deviceId, appUserId, pin, pepper: TEST_PIN_PEPPER }));
     return { deviceId, appUserId };
   }
 
@@ -121,7 +139,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
    */
   async function recordFailures(pair: { deviceId: string; appUserId: string }, count: number): Promise<void> {
     for (let i = 0; i < count; i += 1) {
-      await withTransaction(pool, (tx) =>
+      await shopTx((tx) =>
         recordFailure(tx, {
           shopId,
           deviceId: pair.deviceId,
@@ -135,7 +153,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
 
   /** How many `operator_pin` failures stand against a pair. */
   async function failureCount(pair: { deviceId: string; appUserId: string }): Promise<number> {
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT count(*)::int AS n FROM auth_attempt
         WHERE device_id = $1 AND app_user_id = $2 AND method = 'operator_pin'`,
       [pair.deviceId, pair.appUserId]
@@ -165,7 +183,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
 
   /** Every `operator_pin` failure recorded against a device, oldest first, as epoch ms. */
   async function failureTimes(deviceId: string): Promise<number[]> {
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT created_at FROM auth_attempt
         WHERE device_id = $1 AND method = 'operator_pin'
         ORDER BY created_at, id`,
@@ -233,7 +251,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     pin: string,
     now = new Date()
   ): Promise<{ ok: boolean }> {
-    return withTransaction(pool, (tx) =>
+    return shopTx((tx) =>
       verifyOperatorPin(tx, {
         shopId,
         deviceId: pair.deviceId,
@@ -269,7 +287,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
 
   it("stores an argon2id digest that is NOT reproducible without the pepper (I9, R6)", async () => {
     const pair = await freshPair();
-    const row = await pool.query(`SELECT pin_hash, pepper_version FROM operator_pin WHERE device_id = $1`, [
+    const row = await shopQuery(`SELECT pin_hash, pepper_version FROM operator_pin WHERE device_id = $1`, [
       pair.deviceId,
     ]);
     const stored = (row.rows[0] as { pin_hash: string; pepper_version: number }).pin_hash;
@@ -296,7 +314,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // Still free: the fat-fingered operator has not been charged anything. A
     // live read is safe here BECAUSE the answer is 0 for every clock — inside
     // the free budget the age term never enters the arithmetic.
-    expect(await lockoutWait(pool, pair.deviceId, pair.appUserId, new Date())).toBe(0);
+    expect(await lockoutWait(asShop(pool, shopId), pair.deviceId, pair.appUserId, new Date())).toBe(0);
 
     expect((await verify(pair, WRONG_PIN)).ok).toBe(false);
     // One past the budget owes exactly the first backoff step. Asserted off the
@@ -317,7 +335,9 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
 
     // NO OTHER OPERATOR ON THE SAME PHONE IS AFFECTED beyond the device ceiling,
     // which these failures are on a different phone entirely.
-    expect(await lockoutWait(pool, bystander.deviceId, bystander.appUserId, new Date())).toBe(0);
+    expect(await lockoutWait(asShop(pool, shopId), bystander.deviceId, bystander.appUserId, new Date())).toBe(
+      0
+    );
     expect((await verify(bystander, TEST_PIN)).ok).toBe(true);
   });
 
@@ -336,7 +356,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // state in which it is refused *until*." The clock is an input, so the test
     // moves it rather than sleeping.
     const afterBackoff = new Date(Date.now() + 60 * 60 * 1000);
-    expect(await lockoutWait(pool, pair.deviceId, pair.appUserId, afterBackoff)).toBe(0);
+    expect(await lockoutWait(asShop(pool, shopId), pair.deviceId, pair.appUserId, afterBackoff)).toBe(0);
     expect((await verify(pair, TEST_PIN, afterBackoff)).ok).toBe(true);
   });
 
@@ -348,7 +368,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // `> 0` reads below claims about the RECORD surviving a new connection
     // rather than claims about how fast this machine is (E03-D10).
     await recordFailures(pair, LOCKOUT_BEYOND_TEST_TIMEOUT - 1);
-    const before = await lockoutWait(pool, pair.deviceId, pair.appUserId, new Date());
+    const before = await lockoutWait(asShop(pool, shopId), pair.deviceId, pair.appUserId, new Date());
     expect(before).toBeGreaterThan(0);
 
     // A NEW pool is a new process's connection as far as any in-memory state is
@@ -357,7 +377,11 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // the assertion that none of them applies here.
     const fresh = new pg.Pool({ connectionString: pool.options.connectionString });
     try {
-      expect(await lockoutWait(fresh, pair.deviceId, pair.appUserId, new Date())).toBeGreaterThan(0);
+      // Scoped like every other read here: a new pool is a new process, and a new
+      // process resolves its tenant the same way (E03-B04).
+      expect(
+        await lockoutWait(asShop(fresh, shopId), pair.deviceId, pair.appUserId, new Date())
+      ).toBeGreaterThan(0);
     } finally {
       await fresh.end();
     }
@@ -367,26 +391,26 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // The per-pair delay alone lets an attacker holding the phone walk the
     // roster: a few failures against each of eight display names is eight fresh
     // budgets. The device class is what actually bounds a stolen phone.
-    const device = await pool.query(
+    const device = await shopQuery(
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'walk','phone') RETURNING id`,
       [shopId, identity.locationId]
     );
     const deviceId = (device.rows[0] as { id: string }).id;
     const people: string[] = [];
     for (let i = 0; i < 6; i += 1) {
-      const person = await pool.query(
+      const person = await shopQuery(
         `INSERT INTO app_user (email, display_name) VALUES ($1,'Roster') RETURNING id`,
         [`roster-${randomUUID()}@example.invalid`]
       );
       const appUserId = (person.rows[0] as { id: string }).id;
       people.push(appUserId);
-      await withTransaction(pool, (tx) =>
+      await shopTx((tx) =>
         setOperatorPin(tx, { shopId, deviceId, appUserId, pin: TEST_PIN, pepper: TEST_PIN_PEPPER })
       );
     }
     for (const appUserId of people) {
       for (let i = 0; i < 3; i += 1) {
-        await withTransaction(pool, (tx) =>
+        await shopTx((tx) =>
           verifyOperatorPin(tx, {
             shopId,
             deviceId,
@@ -403,12 +427,12 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     // reason `LOCKOUT_BEYOND_TEST_TIMEOUT` exists: eight past the DEVICE budget
     // owes `BACKOFF_BASE_MS * 2^7` — 256 seconds, capped at 300 — so a run in
     // which it could have been served has already failed by timing out.
-    const wait = await lockoutWait(pool, deviceId, people[0]!, new Date());
+    const wait = await lockoutWait(asShop(pool, shopId), deviceId, people[0]!, new Date());
     expect(wait).toBeGreaterThan(0);
     // And it is still a delay: the ceiling slows the walk, it does not end the
     // shift (the DoS trade 048 §9.1 states rather than hides).
     const later = new Date(Date.now() + 60 * 60 * 1000);
-    expect(await lockoutWait(pool, deviceId, people[0]!, later)).toBe(0);
+    expect(await lockoutWait(asShop(pool, shopId), deviceId, people[0]!, later)).toBe(0);
   });
 
   it("consumes N budget under N CONCURRENT wrong attempts, not one (the write-skew case)", async () => {
@@ -461,6 +485,11 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     const holder = await pool.connect();
     try {
       await holder.query("BEGIN");
+      // ⚠ THE CONTEXT IS PART OF THE LOCK (E03-B04). `FOR UPDATE` locks the rows a
+      // statement can SEE, and a connection with no tenant context sees none — so
+      // without this the hold below would be a no-op and this test would prove the
+      // opposite of what it says. A missing context is an empty result, not an error.
+      await holder.query(`SELECT set_config('longbox.shop_id', $1, true)`, [shopId]);
       const held = await holder.query(
         `SELECT id FROM operator_pin WHERE device_id = $1 AND app_user_id = $2 FOR UPDATE`,
         [pair.deviceId, pair.appUserId]
@@ -479,7 +508,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
       // mistake the burst assertion just stopped making.
       let blocked = false;
       while (!blocked && !finished) {
-        const waiting = await pool.query(
+        const waiting = await shopQuery(
           `SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`,
           [holderPid]
         );
@@ -528,7 +557,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
   it("records FAILURES ONLY — a success writes no row (R16)", async () => {
     const pair = await freshPair();
     expect((await verify(pair, TEST_PIN)).ok).toBe(true);
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT count(*)::int AS n FROM auth_attempt WHERE device_id = $1 AND app_user_id = $2`,
       [pair.deviceId, pair.appUserId]
     );
@@ -543,20 +572,20 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
   it("refuses a RETIRED PIN, so a membership revocation really ends it (048 §3.5)", async () => {
     const pair = await freshPair();
     expect((await verify(pair, TEST_PIN)).ok).toBe(true);
-    await pool.query(`UPDATE operator_pin SET retired_at = now() WHERE device_id = $1`, [pair.deviceId]);
+    await shopQuery(`UPDATE operator_pin SET retired_at = now() WHERE device_id = $1`, [pair.deviceId]);
     expect((await verify(pair, TEST_PIN)).ok).toBe(false);
   });
 
   it("refuses a trivial PIN AT SET TIME rather than at verify time", async () => {
-    const device = await pool.query(
+    const device = await shopQuery(
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'p','phone') RETURNING id`,
       [shopId, identity.locationId]
     );
-    const person = await pool.query(
+    const person = await shopQuery(
       `INSERT INTO app_user (email, display_name) VALUES ($1,'P') RETURNING id`,
       [`trivial-${randomUUID()}@example.invalid`]
     );
-    const set = await withTransaction(pool, (tx) =>
+    const set = await shopTx((tx) =>
       setOperatorPin(tx, {
         shopId,
         deviceId: (device.rows[0] as { id: string }).id,
@@ -566,7 +595,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
       })
     );
     expect(set).toEqual({ ok: false, refusal: "trivial" });
-    const stored = await pool.query(`SELECT count(*)::int AS n FROM operator_pin WHERE device_id = $1`, [
+    const stored = await shopQuery(`SELECT count(*)::int AS n FROM operator_pin WHERE device_id = $1`, [
       (device.rows[0] as { id: string }).id,
     ]);
     expect((stored.rows[0] as { n: number }).n).toBe(0);

@@ -11,14 +11,14 @@
 // ยง11 I8, I9; 022 P1; 033 B3; 019 T19.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { claimBatch, DEFAULT_OUTBOX_PARAMS, drainOnce, enqueue } from "../../src/services/outbox.js";
 import { buildConsumerRegistry } from "../../src/consumers/index.js";
 import { DRAFT_REQUESTED } from "../../src/events/catalogue.js";
 import type { ShopifyClient } from "../../src/services/shopify.js";
 import { fakeShopifyClient } from "../fakes.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
@@ -27,28 +27,56 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ยง4.3)", () => {
   let pool: pg.Pool;
+  let ownerPool: pg.Pool;
   let shopId: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool โ€” the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d07_draft_guard");
     await runMigrations(url);
+    // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+    // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` โ€” the
+    // tenant IS the row being created โ€” which makes onboarding a schema-owner act
+    // enforced by the database rather than by convention. Everything the suite
+    // EXERCISES still runs on the least-privileged pool.
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 8 });
-    shopId = await seedShop(pool, { name: "Draft Guard Shop" });
+    shopId = await seedShop(ownerPool, { name: "Draft Guard Shop" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
   /** A session with the two facts the route's 409 gates require. */
   async function draftableSession(): Promise<string> {
-    const sessionId = (await createScanSession(pool, shopId)).id;
-    await pool.query(
+    const sessionId = (await createScanSession(asShop(pool, shopId), shopId)).id;
+    await shopQuery(
       `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
        VALUES ($1,$2,$3,'one_tap')`,
       [sessionId, shopId, JSON.stringify({ title: "Uncanny X-Men", issue: "266", publisher: "Marvel" })]
     );
-    await pool.query(
+    await shopQuery(
       `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents)
        VALUES ($1,$2,'x',4750)`,
       [sessionId, shopId]
@@ -57,7 +85,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
   }
 
   async function request(sessionId: string): Promise<string> {
-    const res = await withTransaction(pool, (tx) =>
+    const res = await shopTx((tx) =>
       enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })
     );
     return res.id;
@@ -71,7 +99,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
 
   const attempts = async (outboxId: string) =>
     (
-      await pool.query(
+      await shopQuery(
         `SELECT kind, detail FROM outbox_attempt WHERE outbox_id = $1 ORDER BY created_at, id`,
         [outboxId]
       )
@@ -79,7 +107,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
 
   const drafts = async (sessionId: string) =>
     (
-      await pool.query(
+      await shopQuery(
         `SELECT id, product_gid, status, outbox_id FROM shopify_draft WHERE scan_session_id = $1`,
         [sessionId]
       )
@@ -125,7 +153,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
     await drainOnce(pool, registryWith(shopify), FAST, { shopId });
     const draft = (await drafts(sessionId))[0]!;
 
-    await pool.query(
+    await shopQuery(
       `INSERT INTO listing_status_observation (shop_id, shopify_draft_id, observed_status, source)
        VALUES ($1,$2,'published','watcher')`,
       [shopId, draft.id]
@@ -150,7 +178,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
     await drainOnce(pool, registryWith(shopify), FAST, { shopId });
     const draft = (await drafts(sessionId))[0]!;
 
-    await pool.query(
+    await shopQuery(
       `INSERT INTO listing_status_observation (shop_id, shopify_draft_id, observed_status, source)
        VALUES ($1,$2,'draft','watcher')`,
       [shopId, draft.id]
@@ -261,7 +289,7 @@ describe.skipIf(!dbUp)("the draft_requested job and its fail-closed guard (043 ย
 
   it("the dead-letter VIEW separates a guard refusal from a provider failure (043 A5)", async () => {
     const rows = (
-      await pool.query(
+      await shopQuery(
         `SELECT reason_code, guard_refusal FROM outbox_dead_letter WHERE shop_id = $1 ORDER BY dead_lettered_at`,
         [shopId]
       )

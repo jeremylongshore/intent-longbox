@@ -84,6 +84,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // simply slot in. A reader who assumes 027 is spoken for takes 029 next
       // and widens the gap again for nobody.
       "028_authorization_decision.sql",
+      "029_row_level_security.sql",
     ]);
 
     const tables = await pool.query(
@@ -165,9 +166,9 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  019_identity_core.sql");
     expect(secondRun).toContain("skip  020_sessions_pin_and_auth_attempt.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    // A COUNT of files, not of the highest number: 26 on main plus this bead's
-    // 028 is 27, while the highest number is 028 and 027 does not exist.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(27);
+    // A COUNT of files, not of the highest number: 27 on main plus this bead's
+    // 029 is 28, while the highest number is 029 and 027 does not exist.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(28);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

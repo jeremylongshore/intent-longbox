@@ -22,7 +22,7 @@
 // Bead: longbox-e5b.2.17 (E02-D07). Docs: 043 §2.4, §5.4, §7.2, A1, A7, A9, §11 I12, I13.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import {
   claimBatch,
@@ -33,7 +33,7 @@ import {
   type OutboxParams,
 } from "../../src/services/outbox.js";
 import { DRAFT_REQUESTED } from "../../src/events/catalogue.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
@@ -52,24 +52,52 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", () => {
   let pool: pg.Pool;
+  let ownerPool: pg.Pool;
   let shopId: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d07_skiplocked");
     await runMigrations(url);
     // Sized so a blocked transaction cannot starve its own test: every case
     // below holds at most three connections at once.
+    // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+    // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+    // tenant IS the row being created — which makes onboarding a schema-owner act
+    // enforced by the database rather than by convention. Everything the suite
+    // EXERCISES still runs on the least-privileged pool.
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 8 });
-    shopId = await seedShop(pool, { name: "SkipLocked Shop" });
+    shopId = await seedShop(ownerPool, { name: "SkipLocked Shop" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
   async function seedJob(): Promise<string> {
-    const sessionId = (await createScanSession(pool, shopId)).id;
-    const res = await withTransaction(pool, (tx) =>
+    const sessionId = (await createScanSession(asShop(pool, shopId), shopId)).id;
+    const res = await shopTx((tx) =>
       enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: sessionId, authoredBy: "human" })
     );
     return res.id;
@@ -77,7 +105,7 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
 
   const attemptsOf = async (outboxId: string) =>
     (
-      await pool.query(
+      await shopQuery(
         `SELECT attempt_no, kind, created_at FROM outbox_attempt
           WHERE outbox_id = $1 ORDER BY created_at, id`,
         [outboxId]
@@ -140,7 +168,7 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
     for (const kind of ["delivered", "dead_lettered"] as const) {
       const id = await seedJob();
       const claim = (await claimBatch(pool, FAST, { shopId })).find((c) => c.outboxId === id)!;
-      await recordAttempt(pool, { shopId, outboxId: id, attemptNo: claim.attemptNo, kind });
+      await recordAttempt(asShop(pool, shopId), { shopId, outboxId: id, attemptNo: claim.attemptNo, kind });
       await sleep(FAST.attemptVisibilityMs + 250);
       expect((await claimBatch(pool, FAST, { shopId })).map((c) => c.outboxId)).not.toContain(id);
     }
@@ -149,7 +177,12 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
   it("a `failed` row is NOT terminal, but is not due until its backoff elapses (043 §5.2)", async () => {
     const id = await seedJob();
     const claim = (await claimBatch(pool, FAST, { shopId })).find((c) => c.outboxId === id)!;
-    await recordAttempt(pool, { shopId, outboxId: id, attemptNo: claim.attemptNo, kind: "failed" });
+    await recordAttempt(asShop(pool, shopId), {
+      shopId,
+      outboxId: id,
+      attemptNo: claim.attemptNo,
+      kind: "failed",
+    });
 
     // Immediately after the failure the backoff has not elapsed even at its
     // minimum jitter (0.5 x 500 ms), so the row is not due.
@@ -236,7 +269,7 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
 
     /** Phase 1 of the FORBIDDEN shape: take the lock and give it straight back. */
     async function pick(): Promise<string | undefined> {
-      return withTransaction(pool, async (tx) => {
+      return shopTx(async (tx) => {
         const res = await tx.query(claimQuerySql(), [
           FAST.attemptVisibilityMs,
           FAST.backoffBaseMs,
@@ -254,13 +287,13 @@ describe.skipIf(!dbUp)("the derived lease and SKIP LOCKED (043 §2.4, §7.2)", (
     async function writeStarted(outboxId: string): Promise<void> {
       const next = Number(
         (
-          await pool.query(
+          await shopQuery(
             `SELECT coalesce(max(attempt_no),0) + 1 AS n FROM outbox_attempt WHERE outbox_id = $1`,
             [outboxId]
           )
         ).rows[0]!.n
       );
-      await pool.query(
+      await shopQuery(
         `INSERT INTO outbox_attempt (shop_id, outbox_id, attempt_no, kind, authored_by)
          VALUES ($1,$2,$3,'started','system')`,
         [shopId, outboxId, next]

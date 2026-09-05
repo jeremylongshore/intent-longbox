@@ -11,7 +11,7 @@
 // so a refusal seen from here is the trigger refusing, not a grant.
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appUrl, createFreshDb, probeDb, runMigrations } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations } from "./helpers.js";
 import {
   introduceCredentialVersion,
   loadCredentialVersions,
@@ -36,6 +36,23 @@ let ownerPool: pg.Pool | undefined;
 let shopId: string;
 let restoreRefusals: () => void;
 
+/**
+ * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+ *
+ * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+ * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+ * every policy. So a fixture INSERT with no tenant context is refused by
+ * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+ * statement would be. These two helpers name the tenant the way the running
+ * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+ * context is set inside the statement's own transaction and reverts with it.
+ *
+ * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+ * cross-tenant fixture stays visible rather than reading like the ordinary case.
+ */
+const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+  asShop(pool!, shopId).query(sql, values);
+
 beforeAll(async () => {
   enabled = await probeDb();
   if (!enabled) return;
@@ -43,8 +60,11 @@ beforeAll(async () => {
   await runMigrations(migrateUrl);
   pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
   ownerPool = new pg.Pool({ connectionString: migrateUrl });
-  const org = await pool.query(`INSERT INTO organization (name) VALUES ('Rotation Org') RETURNING id`);
-  const res = await pool.query(
+  // THE OWNING CONNECTION (E03-B04). `organization` carries no tenant and `shop`
+  // is policied on its own `id`, so an INSERT can never satisfy the policy — the
+  // tenant IS the row being created. Creating a shop is a schema-owner act.
+  const org = await ownerPool.query(`INSERT INTO organization (name) VALUES ('Rotation Org') RETURNING id`);
+  const res = await ownerPool.query(
     `INSERT INTO shop (name, slug, organization_id) VALUES ($1,$2,$3) RETURNING id`,
     ["Rotation Test Shop", SLUG, (org.rows[0] as { id: string }).id]
   );
@@ -66,21 +86,21 @@ afterAll(async () => {
  * only to prove the table really is unclearable by the process that serves.
  */
 async function appRoleDelete(): Promise<void> {
-  await pool!.query(`DELETE FROM shop_credential_retirement`);
+  await shopQuery(`DELETE FROM shop_credential_retirement`);
 }
 
 describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW", () => {
   it("appends a version and reads it back live", async () => {
     if (!enabled) return;
-    const versionNo = await nextVersionNo(pool!, shopId, "anthropic");
+    const versionNo = await nextVersionNo(asShop(pool!, shopId), shopId, "anthropic");
     expect(versionNo).toBe(1);
-    const id = await introduceCredentialVersion(pool!, {
+    const id = await introduceCredentialVersion(asShop(pool!, shopId), {
       shopId,
       kind: "anthropic",
       keyRef: KEY_REF,
       versionNo,
     });
-    const rows = await loadCredentialVersions(pool!, shopId, "anthropic");
+    const rows = await loadCredentialVersions(asShop(pool!, shopId), shopId, "anthropic");
     expect(rows.map((r) => r.id)).toContain(id);
     expect(pickLiveVersion(rows).outcome).toBe("live");
   });
@@ -96,9 +116,9 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
   //     still holds when the connection is privileged.
   it("REFUSES an UPDATE of a version row: the grant from the app role, the trigger from the owner", async () => {
     if (!enabled) return;
-    const rows = await loadCredentialVersions(pool!, shopId, "anthropic");
+    const rows = await loadCredentialVersions(asShop(pool!, shopId), shopId, "anthropic");
     await expect(
-      pool!.query(`UPDATE shop_credential_version SET key_ref = $1 WHERE id = $2`, [KEY_REF, rows[0]!.id])
+      shopQuery(`UPDATE shop_credential_version SET key_ref = $1 WHERE id = $2`, [KEY_REF, rows[0]!.id])
     ).rejects.toThrow(/permission denied/i);
     await expect(
       ownerPool!.query(`UPDATE shop_credential_version SET key_ref = $1 WHERE id = $2`, [
@@ -110,9 +130,9 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
 
   it("REFUSES a DELETE of a version row, at both layers", async () => {
     if (!enabled) return;
-    const rows = await loadCredentialVersions(pool!, shopId, "anthropic");
+    const rows = await loadCredentialVersions(asShop(pool!, shopId), shopId, "anthropic");
     await expect(
-      pool!.query(`DELETE FROM shop_credential_version WHERE id = $1`, [rows[0]!.id])
+      shopQuery(`DELETE FROM shop_credential_version WHERE id = $1`, [rows[0]!.id])
     ).rejects.toThrow(/permission denied/i);
     await expect(
       ownerPool!.query(`DELETE FROM shop_credential_version WHERE id = $1`, [rows[0]!.id])
@@ -121,9 +141,9 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
 
   it("retires by appending a second row, and refuses to retire the same version twice", async () => {
     if (!enabled) return;
-    const rows = await loadCredentialVersions(pool!, shopId, "anthropic");
+    const rows = await loadCredentialVersions(asShop(pool!, shopId), shopId, "anthropic");
     const target = rows[0]!;
-    await retireCredentialVersion(pool!, {
+    await retireCredentialVersion(asShop(pool!, shopId), {
       shopId,
       credentialVersionId: target.id,
       reasonCode: "rotation",
@@ -133,7 +153,7 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
     // information, and both deserve an error rather than a second row that makes
     // "when was this retired" ambiguous.
     await expect(
-      retireCredentialVersion(pool!, {
+      retireCredentialVersion(asShop(pool!, shopId), {
         shopId,
         credentialVersionId: target.id,
         reasonCode: "compromise_suspected",
@@ -143,10 +163,10 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
 
   it("REFUSES an UPDATE of a retirement row too, at both layers", async () => {
     if (!enabled) return;
-    const res = await pool!.query(`SELECT id FROM shop_credential_retirement LIMIT 1`);
+    const res = await shopQuery(`SELECT id FROM shop_credential_retirement LIMIT 1`);
     const id = (res.rows[0] as { id: string }).id;
     await expect(
-      pool!.query(`UPDATE shop_credential_retirement SET reason_code = 'x' WHERE id = $1`, [id])
+      shopQuery(`UPDATE shop_credential_retirement SET reason_code = 'x' WHERE id = $1`, [id])
     ).rejects.toThrow(/permission denied/i);
     await expect(
       ownerPool!.query(`UPDATE shop_credential_retirement SET reason_code = 'x' WHERE id = $1`, [id])
@@ -160,15 +180,15 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
     if (!enabled) return;
     // `003:134-143`'s rule, applied to a credential: a schema constraint must
     // never stop somebody retiring a key at the moment they need to.
-    const versionNo = await nextVersionNo(pool!, shopId, "shopify");
-    const id = await introduceCredentialVersion(pool!, {
+    const versionNo = await nextVersionNo(asShop(pool!, shopId), shopId, "shopify");
+    const id = await introduceCredentialVersion(asShop(pool!, shopId), {
       shopId,
       kind: "shopify",
       keyRef: "LONGBOX_ROTSHOP_SHOPIFY_KEY",
       versionNo,
     });
     await expect(
-      retireCredentialVersion(pool!, {
+      retireCredentialVersion(asShop(pool!, shopId), {
         shopId,
         credentialVersionId: id,
         reasonCode: "a_reason_nobody_wrote_down",
@@ -187,26 +207,30 @@ describe("I7 — a retirement makes the key unreachable while the VARIABLE IS ST
     // loud, fixable — rather than a shop whose key is quietly still live.
     process.env[KEY_REF] = CANARY;
     try {
-      const v2 = await nextVersionNo(pool!, shopId, "anthropic");
-      const newId = await introduceCredentialVersion(pool!, {
+      const v2 = await nextVersionNo(asShop(pool!, shopId), shopId, "anthropic");
+      const newId = await introduceCredentialVersion(asShop(pool!, shopId), {
         shopId,
         kind: "anthropic",
         keyRef: KEY_REF,
         versionNo: v2,
       });
-      const resolved = await resolveVisionProvider(pool!, shopId);
+      const resolved = await resolveVisionProvider(asShop(pool!, shopId), shopId);
       expect(resolved.credentialVersionId).toBe(newId);
 
-      await retireCredentialVersion(pool!, {
+      await retireCredentialVersion(asShop(pool!, shopId), {
         shopId,
         credentialVersionId: newId,
         reasonCode: "offboarding",
       });
-      expect((await resolveCredentialVersion(pool!, shopId, "anthropic")).outcome).toBe("all_retired");
+      expect((await resolveCredentialVersion(asShop(pool!, shopId), shopId, "anthropic")).outcome).toBe(
+        "all_retired"
+      );
 
       // The refusal names the RETIREMENT and not the environment — an operator
       // reading it must not go looking for an unset variable that is in fact set.
-      const err = await resolveVisionProvider(pool!, shopId).catch((e: unknown) => e as Error);
+      const err = await resolveVisionProvider(asShop(pool!, shopId), shopId).catch(
+        (e: unknown) => e as Error
+      );
       expect(err).toBeInstanceOf(Error);
       expect((err as Error).message).toMatch(/retired/);
       expect((err as Error).message).not.toMatch(/unset/);
@@ -225,7 +249,7 @@ describe("I7 — a retirement makes the key unreachable while the VARIABLE IS ST
     process.env[KEY_REF] = CANARY;
     process.env["ANTHROPIC_API_KEY"] = "test-estate-global-key";
     try {
-      await expect(resolveVisionProvider(pool!, shopId)).rejects.toThrow(/retired/);
+      await expect(resolveVisionProvider(asShop(pool!, shopId), shopId)).rejects.toThrow(/retired/);
     } finally {
       delete process.env[KEY_REF];
       delete process.env["ANTHROPIC_API_KEY"];

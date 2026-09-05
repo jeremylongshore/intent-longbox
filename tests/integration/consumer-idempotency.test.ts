@@ -24,13 +24,13 @@
 // Bead: longbox-e5b.2.17 (E02-D07). Docs: 043 §3.2, §4.3, A2, A9, §11 I5.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Tx, withTransaction } from "../../src/db.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { claimBatch, DEFAULT_OUTBOX_PARAMS, enqueue, type Claim } from "../../src/services/outbox.js";
 import { buildConsumerRegistry } from "../../src/consumers/index.js";
 import { DRAFT_REQUESTED } from "../../src/events/catalogue.js";
 import { fakeShopifyClient } from "../fakes.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
 const dbUp = await probeDb();
 
@@ -45,31 +45,36 @@ const dbUp = await probeDb();
  */
 interface Scenario {
   seed(pool: pg.Pool, shopId: string): Promise<{ subject: string }>;
-  countEffects(pool: pg.Pool, subject: string): Promise<number>;
+  countEffects(pool: pg.Pool, subject: string, shopId: string): Promise<number>;
 }
 
 const SCENARIOS: Record<string, Scenario> = {
   [DRAFT_REQUESTED]: {
+    // A scenario is handed the pool and the shop, so it scopes its own fixtures
+    // (E03-B04): these tables all carry a `shop_id` and the suite runs as the
+    // app role, which is subject to every policy.
     async seed(pool, shopId) {
-      const sessionId = (await createScanSession(pool, shopId)).id;
-      await pool.query(
+      const db = asShop(pool, shopId);
+      const sessionId = (await createScanSession(db, shopId)).id;
+      await db.query(
         `INSERT INTO human_confirmation (scan_session_id, shop_id, confirmed_issue, source)
          VALUES ($1,$2,$3,'one_tap')`,
         [sessionId, shopId, JSON.stringify({ title: "Bone", issue: "1" })]
       );
-      await pool.query(
+      await db.query(
         `INSERT INTO pricing_snapshot (scan_session_id, shop_id, query, suggested_cents)
          VALUES ($1,$2,'x',1200)`,
         [sessionId, shopId]
       );
       return { subject: sessionId };
     },
-    async countEffects(pool, sessionId) {
+    async countEffects(pool, sessionId, shopId) {
       return Number(
         (
-          await pool.query(`SELECT count(*)::int AS n FROM shopify_draft WHERE scan_session_id = $1`, [
-            sessionId,
-          ])
+          await asShop(pool, shopId).query(
+            `SELECT count(*)::int AS n FROM shopify_draft WHERE scan_session_id = $1`,
+            [sessionId]
+          )
         ).rows[0]!.n
       );
     },
@@ -78,19 +83,47 @@ const SCENARIOS: Record<string, Scenario> = {
 
 describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", () => {
   let pool: pg.Pool;
+  let ownerPool: pg.Pool;
   let shopId: string;
   const registry = buildConsumerRegistry();
   const registered = registry.entries().map(([event]) => event);
 
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
+
   beforeAll(async () => {
     const url = await createFreshDb("longbox_e02d07_consumer_idem");
     await runMigrations(url);
+    // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+    // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+    // tenant IS the row being created — which makes onboarding a schema-owner act
+    // enforced by the database rather than by convention. Everything the suite
+    // EXERCISES still runs on the least-privileged pool.
+    ownerPool = new pg.Pool({ connectionString: url });
     pool = new pg.Pool({ connectionString: appUrl(url), max: 10 });
-    shopId = await seedShop(pool, { name: "Idempotency Shop" });
+    shopId = await seedShop(ownerPool, { name: "Idempotency Shop" });
   });
 
   afterAll(async () => {
     await pool?.end();
+    await ownerPool?.end();
   });
 
   it("every registered consumer has a scenario — an unseeded consumer is an UNTESTED consumer", () => {
@@ -110,9 +143,7 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
       const scenario = SCENARIOS[event]!;
       const { subject } = await scenario.seed(pool, shopId);
       const outboxId = (
-        await withTransaction(pool, (tx) =>
-          enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" })
-        )
+        await shopTx((tx) => enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" }))
       ).id;
 
       // One claim, then the SAME claim delivered twice at once. This is the
@@ -136,7 +167,7 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
       // Both report delivered: the effect each owed HAS happened.
       expect(outcomes.map((o) => o.status)).toEqual(["delivered", "delivered"]);
       // ONE row, by constraint.
-      expect(await scenario.countEffects(pool, subject)).toBe(1);
+      expect(await scenario.countEffects(pool, subject, shopId)).toBe(1);
       // ONE effect at the provider: 043 §4.3's customId upsert is the
       // provider-side half of the same rule.
       expect(new Set(shopify.products.values()).size).toBe(1);
@@ -153,17 +184,15 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
       const scenario = SCENARIOS[event]!;
       const { subject } = await scenario.seed(pool, shopId);
       const outboxId = (
-        await withTransaction(pool, (tx) =>
-          enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" })
-        )
+        await shopTx((tx) => enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" }))
       ).id;
-      await pool.query(
+      await shopQuery(
         `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
          VALUES ($1,$2,'gid://a','draft',$3)`,
         [subject, shopId, outboxId]
       );
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
            VALUES ($1,$2,'gid://b','draft',$3)`,
           [subject, shopId, outboxId]
@@ -176,9 +205,9 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
     // The uniqueness is PARTIAL for a reason: many rows legitimately carry NULL
     // (043 §8.1's one-meaning rule — "written by a request, not a job"), and a
     // total unique index would let exactly one of them exist in the whole table.
-    const sessionId = (await createScanSession(pool, shopId)).id;
+    const sessionId = (await createScanSession(asShop(pool, shopId), shopId)).id;
     for (const gid of ["gid://p", "gid://q"]) {
-      await pool.query(
+      await shopQuery(
         `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status) VALUES ($1,$2,$3,'draft')`,
         [sessionId, shopId, gid]
       );
@@ -186,7 +215,7 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
     expect(
       Number(
         (
-          await pool.query(`SELECT count(*)::int AS n FROM shopify_draft WHERE scan_session_id = $1`, [
+          await shopQuery(`SELECT count(*)::int AS n FROM shopify_draft WHERE scan_session_id = $1`, [
             sessionId,
           ])
         ).rows[0]!.n

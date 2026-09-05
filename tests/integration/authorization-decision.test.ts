@@ -28,7 +28,7 @@ import {
   decisionsByUnreconciledSessions,
   unreconciledBreakGlassSessions,
 } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import {
   cookieHeader,
   insertUser,
@@ -72,6 +72,23 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
   let migrateUrl: string;
   let ownerPool: pg.Pool;
 
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
   beforeAll(async () => {
     migrateUrl = await createFreshDb("longbox_authz_decision");
     await runMigrations(migrateUrl);
@@ -89,7 +106,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
     operatorChain = operator.row.chain_id;
 
     const support = await insertUser(pool, `support-${Date.now()}@example.invalid`, "Person Support");
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until, reason)
        VALUES ($1,$2,'shop','support_break_glass',$3,$4)`,
       [support, shopId, new Date(Date.now() + 3_600_000), "ticket 1 — audit suite"]
@@ -107,7 +124,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
   });
 
   async function decisions(): Promise<DecisionRow[]> {
-    const res = await pool.query(
+    const res = await shopQuery(
       `SELECT shop_id, route_method, route_path, permission, matrix_version, matrix_commit,
               membership_id, role, session_chain_id, decision, refusal_reason
          FROM authorization_decision ORDER BY decided_at, id`
@@ -228,7 +245,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.decision === "allowed")).toBe(true);
     // One scan session, two decision rows: the ratio the record now states.
-    const sessions = await pool.query(
+    const sessions = await shopQuery(
       `SELECT count(*)::int AS n FROM request_idempotency WHERE idempotency_key = $1`,
       [key]
     );
@@ -252,13 +269,13 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
 
   it("records a SCOPE refusal with its own reason, while the caller sees an absent shop", async () => {
     await clear();
-    const elsewhere = await pool.query(
+    const elsewhere = await shopQuery(
       `INSERT INTO location (shop_id, kind, name) VALUES ($1,'store','Far counter') RETURNING id`,
       [shopId]
     );
     const farLocation = (elsewhere.rows[0] as { id: string }).id;
     const person = await insertUser(pool, `far-${Date.now()}@example.invalid`, "Person Far");
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, location_id, role)
        VALUES ($1,$2,'location',$3,'operator')`,
       [person, shopId, farLocation]
@@ -325,9 +342,9 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
     const rows = await decisions();
     expect(rows.length).toBeGreaterThan(0);
     await expect(
-      pool.query(`UPDATE authorization_decision SET decision = 'allowed' WHERE decision = 'refused'`)
+      shopQuery(`UPDATE authorization_decision SET decision = 'allowed' WHERE decision = 'refused'`)
     ).rejects.toThrow(/append-only|forbid_mutation|permission denied/i);
-    await expect(pool.query(`DELETE FROM authorization_decision`)).rejects.toThrow(
+    await expect(shopQuery(`DELETE FROM authorization_decision`)).rejects.toThrow(
       /append-only|forbid_mutation|permission denied/i
     );
     expect((await decisions()).length).toBe(rows.length);
@@ -341,14 +358,14 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
     it("REFUSES a grant with no expiry and one with no reason (034 §2.7's CHECK)", async () => {
       const person = await insertUser(pool, `bg1-${Date.now()}@example.invalid`, "Person BG1");
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, reason)
            VALUES ($1,$2,'shop','support_break_glass','why')`,
           [person, shopId]
         )
       ).rejects.toThrow(/membership_break_glass_expires_and_says_why/);
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until)
            VALUES ($1,$2,'shop','support_break_glass',now() + interval '1 hour')`,
           [person, shopId]
@@ -362,7 +379,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
       // per-operator data and choose their own expiry.
       const person = await insertUser(pool, `bg2-${Date.now()}@example.invalid`, "Person BG2");
       await expect(
-        pool.query(
+        shopQuery(
           `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until, reason, granted_by)
            VALUES ($1,$2,'shop','support_break_glass',now() + interval '1 hour','why',$1)`,
           [person, shopId]
@@ -376,7 +393,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
       // expired one is not a grant at all and the refusal names no role.
       await clear();
       const person = await insertUser(pool, `bg3-${Date.now()}@example.invalid`, "Person BG3");
-      await pool.query(
+      await shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now() - interval '2 hours', now() - interval '1 hour','expired ticket')`,
         [person, shopId]
@@ -400,20 +417,20 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
       // session an investigator is looking for. The grant below runs for a day;
       // it was revoked an hour ago; the session was opened after that.
       const person = await insertUser(pool, `bg5-${Date.now()}@example.invalid`, "Person BG5");
-      const grant = await pool.query(
+      const grant = await shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now() - interval '2 hours', now() + interval '22 hours','open ticket')
          RETURNING id`,
         [person, shopId]
       );
       const membershipId = (grant.rows[0] as { id: string }).id;
-      await pool.query(
+      await shopQuery(
         `INSERT INTO membership_revocation (shop_id, membership_id, reason, created_at)
          VALUES ($1,$2,'ticket closed', now() - interval '1 hour')`,
         [shopId, membershipId]
       );
       const after = await openOperator(pool, device, person);
-      const unmatched = await unreconciledBreakGlassSessions(pool);
+      const unmatched = await unreconciledBreakGlassSessions(ownerPool);
       expect(
         unmatched.map((u) => u.sessionId),
         "a session opened after the revocation reconciled to the revoked grant"
@@ -429,27 +446,31 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
         slug: `authz-other-${Date.now()}`,
       });
       const person = await insertUser(pool, `bg7-${Date.now()}@example.invalid`, "Person BG7");
-      // A live, well-formed grant — at the WRONG shop.
-      await pool.query(
+      // A live, well-formed grant — at the WRONG shop, so it is written in THAT
+      // shop's context (E03-B04): a membership row names the tenant it grants at,
+      // and writing it under this suite's shop is refused by the `WITH CHECK`.
+      await asShop(pool, otherShop).query(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now() - interval '1 hour', now() + interval '1 hour','elsewhere')`,
         [person, otherShop]
       );
       const session = await openOperator(pool, device, person); // on THIS shop's phone
       expect(
-        (await unreconciledBreakGlassSessions(pool)).map((u) => u.sessionId),
+        (await unreconciledBreakGlassSessions(ownerPool)).map((u) => u.sessionId),
         "a grant at another shop covered this session"
       ).toContain(session.row.id);
 
       // The other direction: the same grant at THIS shop covers it.
       const covered = await insertUser(pool, `bg8-${Date.now()}@example.invalid`, "Person BG8");
-      await pool.query(
+      await shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now() - interval '1 hour', now() + interval '1 hour','here')`,
         [covered, shopId]
       );
       const ok = await openOperator(pool, device, covered);
-      expect((await unreconciledBreakGlassSessions(pool)).map((u) => u.sessionId)).not.toContain(ok.row.id);
+      expect((await unreconciledBreakGlassSessions(ownerPool)).map((u) => u.sessionId)).not.toContain(
+        ok.row.id
+      );
     });
 
     it("says which unreconciled sessions ACTED, without an index that makes the question cheap (K4)", async () => {
@@ -468,7 +489,7 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
       // live now, uncovered at issuance.
       const person = await insertUser(pool, `bg6-${Date.now()}@example.invalid`, "Person BG6");
       const orphan = await openOperator(pool, device, person);
-      await pool.query(
+      await shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now(), now() + interval '1 hour','opened after the session')`,
         [person, shopId]
@@ -480,10 +501,10 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
         cookieHeader(device.token, orphan.token)
       );
       expect(
-        (await unreconciledBreakGlassSessions(pool)).map((u) => u.sessionId),
+        (await unreconciledBreakGlassSessions(ownerPool)).map((u) => u.sessionId),
         "the session predates its own grant and should not reconcile"
       ).toContain(orphan.row.id);
-      const rows = await decisionsByUnreconciledSessions(pool, [orphan.row.chain_id]);
+      const rows = await decisionsByUnreconciledSessions(ownerPool, [orphan.row.chain_id]);
       expect(rows).toEqual([
         {
           sessionChainId: orphan.row.chain_id,
@@ -493,27 +514,27 @@ describe.skipIf(!dbUp)("the authorization decision record (054 §4)", () => {
         },
       ]);
       // And it answers nothing at all for an empty list, rather than everything.
-      expect(await decisionsByUnreconciledSessions(pool, [])).toEqual([]);
+      expect(await decisionsByUnreconciledSessions(ownerPool, [])).toEqual([]);
     });
 
     it("reconciles every Longbox-origin session to a covering grant (019 T35(c), 048 I14)", async () => {
       // The live grant issued in `beforeAll` covers its own session, so it must
       // NOT appear. A session issued for a person whose only break-glass grant
       // has already ended must.
-      const unmatched = await unreconciledBreakGlassSessions(pool);
+      const unmatched = await unreconciledBreakGlassSessions(ownerPool);
       // ⚠ This compared a list of SESSION IDS to a CHAIN id and could not fail
       // (invariant review, note 6) — two different columns, so `not.toContain`
       // was true whatever the query did. It compares the session's own id now.
       expect(unmatched.map((u) => u.sessionId)).not.toContain(breakGlassSessionId);
 
       const person = await insertUser(pool, `bg4-${Date.now()}@example.invalid`, "Person BG4");
-      await pool.query(
+      await shopQuery(
         `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_from, effective_until, reason)
          VALUES ($1,$2,'shop','support_break_glass', now() - interval '3 hours', now() - interval '2 hours','ended')`,
         [person, shopId]
       );
       const orphan = await openOperator(pool, device, person);
-      const after = await unreconciledBreakGlassSessions(pool);
+      const after = await unreconciledBreakGlassSessions(ownerPool);
       expect(after.map((u) => u.sessionId)).toContain(orphan.row.id);
       expect(after.every((u) => u.issuedAt instanceof Date)).toBe(true);
     });

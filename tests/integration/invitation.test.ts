@@ -27,7 +27,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { withTransaction } from "../../src/db.js";
+import { withTransaction, type Tx } from "../../src/db.js";
 import {
   MAX_OUTSTANDING_INVITATIONS_PER_SHOP,
   SHOP_REDEMPTION_FREE_ATTEMPTS,
@@ -39,7 +39,7 @@ import {
   type InvitationRow,
 } from "../../src/services/auth/index.js";
 import { ShopRateLimiter } from "../../src/services/rateLimit.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { cookieHeader, insertUser, openDevice, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 import { testConfig } from "../testConfig.js";
 
@@ -55,14 +55,41 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   let otherShopId: string;
   let identity: SeededIdentity;
   let otherIdentity: SeededIdentity;
+  // ⚠ AN OWNER POOL, KEPT OPEN, AND THE REASON IS A PROPERTY RATHER THAN A TEST
+  // DETAIL (E03-B04). `shop` is policied on its own `id`, so an INSERT can never
+  // satisfy `id = current_shop_id()` — the tenant IS the row being created — and
+  // **creating a shop is therefore a schema-owner act enforced by the database**,
+  // which is what `pnpm register-shop` already was by convention (E02-D06). Every
+  // suite that makes a shop mid-test needs the owning connection to do it, exactly
+  // as production does.
+  let ownerPool: pg.Pool;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<{ rows: unknown[] }> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_invitation");
     await runMigrations(migrateUrl);
-    const ownerPool = new pg.Pool({ connectionString: migrateUrl });
+    ownerPool = new pg.Pool({ connectionString: migrateUrl });
     shopId = await seedShop(ownerPool, { name: "Shop A", slug: `inv-a-${Date.now()}` });
     otherShopId = await seedShop(ownerPool, { name: "Shop B", slug: `inv-b-${Date.now()}` });
-    await ownerPool.end();
     const url = appUrl(migrateUrl);
     pool = new pg.Pool({ connectionString: url });
     identity = await seedIdentity(pool, shopId);
@@ -73,6 +100,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   afterAll(async () => {
     await app?.close();
     await pool?.end();
+    await ownerPool?.end();
   });
 
   /** A person who holds no membership anywhere yet — the one an invitation is for. */
@@ -84,7 +112,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     over: { shopId?: string; appUserId?: string; invitedBy?: string; now?: Date } = {}
   ): Promise<{ code: string; invitationId: string }> {
     const appUserId = over.appUserId ?? (await newcomer());
-    const out = await withTransaction(pool, (tx) =>
+    const out = await shopTx((tx) =>
       issueInvitation(tx, {
         shopId: over.shopId ?? shopId,
         appUserId,
@@ -119,18 +147,18 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   it("redeems on the shop's own phone: one membership, one use row, one PIN", async () => {
     const appUserId = await newcomer();
     const { code, invitationId } = await issue({ appUserId });
-    const before = await countOutstandingInvitations(pool, shopId);
+    const before = await countOutstandingInvitations(asShop(pool, shopId), shopId);
 
     const res = await redeemOverHttp(code);
     expect(res.status).toBe(201);
 
-    const membership = await pool.query(
+    const membership = await shopQuery(
       `SELECT m.role, m.shop_id FROM membership m WHERE m.app_user_id = $1`,
       [appUserId]
     );
     expect(membership.rows).toEqual([{ role: "operator", shop_id: shopId }]);
 
-    const use = await pool.query(
+    const use = await shopQuery(
       `SELECT u.invitation_id, u.redeemed_on_device_id FROM invitation_use u WHERE u.invitation_id = $1`,
       [invitationId]
     );
@@ -139,12 +167,12 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
 
     // The PIN was set in the same act (048 §7.2), so the person can tap their
     // name immediately rather than being told to find an owner.
-    const pin = await pool.query(`SELECT p.id FROM operator_pin p WHERE p.app_user_id = $1`, [appUserId]);
+    const pin = await shopQuery(`SELECT p.id FROM operator_pin p WHERE p.app_user_id = $1`, [appUserId]);
     expect(pin.rows).toHaveLength(1);
 
     // And the outstanding count fell, by a predicate rather than by a status
     // column: the invitation row is untouched and the use row is what changed.
-    expect(await countOutstandingInvitations(pool, shopId)).toBe(before - 1);
+    expect(await countOutstandingInvitations(asShop(pool, shopId), shopId)).toBe(before - 1);
   });
 
   it("refuses a SECOND redemption of the same code, and writes no second membership", async () => {
@@ -156,7 +184,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(second.status).toBe(401);
     expect(second.code).toBe("INVITATION_INVALID");
 
-    const memberships = await pool.query(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
+    const memberships = await shopQuery(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
       appUserId,
     ]);
     expect((memberships.rows[0] as { n: number }).n).toBe(1);
@@ -171,15 +199,15 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     // race on the INSERT. This is the case a serial test cannot reach and the
     // reason `UNIQUE (invitation_id)` exists rather than a status column.
     const verdicts = await Promise.all([
-      withTransaction(pool, (tx) => verifyInvitation(tx, { device: device.row, code, now: new Date() })),
-      withTransaction(pool, (tx) => verifyInvitation(tx, { device: device.row, code, now: new Date() })),
+      shopTx((tx) => verifyInvitation(tx, { device: device.row, code, now: new Date() })),
+      shopTx((tx) => verifyInvitation(tx, { device: device.row, code, now: new Date() })),
     ]);
     for (const v of verdicts) expect(v.ok).toBe(true);
     const invitation = (verdicts[0] as { ok: true; invitation: InvitationRow }).invitation;
 
     const results = await Promise.allSettled(
       verdicts.map(() =>
-        withTransaction(pool, (tx) =>
+        shopTx((tx) =>
           grantInvitation(tx, { invitation, device: device.row, deviceSessionId: device.row.id })
         )
       )
@@ -188,11 +216,11 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
 
     // The loser left NO orphan membership: its INSERT rolled back with the throw.
-    const memberships = await pool.query(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
+    const memberships = await shopQuery(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
       appUserId,
     ]);
     expect((memberships.rows[0] as { n: number }).n).toBe(1);
-    const uses = await pool.query(`SELECT count(*)::int AS n FROM invitation_use WHERE invitation_id = $1`, [
+    const uses = await shopQuery(`SELECT count(*)::int AS n FROM invitation_use WHERE invitation_id = $1`, [
       invitation.id,
     ]);
     expect((uses.rows[0] as { n: number }).n).toBe(1);
@@ -223,7 +251,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(body.error.details).toEqual({});
 
     // Nothing was granted, and the code is still redeemable at its own shop.
-    const memberships = await pool.query(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
+    const memberships = await shopQuery(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
       appUserId,
     ]);
     expect((memberships.rows[0] as { n: number }).n).toBe(0);
@@ -255,7 +283,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     // on an append-only table, with no UPDATE anywhere.
     const appUserId = await newcomer();
     const code = "EXPIRED1";
-    const inserted = await pool.query(
+    const inserted = await shopQuery(
       `INSERT INTO invitation
          (shop_id, app_user_id, role, scope_kind, token_digest, expires_at, invited_by, created_at)
        VALUES ($1,$2,'operator','shop',$3, now() - interval '1 hour', $4, now() - interval '25 hours')
@@ -267,9 +295,9 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(res.status).toBe(401);
     expect(res.code).toBe("INVITATION_INVALID");
 
-    const row = await pool.query(`SELECT i.expires_at FROM invitation i WHERE i.id = $1`, [invitationId]);
+    const row = await shopQuery(`SELECT i.expires_at FROM invitation i WHERE i.id = $1`, [invitationId]);
     expect(row.rows).toHaveLength(1);
-    const columns = await pool.query(
+    const columns = await shopQuery(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'invitation'`
     );
     const names = (columns.rows as Array<{ column_name: string }>).map((r) => r.column_name);
@@ -287,13 +315,13 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   it("never stores the code, in any column, in any form", async () => {
     const appUserId = await newcomer();
     const { code, invitationId } = await issue({ appUserId });
-    const row = await pool.query(`SELECT i.token_digest FROM invitation i WHERE i.id = $1`, [invitationId]);
+    const row = await shopQuery(`SELECT i.token_digest FROM invitation i WHERE i.id = $1`, [invitationId]);
     const digest = (row.rows[0] as { token_digest: string }).token_digest;
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     expect(digest).not.toContain(code);
     // And no column anywhere in the table holds it, including a prefix of it —
     // which is what a "hint" or a "last four" would be.
-    const dump = await pool.query(`SELECT to_jsonb(i) AS row FROM invitation i WHERE i.id = $1`, [
+    const dump = await shopQuery(`SELECT to_jsonb(i) AS row FROM invitation i WHERE i.id = $1`, [
       invitationId,
     ]);
     expect(JSON.stringify((dump.rows[0] as { row: unknown }).row)).not.toContain(code.slice(0, 4));
@@ -316,7 +344,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     // not "what is the floor" — and 042 A3's floors are explicitly
     // non-evidentiary, so hard-coding 120 into an assertion about a MECHANISM
     // would bake a provisional number into a permanent test.
-    const shopId = await seedShopFor(pool);
+    const shopId = await seedShopFor(ownerPool);
     const burst = await seedIdentity(pool, shopId);
     const device = await openDevice(pool, burst);
     const cookie = cookieHeader(device.token);
@@ -339,7 +367,12 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
       };
 
       const attempts = async (): Promise<number> => {
-        const res = await pool.query(
+        // `asShop` with the LOCAL `shopId` — this test seeds a shop of its own and
+        // shadows the suite's. Reading it under the SUITE's context would be a
+        // cross-tenant read, which E03-B04's policy answers with zero rows: the
+        // boundary working, and indistinguishable here from "the service wrote
+        // nothing".
+        const res = await asShop(pool, shopId).query(
           `SELECT count(*)::int AS n FROM auth_attempt WHERE shop_id = $1 AND method = 'invitation'`,
           [shopId]
         );
@@ -373,13 +406,13 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   it("throttles a shop that keeps guessing, and a THROTTLED attempt records no row", async () => {
     // A shop of its own, so this suite's other tests neither feed nor drain the
     // budget under test.
-    const burstShop = await seedShopFor(pool);
+    const burstShop = await seedShopFor(ownerPool);
     const burstIdentity = await seedIdentity(pool, burstShop);
     const device = await openDevice(pool, burstIdentity);
     const cookie = cookieHeader(device.token);
 
     const attemptRows = async (): Promise<number> => {
-      const res = await pool.query(
+      const res = await asShop(pool, burstShop).query(
         `SELECT count(*)::int AS n FROM auth_attempt WHERE shop_id = $1 AND method = 'invitation'`,
         [burstShop]
       );
@@ -422,7 +455,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     // whose failures fall out of the window is redeemable again with no
     // intervention — proved by moving the clock rather than the rows, which is
     // what `redemptionWait`'s window predicate is.
-    const stillOpen = await pool.query(
+    const stillOpen = await asShop(pool, burstShop).query(
       `SELECT count(*)::int AS n FROM auth_attempt
         WHERE shop_id = $1 AND method = 'invitation' AND created_at >= now() - interval '15 minutes'`,
       [burstShop]
@@ -431,43 +464,55 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   });
 
   it("refuses to issue past the per-shop outstanding ceiling (048 §7.1a)", async () => {
-    const ceilingShop = await seedShopFor(pool);
+    const ceilingShop = await seedShopFor(ownerPool);
     const ceilingIdentity = await seedIdentity(pool, ceilingShop);
 
     for (let i = 0; i < MAX_OUTSTANDING_INVITATIONS_PER_SHOP; i += 1) {
-      const out = await withTransaction(pool, async (tx) =>
+      const out = await shopTx(
+        async (tx) =>
+          issueInvitation(tx, {
+            shopId: ceilingShop,
+            appUserId: await newcomer(),
+            role: "operator",
+            invitedBy: ceilingIdentity.ownerId,
+            now: new Date(),
+          }),
+        ceilingShop
+      );
+      expect(out.ok).toBe(true);
+    }
+    const over = await shopTx(
+      async (tx) =>
         issueInvitation(tx, {
           shopId: ceilingShop,
           appUserId: await newcomer(),
           role: "operator",
           invitedBy: ceilingIdentity.ownerId,
           now: new Date(),
-        })
-      );
-      expect(out.ok).toBe(true);
-    }
-    const over = await withTransaction(pool, async (tx) =>
-      issueInvitation(tx, {
-        shopId: ceilingShop,
-        appUserId: await newcomer(),
-        role: "operator",
-        invitedBy: ceilingIdentity.ownerId,
-        now: new Date(),
-      })
+        }),
+      ceilingShop
     );
     expect(over).toEqual({ ok: false, refusal: "too_many_outstanding" });
   });
 
   it("refuses to issue for a shop the inviter holds no live grant at", async () => {
-    const out = await withTransaction(pool, async (tx) =>
-      issueInvitation(tx, {
-        shopId: otherShopId,
-        appUserId: await newcomer(),
-        role: "operator",
-        // Shop A's owner, inviting into Shop B.
-        invitedBy: identity.ownerId,
-        now: new Date(),
-      })
+    // THE CONTEXT IS SHOP B'S, because the ACT is about shop B (E03-B04). That is
+    // not test bookkeeping: `issueInvitation` records an `authorization_decision`
+    // row for the shop it is deciding about, and such a row written inside shop A's
+    // context is refused by the policy's `WITH CHECK`. The refusal under test is
+    // the ROLE one — shop A's owner holds no grant at shop B — and it has to be
+    // reachable in order to be asserted.
+    const out = await shopTx(
+      async (tx) =>
+        issueInvitation(tx, {
+          shopId: otherShopId,
+          appUserId: await newcomer(),
+          role: "operator",
+          // Shop A's owner, inviting into Shop B.
+          invitedBy: identity.ownerId,
+          now: new Date(),
+        }),
+      otherShopId
     );
     // E03-B03 renamed the refusal: the test is a ROLE and a SCOPE, not a
     // membership, and the two causes deliberately share one name so a caller
@@ -486,7 +531,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   // -------------------------------------------------------------------------
 
   async function decisionCount(): Promise<number> {
-    const res = await pool.query(`SELECT count(*)::int AS n FROM authorization_decision`);
+    const res = await shopQuery(`SELECT count(*)::int AS n FROM authorization_decision`);
     return (res.rows[0] as { n: number }).n;
   }
 
@@ -501,7 +546,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
       refusal_reason: string | null;
     }>
   > {
-    const res = await pool.query(
+    const res = await shopQuery(
       `SELECT route_method, route_path, permission, session_chain_id, decision, role, refusal_reason
          FROM authorization_decision ORDER BY decided_at, id OFFSET $1`,
       [mark]
@@ -511,7 +556,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
 
   it("refuses an OPERATOR issuing any invitation at all (054 §3)", async () => {
     for (const role of ["owner", "manager", "operator"] as const) {
-      const out = await withTransaction(pool, async (tx) =>
+      const out = await shopTx(async (tx) =>
         issueInvitation(tx, {
           shopId,
           appUserId: await newcomer(),
@@ -529,12 +574,12 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
 
   it("refuses a MANAGER inviting a manager or an owner, and allows them an operator (054 §5)", async () => {
     const manager = await insertUser(pool, `mgr-${randomUUID().slice(0, 8)}@example.invalid`, "Person Mgr");
-    await pool.query(
+    await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, role) VALUES ($1,$2,'shop','manager')`,
       [manager, shopId]
     );
     for (const role of ["owner", "manager"] as const) {
-      const refused = await withTransaction(pool, async (tx) =>
+      const refused = await shopTx(async (tx) =>
         issueInvitation(tx, {
           shopId,
           appUserId: await newcomer(),
@@ -548,7 +593,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
         refusal: "not_permitted",
       });
     }
-    const allowed = await withTransaction(pool, async (tx) =>
+    const allowed = await shopTx(async (tx) =>
       issueInvitation(tx, {
         shopId,
         appUserId: await newcomer(),
@@ -568,7 +613,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     // nothing at all. The row names the SCRIPT and carries a null session,
     // because a CLI has neither a route template nor a session.
     const before = await decisionCount();
-    await withTransaction(pool, async (tx) =>
+    await shopTx(async (tx) =>
       issueInvitation(tx, {
         shopId,
         appUserId: await newcomer(),
@@ -577,7 +622,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
         now: new Date(),
       })
     );
-    await withTransaction(pool, async (tx) =>
+    await shopTx(async (tx) =>
       issueInvitation(tx, {
         shopId,
         appUserId: await newcomer(),
@@ -599,7 +644,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   });
 
   it("lets an OWNER name a second owner — 048 §8.2's recovery nomination needs it", async () => {
-    const out = await withTransaction(pool, async (tx) =>
+    const out = await shopTx(async (tx) =>
       issueInvitation(tx, {
         shopId,
         appUserId: await newcomer(),
@@ -619,7 +664,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     expect(bad.code).toBe("PIN_REFUSED");
 
     // The code survived: nothing was written, so the employee tries again.
-    const uses = await pool.query(`SELECT count(*)::int AS n FROM invitation_use WHERE invitation_id = $1`, [
+    const uses = await shopQuery(`SELECT count(*)::int AS n FROM invitation_use WHERE invitation_id = $1`, [
       invitationId,
     ]);
     expect((uses.rows[0] as { n: number }).n).toBe(0);
@@ -638,7 +683,7 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
     const retry = await redeemOverHttp(code, { key });
     expect(retry.status).toBe(201);
 
-    const memberships = await pool.query(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
+    const memberships = await shopQuery(`SELECT count(*)::int AS n FROM membership WHERE app_user_id = $1`, [
       appUserId,
     ]);
     expect((memberships.rows[0] as { n: number }).n).toBe(1);
@@ -660,9 +705,9 @@ describe.skipIf(!dbUp)("invitations are single-use and device-bound (048 §7, I1
   it("appends to invitation and invitation_use and can UPDATE neither", async () => {
     const { invitationId } = await issue();
     await expect(
-      pool.query(`UPDATE invitation SET expires_at = now() WHERE id = $1`, [invitationId])
+      shopQuery(`UPDATE invitation SET expires_at = now() WHERE id = $1`, [invitationId])
     ).rejects.toThrow();
-    await expect(pool.query(`DELETE FROM invitation WHERE id = $1`, [invitationId])).rejects.toThrow();
+    await expect(shopQuery(`DELETE FROM invitation WHERE id = $1`, [invitationId])).rejects.toThrow();
   });
 });
 

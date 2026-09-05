@@ -12,7 +12,7 @@
 // example becomes somebody's name in a repository.
 import type pg from "pg";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
-import { withTransaction } from "../../src/db.js";
+import { tenantDb, withTransaction } from "../../src/db.js";
 import {
   DEVICE_COOKIE,
   OPERATOR_COOKIE,
@@ -47,13 +47,20 @@ export async function seedIdentity(
   opts: { suffix?: string } = {}
 ): Promise<SeededIdentity> {
   const suffix = opts.suffix ?? Math.random().toString(36).slice(2, 8);
-  const location = await pool.query(
+  // EVERY WRITE BELOW GOES THROUGH THE SHOP'S OWN TENANT CONTEXT (E03-B04).
+  // Most of these suites hold an APP-ROLE pool, which is the point of them — and
+  // the app role is subject to the row-level-security policies, so a seeding
+  // INSERT with no context is refused by `WITH CHECK` exactly as a cross-tenant
+  // write would be. The helper therefore seeds as the shop it is seeding, which
+  // is also what the running system does.
+  const db = tenantDb(pool, shopId);
+  const location = await db.query(
     `INSERT INTO location (shop_id, kind, name) VALUES ($1,'store','Counter') RETURNING id`,
     [shopId]
   );
   const locationId = (location.rows[0] as { id: string }).id;
 
-  const device = await pool.query(
+  const device = await db.query(
     `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'counter phone','phone')
      RETURNING id`,
     [shopId, locationId]
@@ -65,20 +72,24 @@ export async function seedIdentity(
   await grant(pool, owner, shopId, "owner");
   await grant(pool, operator, shopId, "operator");
 
-  const minted = await withTransaction(pool, async (tx) => {
-    const credential = await mintDeviceCredential(tx, { shopId, deviceId, enrolledBy: owner });
-    for (const appUserId of [owner, operator]) {
-      const set = await setOperatorPin(tx, {
-        shopId,
-        deviceId,
-        appUserId,
-        pin: TEST_PIN,
-        pepper: TEST_PIN_PEPPER,
-      });
-      if (!set.ok) throw new Error(`seed PIN refused: ${set.refusal}`);
-    }
-    return credential;
-  });
+  const minted = await withTransaction(
+    pool,
+    async (tx) => {
+      const credential = await mintDeviceCredential(tx, { shopId, deviceId, enrolledBy: owner });
+      for (const appUserId of [owner, operator]) {
+        const set = await setOperatorPin(tx, {
+          shopId,
+          deviceId,
+          appUserId,
+          pin: TEST_PIN,
+          pepper: TEST_PIN_PEPPER,
+        });
+        if (!set.ok) throw new Error(`seed PIN refused: ${set.refusal}`);
+      }
+      return credential;
+    },
+    { tenant: { shopId } }
+  );
 
   return {
     shopId,
@@ -106,7 +117,9 @@ export async function grant(
   role: "owner" | "manager" | "operator" | "support_break_glass"
 ): Promise<string> {
   const isBreakGlass = role === "support_break_glass";
-  const res = await pool.query(
+  // `membership` carries a `shop_id` and therefore a tenant policy (E03-B04), so
+  // the grant is written as the shop it grants at.
+  const res = await tenantDb(pool, shopId).query(
     `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until, reason)
      VALUES ($1,$2,'shop',$3,$4,$5) RETURNING id`,
     [
@@ -124,14 +137,17 @@ export async function grant(
 
 /** Issue a device session directly, bypassing the route, for suites testing something else. */
 export async function openDevice(pool: pg.Pool, id: SeededIdentity): Promise<IssuedSession> {
-  return withTransaction(pool, (tx) =>
-    issueDeviceSession(tx, {
-      shopId: id.shopId,
-      locationId: id.locationId,
-      deviceId: id.deviceId,
-      deviceCredentialId: id.credentialId,
-      now: new Date(),
-    })
+  return withTransaction(
+    pool,
+    (tx) =>
+      issueDeviceSession(tx, {
+        shopId: id.shopId,
+        locationId: id.locationId,
+        deviceId: id.deviceId,
+        deviceCredentialId: id.credentialId,
+        now: new Date(),
+      }),
+    { tenant: { shopId: id.shopId } }
   );
 }
 
@@ -140,8 +156,10 @@ export async function openOperator(
   device: IssuedSession,
   appUserId: string
 ): Promise<IssuedSession> {
-  return withTransaction(pool, (tx) =>
-    issueOperatorSession(tx, { parent: device.row, appUserId, now: new Date() })
+  return withTransaction(
+    pool,
+    (tx) => issueOperatorSession(tx, { parent: device.row, appUserId, now: new Date() }),
+    { tenant: { shopId: device.row.shop_id } }
   );
 }
 

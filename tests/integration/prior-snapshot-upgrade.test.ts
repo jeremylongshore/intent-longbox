@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { appUrl, createFreshDb, probeDb, restoreFixture, runMigrations } from "./helpers.js";
+import { checkTenantIsolation, describeTenantIsolationFailure } from "../../src/services/roleSeparation.js";
 import { APPEND_ONLY_TABLES } from "../../src/db/appendOnlyTables.js";
 import { checkAppendOnlyTriggers } from "../../src/services/appendOnlyDetector.js";
 import { readMigrations } from "../../scripts/migrationDiscipline.js";
@@ -104,6 +105,13 @@ const SNAPSHOTS = [
   // reason every row above gives: a snapshot is a schema somebody could be
   // RUNNING, and `028` is the one this PR is adding.
   { name: "025", file: "tests/fixtures/schema/after-025.sql", applied: 25 },
+  // E03-B04 shipped `029` and added this one. `028` is the last schema RELEASED
+  // before this bead's migration, so it is what an operator upgrading a deployed
+  // database starts from — and it is the snapshot that proves the interesting
+  // half of `029`: a database that already has rows gets row-level security and a
+  // policy on every shop-scoped table, applied by the runner's re-derived plan
+  // (`src/db/rowLevelSecurity.ts`) rather than by the migration file alone.
+  { name: "028", file: "tests/fixtures/schema/after-028.sql", applied: 27 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -170,6 +178,20 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
         await expect(app.query(`UPDATE human_confirmation SET source = 'x'`)).rejects.toThrow(
           /permission denied for table human_confirmation/
         );
+
+        // (2b) THE TENANT BOUNDARY, on a database that predates it (E03-B04).
+        // This is the half `migrations/029` alone would not prove: the policies are
+        // re-derived and re-applied by the RUNNER after every migration run
+        // (`src/db/rowLevelSecurity.ts`), so a deployed database gets them on the
+        // upgrade — and this asserts it from the APP role, which is the role they
+        // bind. `checkTenantIsolation` is the same function the server calls at
+        // boot before it binds a port.
+        const isolation = await checkTenantIsolation(app);
+        expect(describeTenantIsolationFailure(isolation)).toBe("");
+        expect(isolation.ok).toBe(true);
+        // And the boundary is REAL on the upgraded database, not merely declared:
+        // the fixture's own seeded rows are invisible without a context.
+        await expect(app.query(`SELECT id FROM scan_session`)).resolves.toMatchObject({ rows: [] });
 
         // A second run is a clean skip: no adoption, no re-apply, no drift.
         const second = await runMigrations(url);
@@ -269,8 +291,8 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // added it; E06-D01 shipped `015`, which put head five past `010`, and added
     // `014`; E03-D09 shipped `019`/`020` and added `018`; E03-B05 shipped
     // `021`–`023` and added `020`; E03-D07 shipped `024` and added `023` rather than
-    // leave the set exactly at the limit. The next bead to push head past `027`
-    // adds the next one.
+    // leave the set exactly at the limit; E03-B04 shipped `029` and added `028`.
+    // The next bead to push head past `032` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

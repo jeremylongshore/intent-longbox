@@ -217,7 +217,10 @@ describe("the declaration is ENFORCED, at a site this file names", () => {
     const body = functionBody(hook, "enforcePermission");
     expect(body, "enforcePermission is gone or renamed").toBeDefined();
     expect(body!).toContain("authorize(ctx.memberships, permission,");
-    expect(body!).toContain("recordAuthorizationDecision(deps.pool, record)");
+    // E03-B04: the write goes through a TENANT-SCOPED handle, because
+    // `authorization_decision` carries a `shop_id` and therefore a policy — a
+    // pool-level INSERT would be refused by the `WITH CHECK` with no context set.
+    expect(body!).toContain("recordAuthorizationDecision(tenantDb(deps.pool, ctx.operator.shop_id)");
     expect(body!).toContain("shouldRecord(verdict,");
   });
 

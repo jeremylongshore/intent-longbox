@@ -25,7 +25,7 @@ import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { listSessionPhotos } from "../../src/services/scanSession.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { png } from "../fixtures/media/index.js";
 import { injectAs, signIn, type AuthedInject } from "./authHelpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
@@ -119,7 +119,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
     });
     expect(upload.statusCode).toBe(201);
     photoId = (upload.json() as { photo: { id: string } }).photo.id;
-    storageUrl = (await listSessionPhotos(pool, shopId, sessionId))[0]!.storage_url;
+    storageUrl = (await listSessionPhotos(asShop(pool, shopId), shopId, sessionId))[0]!.storage_url;
   });
 
   afterAll(async () => {
@@ -214,7 +214,7 @@ describe.skipIf(!dbUp)("HTTP: GET /api/v1/shops/:shopId/scan-sessions/:id/photos
     });
     expect(upload.statusCode).toBe(201);
     const escapee = (upload.json() as { photo: { id: string } }).photo.id;
-    const key = (await listSessionPhotos(pool, shopId, session))[0]!.storage_url;
+    const key = (await listSessionPhotos(asShop(pool, shopId), shopId, session))[0]!.storage_url;
 
     // Replace the real photo with a link to the decoy, at the SAME storage key:
     // the row is untouched, so this is exactly the shape a compromised writer or

@@ -32,7 +32,7 @@ import type pg from "pg";
 import { LongboxError } from "../../contracts/v1/errors.js";
 import { authRowFor, routeSpecFor, type AuthPrincipal, type RouteSpec } from "../../contracts/v1/routes.js";
 import { TENANT_PREFIX } from "../../contracts/v1/schemas.js";
-import { withTransaction, type Tx } from "../../db.js";
+import { tenantDb, withTransaction, type Tx } from "../../db.js";
 import type { ShopRateLimiter } from "../rateLimit.js";
 import type { AppConfig } from "../../config.js";
 import { highestRole, membershipsAt, type MembershipRow, type Role } from "./memberships.js";
@@ -290,7 +290,16 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
         // commonest wrong-tenant case reads nothing — which is R13's timing half
         // before the query that is R13's timing half.
         if (urlShopId !== operator.shop_id) throw new LongboxError("SHOP_NOT_FOUND");
-        const memberships = await membershipsAt(deps.pool, operator.app_user_id!, operator.shop_id);
+        // E03-B04: the first read of the request that CAN name a tenant, so it
+        // does. `membership` carries a tenant policy, so this read is filtered by
+        // the database as well as by its own predicate — and a session whose
+        // `shop_id` did not match would find nothing here, which is the same
+        // refusal the line above already produces.
+        const memberships = await membershipsAt(
+          tenantDb(deps.pool, operator.shop_id),
+          operator.app_user_id!,
+          operator.shop_id
+        );
         // A membership can be revoked while a session is live (048 §2.3, §3.4).
         // The session is not evidence of a membership; it is evidence of who is
         // asking, and the membership is checked every request.
@@ -449,7 +458,7 @@ async function enforcePermission(
             : ("scope" as const),
     };
     try {
-      await recordAuthorizationDecision(deps.pool, record);
+      await recordAuthorizationDecision(tenantDb(deps.pool, ctx.operator.shop_id), record);
     } catch (err) {
       if (verdict.kind === "allowed") {
         req.log.error({ err }, "authorization decision could not be recorded; refusing the request");
@@ -525,12 +534,15 @@ async function maybeRotate(
   // so it cannot participate in 042 §5.3(b)'s ordering and cannot deadlock
   // against it. It is AWAITED rather than fired off, because a `Set-Cookie` that
   // arrives after the response is a cookie the browser never sees.
+  // Both chains are at ONE shop by construction — `issueOperatorSession` copies
+  // `shop_id` from its parent device session at issuance (048 §3.5) — so one
+  // tenant context covers the whole rotation (E03-B04).
   await withTransaction(
     deps.pool,
     async (tx) => {
       for (const session of due) await rotateInto(req, tx, session, now);
     },
-    { label: "session-rotate" }
+    { label: "session-rotate", tenant: { shopId: due[0]!.shop_id } }
   );
 }
 

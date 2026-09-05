@@ -32,6 +32,9 @@ import {
   AUTHORIZATION_DECISION_WRITER,
   checkAuthorizationDecisionWriters,
   checkCostLogWriters,
+  checkServiceScopeSites,
+  checkTenantGucWriters,
+  checkTransactionsDeclareTenant,
   checkIdentityFunctionSeparation,
   checkIdentityPairEdit,
   checkLockOrder,
@@ -284,6 +287,19 @@ describe("the non-graph rules, against the real tree", () => {
     expect(checkLockOrder(files)).toEqual([]);
     expect(checkScanSessionStatusWriters(files)).toEqual([]);
     expect(checkSupersedesWriters(files)).toEqual([]);
+    // E03-B04's three, against the REAL tree for the same reason: a transaction
+    // that names no tenant sees no rows and writes none, and it fails as an empty
+    // result rather than as an error — so the tree is where it has to be asked.
+    expect(checkTransactionsDeclareTenant(files)).toEqual([]);
+    expect(checkTenantGucWriters(files)).toEqual([]);
+  });
+
+  // The scope inventory reads `scripts/` as well as `src/`, because three of the
+  // six scopes are named only by CLIs today (the MFA trio, whose routes are
+  // E03-D11's). Asserted against both trees rather than against a list.
+  it("E03-B04: every cross-tenant scope is named exactly as often as declared", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkServiceScopeSites(all)).toEqual([]);
   });
 
   // 041 §3.3, the rule E02-D09 added: the single writer is a property of the tree,
@@ -396,6 +412,71 @@ describe("the non-graph rules, against fixtures that violate them", () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.message).toContain("src/services/identify.ts");
+  });
+
+  it("E03-B04: a transaction with no tenant is a violation, and the message names the line", () => {
+    const findings = checkTransactionsDeclareTenant([
+      {
+        path: "src/services/newThing.ts",
+        text: "await withTransaction(pool, async (tx) => {\n  await tx.query('SELECT 1');\n});",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/newThing.ts:1");
+  });
+
+  it("E03-B04: the SAME call with a tenant is green, however long its callback", () => {
+    const filler = "  // padding\n".repeat(80);
+    expect(
+      checkTransactionsDeclareTenant([
+        {
+          path: "src/services/newThing.ts",
+          text: `await withTransaction(\n  pool,\n  async (tx) => {\n${filler}  },\n  { tenant: { shopId } }\n);`,
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("E03-B04: the option object of the NEXT call cannot satisfy the previous one", () => {
+    // The window this rule used to use was a fixed number of characters, which a
+    // long callback pushed past — and the next call's `{ tenant: … }` then fell
+    // inside it. Paren-balanced extraction is what makes this case fail.
+    const findings = checkTransactionsDeclareTenant([
+      {
+        path: "src/services/two.ts",
+        text: "await withTransaction(pool, async () => 1);\nawait withTransaction(pool, async () => 2, { tenant: { shopId } });",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/two.ts:1");
+  });
+
+  it("E03-B04: a second file that sets the tenant GUC is a violation", () => {
+    const findings = checkTenantGucWriters([
+      { path: "src/db/tenantContext.ts", text: "set_config('longbox.shop_id', x, true)" },
+      { path: "src/services/sneaky.ts", text: "await tx.query(`SET LOCAL longbox.shop_id = '${id}'`);" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/sneaky.ts");
+  });
+
+  it("E03-B04: PROSE about the GUC is not a writer — comments are stripped first", () => {
+    expect(
+      checkTenantGucWriters([
+        { path: "src/db/tenantContext.ts", text: "set_config('longbox.shop_id', x, true)" },
+        { path: "src/db.ts", text: "// Set as `SET LOCAL longbox.shop_id` in the same round trip." },
+      ])
+    ).toEqual([]);
+  });
+
+  it("E03-B04: one more site naming a service scope fails the inventory", () => {
+    const findings = checkServiceScopeSites([
+      { path: "src/services/auth/principal.ts", text: 'serviceDb(pool, "session-resolution")' },
+      { path: "src/services/elsewhere.ts", text: 'serviceDb(pool, "session-resolution")' },
+    ]);
+    const site = findings.find((f) => f.message.includes("session-resolution"));
+    expect(site).toBeDefined();
+    expect(site!.message).toContain("src/services/elsewhere.ts");
   });
 
   it("029 §2.8: cost_log with NO writer is also a violation — the rule is an equality", () => {

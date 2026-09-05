@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 import { signIn, type AuthedInject } from "./authHelpers.js";
 
@@ -24,6 +24,23 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
   let inject: AuthedInject;
   let shopId: string;
   let base: string;
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_stale_test");
@@ -127,7 +144,7 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
     const sid = await newSession();
     // Seed a proposal (rung 2) and then confirm (rung 3), so a write that still
     // names the proposal is looking at a world two records old.
-    const proposal = await pool.query(
+    const proposal = await shopQuery(
       `INSERT INTO candidate_set (scan_session_id, shop_id, method, candidates)
        VALUES ($1,$2,'llm_vision','[]') RETURNING id`,
       [sid, shopId]
@@ -176,7 +193,7 @@ describe.skipIf(!dbUp)("optimistic concurrency on the causal reference (042 §6)
     expect(loser.json().error.code).toBe("STALE_WORLD_VIEW");
 
     // And the log holds exactly one successor: 041 §3.2 R2 — a chain never forks.
-    const rows = await pool.query(
+    const rows = await shopQuery(
       `SELECT count(*)::int AS n FROM human_confirmation WHERE supersedes_id = $1`,
       [witness]
     );

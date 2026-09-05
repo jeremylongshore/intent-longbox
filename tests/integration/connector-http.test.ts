@@ -25,6 +25,7 @@
 // OPTION, so whether it is in effect is a property of the registered route and
 // not of the handler body.
 import { createHmac } from "node:crypto";
+import { serviceDb } from "../../src/db.js";
 import { mkdirSync, rmSync } from "node:fs";
 import { Writable } from "node:stream";
 import pg from "pg";
@@ -44,6 +45,7 @@ const UPLOADS = "tests/.tmp-connector-http";
 
 let enabled = false;
 let pool: pg.Pool | undefined;
+let ownerPool: pg.Pool | undefined;
 let app: FastifyInstance | undefined;
 /** Everything the server logged during one case. */
 let logLines: string[] = [];
@@ -54,11 +56,17 @@ beforeAll(async () => {
   mkdirSync(UPLOADS, { recursive: true });
   const migrateUrl = await createFreshDb(DB);
   await runMigrations(migrateUrl);
+  // A SHOP IS CREATED BY THE OWNING CONNECTION (E03-B04). `shop` is policied on
+  // its own `id`, so an INSERT can never satisfy `id = current_shop_id()` — the
+  // tenant IS the row being created — which makes onboarding a schema-owner act
+  // enforced by the database rather than by convention. Everything the suite
+  // EXERCISES still runs on the least-privileged pool.
+  ownerPool = new pg.Pool({ connectionString: migrateUrl });
   pool = new pg.Pool({ connectionString: appUrl(migrateUrl) });
   // A shop exists so the receipt has something to resolve to; its id is not
   // asserted here, because this suite is about the HTTP layer and the tenant
   // resolution is asserted in `connector-oauth.test.ts`.
-  await seedShop(pool, { name: "Gotham HTTP", slug: "gothamhttp" });
+  await seedShop(ownerPool, { name: "Gotham HTTP", slug: "gothamhttp" });
 
   // The app's credentials reach `buildApp` through the environment, exactly as
   // they do in production — this suite exercises the WIRING, so it must not
@@ -101,6 +109,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await pool?.end();
+  await ownerPool?.end();
   rmSync(UPLOADS, { recursive: true, force: true });
   for (const name of ["SHOPIFY_APP_CLIENT_ID", "SHOPIFY_APP_CLIENT_SECRET", "SHOPIFY_APP_REDIRECT_URI"]) {
     delete process.env[name];
@@ -139,10 +148,13 @@ describe("POST …/connectors/shopify/webhooks, through the real server", () => 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ acknowledged: true });
     // …and the fact really landed, so the 200 is not an empty acknowledgement.
-    const row = await pool!.query(
+    // The receipt is read in the `connector-inbound` scope, like the code that
+    // wrote it (E03-B04): a webhook that matches no install carries a NULL
+    // `shop_id` (053 §5.5), which no tenant context can see.
+    const row = await serviceDb(pool!, "connector-inbound").query(
       `SELECT payload_digest FROM connector_webhook_receipt WHERE webhook_id = 'http-wh-1'`
     );
-    expect(row.rowCount).toBe(1);
+    expect(row.rows).toHaveLength(1);
   });
 
   it("REFUSES a forged webhook with 401 and the error envelope, and NO Idempotency-Key was required", async () => {
@@ -279,11 +291,20 @@ describe("GET …/connectors/shopify/callback, through the real server", () => {
     // which removes the `req.url` line and nothing else.
     logLines = [];
     const state = "another-plaintext-state-that-must-not-be-logged";
+    // ⚠ BOTH ENTRY POINTS ARE BROKEN, and `connect` is the one that matters since
+    // E03-B04: the state lookup now runs in a tenant-scoped transaction, so it
+    // reaches the pool through `connect()` rather than through `query()`. Leaving
+    // only `query` stubbed turned this case into a 400 — a validation refusal
+    // instead of the unhandled throw the assertion is about.
     const original = pool!.query.bind(pool!);
+    const originalConnect = pool!.connect.bind(pool!);
     // Break the FIRST database read `completeInstall` makes, after the HMAC
     // check has passed — so this is a genuine unhandled throw on the real path
     // and not a validation refusal.
     (pool as unknown as { query: unknown }).query = () => {
+      throw new Error("deliberate failure with no secret in it");
+    };
+    (pool as unknown as { connect: unknown }).connect = () => {
       throw new Error("deliberate failure with no secret in it");
     };
     let res;
@@ -293,6 +314,7 @@ describe("GET …/connectors/shopify/callback, through the real server", () => {
       res = await app!.inject({ method: "GET", url: `/api/v1/connectors/shopify/callback?${qs}` });
     } finally {
       (pool as unknown as { query: unknown }).query = original;
+      (pool as unknown as { connect: unknown }).connect = originalConnect;
     }
 
     expect(res.statusCode).toBe(500);

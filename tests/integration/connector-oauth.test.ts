@@ -11,9 +11,10 @@
 // TRIGGER`. An append-only refusal seen from here is the trigger refusing, not a
 // grant — and a `forbid_mutation()` trigger does not consult privileges.
 import { createHmac, randomUUID } from "node:crypto";
+import { serviceDb } from "../../src/db.js";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import {
   CONNECTOR,
   ConnectorCallbackError,
@@ -53,6 +54,36 @@ let ownerPool: pg.Pool | undefined;
 let shopId: string;
 let deps: ConnectorDeps;
 
+/**
+ * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+ *
+ * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+ * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+ * every policy. So a fixture INSERT with no tenant context is refused by
+ * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+ * statement would be. These two helpers name the tenant the way the running
+ * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+ * context is set inside the statement's own transaction and reverts with it.
+ *
+ * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+ * cross-tenant fixture stays visible rather than reading like the ordinary case.
+ */
+const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+  asShop(pool!, shopId).query(sql, values);
+
+/**
+ * The reads that are about the SUBSYSTEM rather than about one shop.
+ *
+ * A webhook receipt may carry a NULL `shop_id` by design (053 §5.5) and an
+ * install state is found by `state_digest` before any tenant is known, so the
+ * production code resolves both in the `connector-inbound` service scope
+ * (`src/db/tenantContext.ts`). A test that counts the whole subsystem is asking
+ * the same cross-tenant question and says so, rather than reading zero and
+ * calling it "nothing was written".
+ */
+const inboundQuery = (sql: string, values?: unknown[]): Promise<{ rows: unknown[] }> =>
+  serviceDb(pool!, "connector-inbound").query(sql, values);
+
 beforeAll(async () => {
   enabled = await probeDb();
   if (!enabled) return;
@@ -71,7 +102,7 @@ beforeAll(async () => {
   // be absent is a fixture that tests the fixture.** The suite now runs on the
   // shape registration actually produces, and the uninstall resolves from
   // `connector_token_version.shop_domain` — the value the install itself wrote.
-  shopId = await seedShop(pool, { name: "Gotham Connector", slug: "gothamconnector" });
+  shopId = await seedShop(ownerPool, { name: "Gotham Connector", slug: "gothamconnector" });
   deps = {
     pool,
     limiter: new ShopRateLimiter(),
@@ -96,7 +127,16 @@ function signQuery(params: Record<string, string>): Record<string, string> {
 
 /** Mint a state through the real service and return the raw value from the URL. */
 async function mintState(): Promise<string> {
-  const minted = await mintInstallState(pool!, { shopId, shopDomain: STORE, app: APP });
+  // The install is minted by the OWNER of the shop it is for, so the write names
+  // that shop (E03-B04). In production this call is `pnpm connector-install`,
+  // which runs as the schema owner; here it runs as the app role, which is
+  // subject to the policy — so the fixture has to name its tenant like a route
+  // would.
+  const minted = await mintInstallState(asShop(pool!, shopId), {
+    shopId,
+    shopDomain: STORE,
+    app: APP,
+  });
   return new URL(minted.authorizeUrl).searchParams.get("state")!;
 }
 
@@ -117,7 +157,7 @@ async function counts(): Promise<Record<string, number>> {
   ];
   const out: Record<string, number> = {};
   for (const table of tables) {
-    const res = await pool!.query(`SELECT count(*)::int AS n FROM ${table}`);
+    const res = await inboundQuery(`SELECT count(*)::int AS n FROM ${table}`);
     out[table] = (res.rows[0] as { n: number }).n;
   }
   return out;
@@ -127,7 +167,7 @@ describe("the connector lifecycle end to end (053 §7)", () => {
   it("mints a state whose VALUE is in no column", async () => {
     if (!enabled) return;
     const state = await mintState();
-    const row = await pool!.query(
+    const row = await shopQuery(
       `SELECT state_digest, requested_scopes, shop_domain FROM connector_install_state
         WHERE state_digest = $1`,
       [stateDigest(state)]
@@ -142,7 +182,7 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     expect(stored.shop_domain).toBe(STORE);
     // Every column of the row, searched for the value. A future ALTER TABLE that
     // added a "hint" column would fail here rather than in a review.
-    const whole = await pool!.query(
+    const whole = await shopQuery(
       `SELECT to_jsonb(s) AS row FROM connector_install_state s WHERE s.state_digest = $1`,
       [stateDigest(state)]
     );
@@ -163,13 +203,13 @@ describe("the connector lifecycle end to end (053 §7)", () => {
       granted_scopes: ["write_products", "read_products"],
     });
 
-    const outcome = await resolveTokenVersion(pool!, shopId, CONNECTOR);
+    const outcome = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
     expect(outcome.outcome).toBe("live");
 
     // THE COLUMN, searched for the plaintext. This is the assertion 053 §3's
     // whole custody ruling rests on: the value exists inside one function's
     // scope and as ciphertext, and nowhere else.
-    const row = await pool!.query(
+    const row = await shopQuery(
       `SELECT to_jsonb(v) AS row FROM connector_token_version v WHERE v.shop_id = $1`,
       [shopId]
     );
@@ -178,7 +218,7 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     // …and it really is the token, opened through the real envelope, bound to
     // the row's own id as AAD.
     const versionId = outcome.outcome === "live" ? outcome.chosen.id : "";
-    expect(await openTokenValue(pool!, deps.keyring!, shopId, versionId)).toBe(ACCESS_TOKEN);
+    expect(await openTokenValue(asShop(pool!, shopId), deps.keyring!, shopId, versionId)).toBe(ACCESS_TOKEN);
   });
 
   it("REFUSES a ciphertext moved to another row — the AAD binding, not a WHERE clause", async () => {
@@ -186,9 +226,9 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     // 019 T24's cross-tenant line enforced by cryptography. A row lifted from
     // one install into another must FAIL TO AUTHENTICATE rather than decrypt to
     // a working token.
-    const outcome = await resolveTokenVersion(pool!, shopId, CONNECTOR);
+    const outcome = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
     const source = outcome.outcome === "live" ? outcome.chosen.id : "";
-    const bytes = await pool!.query(
+    const bytes = await shopQuery(
       `SELECT token_ciphertext, token_nonce, key_version, shop_domain, granted_scopes
          FROM connector_token_version WHERE id = $1`,
       [source]
@@ -201,7 +241,7 @@ describe("the connector lifecycle end to end (053 §7)", () => {
       granted_scopes: string[];
     };
     const otherId = randomUUID();
-    await pool!.query(
+    await shopQuery(
       `INSERT INTO connector_token_version
          (id, shop_id, connector, shop_domain, install_state_id, granted_scopes,
           token_ciphertext, token_nonce, key_version, version_no)
@@ -217,7 +257,7 @@ describe("the connector lifecycle end to end (053 §7)", () => {
         99,
       ]
     );
-    await expect(openTokenValue(pool!, deps.keyring!, shopId, otherId)).rejects.toThrow(
+    await expect(openTokenValue(asShop(pool!, shopId), deps.keyring!, shopId, otherId)).rejects.toThrow(
       /did not authenticate|different row id/
     );
     // Clean up so the liveness assertions below are about the real install.
@@ -238,15 +278,15 @@ describe("the connector lifecycle end to end (053 §7)", () => {
     // the two are different attacks. The only thing standing between one shop's
     // token and another was that every caller happened to pass an id it had read
     // for the right shop — a convention, and 019 T24 is not a convention.
-    const other = await seedShop(pool!, { name: "Other Shop", slug: `otherconn${String(Date.now())}` });
-    const outcome = await resolveTokenVersion(pool!, shopId, CONNECTOR);
+    const other = await seedShop(ownerPool!, { name: "Other Shop", slug: `otherconn${String(Date.now())}` });
+    const outcome = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
     const versionId = outcome.outcome === "live" ? outcome.chosen.id : "";
     // The row is live and openable for ITS shop…
-    expect(await openTokenValue(pool!, deps.keyring!, shopId, versionId)).toBe(ACCESS_TOKEN);
+    expect(await openTokenValue(asShop(pool!, shopId), deps.keyring!, shopId, versionId)).toBe(ACCESS_TOKEN);
     // …and a zero-row read for any other, answered exactly as an absent version
     // (048 §9.3: a caller who could tell the two apart holds an enumeration
     // oracle over ids).
-    await expect(openTokenValue(pool!, deps.keyring!, other, versionId)).rejects.toThrow(
+    await expect(openTokenValue(asShop(pool!, other), deps.keyring!, other, versionId)).rejects.toThrow(
       /no connector token version/
     );
   });
@@ -391,7 +431,7 @@ describe("the webhook receiver (053 §8.2, §7.3)", () => {
       body
     );
     expect(outcome).toMatchObject({ acknowledged: true, duplicate: false, retired: [] });
-    const row = await pool!.query(
+    const row = await inboundQuery(
       `SELECT to_jsonb(r) AS row FROM connector_webhook_receipt r WHERE r.webhook_id = 'wh-redact-1'`
     );
     const text = JSON.stringify((row.rows[0] as { row: unknown }).row);
@@ -440,7 +480,7 @@ describe("the webhook receiver (053 §8.2, §7.3)", () => {
       body
     );
     expect(outcome).toMatchObject({ acknowledged: true, retired: [] });
-    const live = await resolveTokenVersion(pool!, shopId, CONNECTOR);
+    const live = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
     expect(live.outcome).toBe("live");
   });
 
@@ -448,7 +488,7 @@ describe("the webhook receiver (053 §8.2, §7.3)", () => {
     if (!enabled) return;
     // The full ending, in one test, because the three halves are one property:
     // the fact, the receipt, and the refusal that makes both true.
-    const beforeVersions = await loadTokenVersions(pool!, shopId, CONNECTOR);
+    const beforeVersions = await loadTokenVersions(asShop(pool!, shopId), shopId, CONNECTOR);
     expect(beforeVersions.filter((v) => !v.retired).length).toBeGreaterThan(1);
 
     const body = Buffer.from(JSON.stringify({ shop_domain: STORE }));
@@ -480,21 +520,23 @@ describe("the webhook receiver (053 §8.2, §7.3)", () => {
 
     // Liveness is a predicate: every version now has a retirement, so the
     // resolver refuses rather than falling back.
-    const after = await resolveTokenVersion(pool!, shopId, CONNECTOR);
+    const after = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
     expect(after.outcome).toBe("all_retired");
 
     // 050 §5(a)'s inversion, one connector over: the software stops being able
     // to use the credential while the ciphertext is STILL IN THE ROW.
     const versionId = beforeVersions[0]!.id;
-    const stillThere = await pool!.query(
+    const stillThere = await shopQuery(
       `SELECT octet_length(token_ciphertext) AS n FROM connector_token_version WHERE id = $1`,
       [versionId]
     );
     expect(Number((stillThere.rows[0] as { n: number }).n)).toBeGreaterThan(0);
-    await expect(openTokenValue(pool!, deps.keyring!, shopId, versionId)).rejects.toThrow(
+    await expect(openTokenValue(asShop(pool!, shopId), deps.keyring!, shopId, versionId)).rejects.toThrow(
       ConnectorTokenRefusedError
     );
-    await expect(openTokenValue(pool!, deps.keyring!, shopId, versionId)).rejects.toThrow(/is retired/);
+    await expect(openTokenValue(asShop(pool!, shopId), deps.keyring!, shopId, versionId)).rejects.toThrow(
+      /is retired/
+    );
   });
 
   it("resolves the uninstall's tenant WITHOUT shop.shopify_domain — the finding-1 regression", async () => {
@@ -503,11 +545,11 @@ describe("the webhook receiver (053 §8.2, §7.3)", () => {
     // `pnpm register-shop` produces. The previous implementation resolved the
     // tenant from it and therefore retired NOTHING here; the assertion above —
     // that every live token ends — is what fails if that query ever comes back.
-    const row = await pool!.query(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
+    const row = await shopQuery(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
     expect((row.rows[0] as { shopify_domain: string | null }).shopify_domain).toBeNull();
     // …and the receipt still names the shop, because the resolution came from
     // the grant's own row rather than from a config field nobody writes.
-    const receipt = await pool!.query(
+    const receipt = await inboundQuery(
       `SELECT shop_id FROM connector_webhook_receipt WHERE webhook_id = 'wh-uninstall-1'`
     );
     expect((receipt.rows[0] as { shop_id: string | null }).shop_id).toBe(shopId);
@@ -544,19 +586,19 @@ describe("the tables are append-only, and the constraints are the guarantees", (
       "connector_token_retirement",
       "connector_webhook_receipt",
     ]) {
-      await expect(pool!.query(`UPDATE ${table} SET created_at = now()`)).rejects.toThrow();
-      await expect(pool!.query(`DELETE FROM ${table}`)).rejects.toThrow();
+      await expect(shopQuery(`UPDATE ${table} SET created_at = now()`)).rejects.toThrow();
+      await expect(shopQuery(`DELETE FROM ${table}`)).rejects.toThrow();
     }
   });
 
   it("REFUSES a second retirement of one token version", async () => {
     if (!enabled) return;
-    const versions = await loadTokenVersions(pool!, shopId, CONNECTOR);
+    const versions = await loadTokenVersions(asShop(pool!, shopId), shopId, CONNECTOR);
     const target = versions[0]!;
     // `UNIQUE (connector_token_version_id)`: at most one ending per token,
     // because a replacement is a NEW version rather than a second ending.
     await expect(
-      pool!.query(
+      shopQuery(
         `INSERT INTO connector_token_retirement
            (shop_id, connector_token_version_id, reason_code) VALUES ($1,$2,'revocation')`,
         [shopId, target.id]
@@ -569,7 +611,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
     // The CHECK that keeps a receipt honest. Insert a fresh version so the
     // UNIQUE above is not what refuses.
     const id = randomUUID();
-    await pool!.query(
+    await shopQuery(
       `INSERT INTO connector_token_version
          (id, shop_id, connector, shop_domain, granted_scopes, token_ciphertext, token_nonce,
           key_version, version_no)
@@ -577,7 +619,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
       [id, shopId, STORE]
     );
     await expect(
-      pool!.query(
+      shopQuery(
         `INSERT INTO connector_token_retirement
            (shop_id, connector_token_version_id, reason_code) VALUES ($1,$2,'uninstall')`,
         [shopId, id]
@@ -592,7 +634,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
     // at Shopify, because a 200 is evidence a request succeeded and not a fact
     // about another system's present state (018).
     const id = randomUUID();
-    await pool!.query(
+    await shopQuery(
       `INSERT INTO connector_token_version
          (id, shop_id, connector, shop_domain, granted_scopes, token_ciphertext, token_nonce,
           key_version, version_no)
@@ -600,7 +642,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
       [id, shopId, STORE]
     );
     const attemptedAt = new Date("2026-09-04T12:00:00.000Z");
-    const receipt = await offboardTokenVersion(pool!, {
+    const receipt = await offboardTokenVersion(asShop(pool!, shopId), {
       shopId,
       connectorTokenVersionId: id,
       reasonCode: "revocation",
@@ -618,7 +660,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
     expect(receipt.provider_outcome).toMatch(/Shopify answered 200/);
     expect(receipt.provider_outcome).toMatch(/is not, by itself, a statement about/);
     // The row, not the return value: the fact is in the database.
-    const row = await pool!.query(
+    const row = await shopQuery(
       `SELECT provider_revocation_attempted_at, provider_revocation_http_status
          FROM connector_token_retirement WHERE connector_token_version_id = $1`,
       [id]
@@ -634,7 +676,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
     // attempt with no status — is LEGAL and is the transport-failure case, which
     // the next assertion proves rather than assumes.
     const id = randomUUID();
-    await pool!.query(
+    await shopQuery(
       `INSERT INTO connector_token_version
          (id, shop_id, connector, shop_domain, granted_scopes, token_ciphertext, token_nonce,
           key_version, version_no)
@@ -642,7 +684,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
       [id, shopId, STORE]
     );
     await expect(
-      pool!.query(
+      shopQuery(
         `INSERT INTO connector_token_retirement
            (shop_id, connector_token_version_id, reason_code, provider_revocation_http_status)
          VALUES ($1,$2,'revocation',200)`,
@@ -650,7 +692,7 @@ describe("the tables are append-only, and the constraints are the guarantees", (
       )
     ).rejects.toThrow(/status_needs_its_attempt/);
     // The transport-failure shape is accepted.
-    await pool!.query(
+    await shopQuery(
       `INSERT INTO connector_token_retirement
          (shop_id, connector_token_version_id, reason_code, provider_revocation_attempted_at)
        VALUES ($1,$2,'revocation',now())`,
@@ -660,9 +702,9 @@ describe("the tables are append-only, and the constraints are the guarantees", (
 
   it("REFUSES a reason code outside the closed set", async () => {
     if (!enabled) return;
-    const versions = await loadTokenVersions(pool!, shopId, CONNECTOR);
+    const versions = await loadTokenVersions(asShop(pool!, shopId), shopId, CONNECTOR);
     await expect(
-      pool!.query(
+      shopQuery(
         `INSERT INTO connector_token_retirement
            (shop_id, connector_token_version_id, reason_code) VALUES ($1,$2,'because')`,
         [shopId, versions[versions.length - 1]!.id]
@@ -675,32 +717,66 @@ describe("the tables are append-only, and the constraints are the guarantees", (
     // Removing the READER made the bug unreachable; the CONSTRAINT makes the
     // state unrepresentable, so the next reader of that column cannot bring it
     // back. One store belongs to at most one Longbox shop.
-    const a = await seedShop(pool!, { name: "Store A", slug: `sharea${String(Date.now())}` });
-    const b = await seedShop(pool!, { name: "Store B", slug: `shareb${String(Date.now())}` });
-    await pool!.query(`UPDATE shop SET shopify_domain = 'shared.myshopify.com' WHERE id = $1`, [a]);
+    const a = await seedShop(ownerPool!, { name: "Store A", slug: `sharea${String(Date.now())}` });
+    const b = await seedShop(ownerPool!, { name: "Store B", slug: `shareb${String(Date.now())}` });
+    // EACH UPDATE RUNS IN ITS OWN SHOP'S CONTEXT (E03-B04). `shop` is policied on
+    // its own `id`, and an UPDATE that matches no row SUCCEEDS — so under this
+    // suite's default context neither statement would touch anything and the
+    // second one would not reach the constraint this test is about (056 §6.2).
+    await asShop(pool!, a).query(`UPDATE shop SET shopify_domain = 'shared.myshopify.com' WHERE id = $1`, [
+      a,
+    ]);
     await expect(
-      pool!.query(`UPDATE shop SET shopify_domain = 'shared.myshopify.com' WHERE id = $1`, [b])
+      asShop(pool!, b).query(`UPDATE shop SET shopify_domain = 'shared.myshopify.com' WHERE id = $1`, [b])
     ).rejects.toThrow(/shop_shopify_domain_is_one_store|duplicate key/);
     // NULL is not a value: two unconfigured shops are the ordinary case and the
     // partial predicate says so rather than relying on Postgres's NULL rule.
     expect(a).not.toBe(b);
   });
 
+  it("REFUSES an install for a store ANOTHER shop already holds a live token for (F8)", async () => {
+    if (!enabled) return;
+    // The security lens's F8, and the gap it names is precise: `026` already makes
+    // `shop.shopify_domain` unique (the test above), but that column is the LEGACY
+    // static path's config — the AUTHORITY lives in `connector_token_version`,
+    // whose `shop_domain` carried no constraint across tenants at all. A second
+    // shop could install the same store, and then an `app/uninstalled` for it —
+    // which retires EVERY live token granted for that store (053 §7.3) — would end
+    // the FIRST shop's authority as a side effect of the second's install.
+    //
+    // A unique index cannot express it: a rotation legitimately leaves two live
+    // versions for one shop (050 §2 Q2), so the rule is "at most one SHOP", not
+    // "at most one row". It is refused where the authority is created.
+    const other = await seedShop(ownerPool!, { name: "Rival", slug: `rival${String(Date.now())}` });
+    const minted = await mintInstallState(asShop(pool!, other), {
+      shopId: other,
+      shopDomain: STORE,
+      app: APP,
+    });
+    const state = new URL(minted.authorizeUrl).searchParams.get("state")!;
+    const query = signQuery({ shop: STORE, code: "authcode-f8", state, timestamp: "1757000009" });
+    await expect(completeInstall(deps, query, fakeExchange)).rejects.toThrow(/already holds a live/);
+    // …and the first shop's token is untouched: the refusal happens before any
+    // version is introduced.
+    const live = await resolveTokenVersion(asShop(pool!, shopId), shopId, CONNECTOR);
+    expect(live.outcome).toBe("live");
+  });
+
   it("REFUSES a second use of one install state", async () => {
     if (!enabled) return;
     const state = await mintState();
-    const found = await pool!.query(`SELECT id FROM connector_install_state WHERE state_digest = $1`, [
+    const found = await shopQuery(`SELECT id FROM connector_install_state WHERE state_digest = $1`, [
       stateDigest(state),
     ]);
     const stateId = (found.rows[0] as { id: string }).id;
-    const versions = await loadTokenVersions(pool!, shopId, CONNECTOR);
-    await pool!.query(
+    const versions = await loadTokenVersions(asShop(pool!, shopId), shopId, CONNECTOR);
+    await shopQuery(
       `INSERT INTO connector_install_state_use (shop_id, state_id, connector_token_version_id)
        VALUES ($1,$2,$3)`,
       [shopId, stateId, versions[0]!.id]
     );
     await expect(
-      pool!.query(
+      shopQuery(
         `INSERT INTO connector_install_state_use (shop_id, state_id, connector_token_version_id)
          VALUES ($1,$2,$3)`,
         [shopId, stateId, versions[0]!.id]

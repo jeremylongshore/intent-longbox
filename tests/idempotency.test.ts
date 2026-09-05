@@ -76,10 +76,19 @@ describe("runIdempotent", () => {
       await tx.query("SELECT 1 FROM scan_session WHERE id = $1 FOR UPDATE", ["s-1"]);
       return { status: 201, body: { ok: true } };
     });
-    const seen = clients[0]!.calls.map((c) => c.text.trim().slice(0, 24));
-    // BEGIN, the identity, the subject, the work's completion, COMMIT. The
-    // identity is second only to BEGIN, in every handler, always.
-    expect(seen[0]).toBe("BEGIN");
+    // ⚠ NOT `clients[0]` since E03-B04: the replay pre-read runs in a scoped
+    // transaction of its own, because that is where `SET LOCAL longbox.shop_id`
+    // can live (034 §3.2 — transaction-local, never sticky). The connection this
+    // test is about is the one that took the idempotency row.
+    const writer = clients.find((c) =>
+      c.calls.some((q) => q.text.includes("INSERT INTO request_idempotency"))
+    )!;
+    const seen = writer.calls.map((c) => c.text.trim().slice(0, 24));
+    // BEGIN + the tenant context, the identity, the subject, the work's
+    // completion, COMMIT. The identity is second only to BEGIN, in every handler,
+    // always — and the tenant context is INSIDE that first statement, so it can
+    // never be expressed after the INSERT it must precede.
+    expect(seen[0]).toBe("BEGIN; SELECT set_config");
     expect(seen[1]).toContain("INSERT INTO request_idem");
     expect(seen[2]).toContain("SELECT 1 FROM scan_sessi");
     expect(seen[3]).toContain("UPDATE request_idempoten");
@@ -94,13 +103,28 @@ describe("runIdempotent", () => {
       await tx.query("SELECT 1", []);
       return { status: 201, body: null };
     });
-    // Exactly one checkout, and the only statement NOT on it is the pre-read.
-    expect(clients).toHaveLength(1);
-    expect(clients[0]!.released).toBe(true);
-    const poolLevel = calls.filter((c) => !clients[0]!.calls.includes(c));
-    expect(poolLevel.map((c) => c.text)).toEqual([
-      expect.stringContaining("SELECT request_hash, response_status, response_body"),
+    // TWO checkouts since E03-B04, and the second one is the whole of the change:
+    // the pre-read is a tenant-scoped transaction (`BEGIN` + `set_config` + the
+    // SELECT + `COMMIT`) rather than a bare `pool.query`, because a statement
+    // outside a transaction has no context for the policies to read. I21 is
+    // unchanged and is what this test is really about: THE WORK runs on ONE held
+    // connection, and every statement of it is on that one.
+    expect(clients).toHaveLength(2);
+    const writer = clients.find((c) =>
+      c.calls.some((q) => q.text.includes("INSERT INTO request_idempotency"))
+    )!;
+    expect(writer.released).toBe(true);
+    expect(clients.every((c) => c.released)).toBe(true);
+    const preRead = clients.find((c) => c !== writer)!;
+    expect(preRead.calls.map((c) => c.text.trim().slice(0, 24))).toEqual([
+      "BEGIN; SELECT set_config",
+      expect.stringContaining("SELECT request_hash"),
+      "COMMIT",
     ]);
+    // Nothing at all runs at the pool level any more: every statement belongs to
+    // one transaction or the other.
+    const poolLevel = calls.filter((c) => !clients.some((cl) => cl.calls.includes(c)));
+    expect(poolLevel).toEqual([]);
   });
 
   it("replays a committed response without opening a transaction or doing the work", async () => {
@@ -121,7 +145,11 @@ describe("runIdempotent", () => {
     // 033 §5.1, quoted at 035:316 — "a retry appends; it can never silently
     // overwrite an earlier attempt". The second call writes NOTHING AT ALL.
     expect(worked).toBe(0);
-    expect(clients).toHaveLength(0);
+    // The pre-read's own scoped transaction is the ONLY checkout: no idempotency
+    // row, no lock, no work (E03-B04 changed the shape of this assertion, not the
+    // property — the request transaction is still never opened).
+    expect(clients).toHaveLength(1);
+    expect(clients[0]!.calls.some((c) => c.text.includes("INSERT INTO request_idempotency"))).toBe(false);
   });
 
   it("refuses the same key with a different body: 422 IDEMPOTENCY_KEY_REUSED", async () => {
@@ -186,8 +214,11 @@ describe("runIdempotent", () => {
     ).rejects.toThrow("gate refused");
     // §5.3 step 4: nothing happened, so nothing should be replayed. The
     // transaction rolls back and takes the idempotency row with it.
-    expect(clients[0]!.calls.map((c) => c.text)).toContain("ROLLBACK");
-    expect(clients[0]!.calls.some((c) => c.text.includes("UPDATE request_idempotency"))).toBe(false);
+    const writer = clients.find((c) =>
+      c.calls.some((q) => q.text.includes("INSERT INTO request_idempotency"))
+    )!;
+    expect(writer.calls.map((c) => c.text)).toContain("ROLLBACK");
+    expect(writer.calls.some((c) => c.text.includes("UPDATE request_idempotency"))).toBe(false);
   });
 
   it("does not swallow an unrelated database error as a replay", async () => {

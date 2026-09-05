@@ -80,9 +80,27 @@ function apiPool(overrides: (text: string) => { rows: unknown[] } | undefined = 
   });
 }
 
-/** Statement texts seen on the held connection, whitespace-normalised. */
+/**
+ * Statement texts seen on the WRITING connection, whitespace-normalised.
+ *
+ * ⚠ NOT `clients[0]` any more (E03-B04). Every read on the way in now runs in its
+ * own small transaction so that `SET LOCAL longbox.shop_id` has somewhere to live
+ * (034 §3.2: transaction-local, never sticky), so a mutating path checks out
+ * several connections and the interesting one is the connection that took the
+ * `request_idempotency` row. It is found by that statement rather than by an
+ * index, which is what these assertions were always about.
+ */
+function writeClient(p: FakeTxPool): FakeTxPool["clients"][number] | undefined {
+  return p.clients.find((c) => c.calls.some((q) => q.text.includes("INSERT INTO request_idempotency")));
+}
+
 function heads(p: FakeTxPool): string[] {
-  return (p.clients[0]?.calls ?? []).map((c) => c.text.trim().replace(/\s+/g, " "));
+  return (writeClient(p)?.calls ?? []).map((c) => c.text.trim().replace(/\s+/g, " "));
+}
+
+/** Did any connection take a lock or write the idempotency row? */
+function tookTheWriteTransaction(p: FakeTxPool): boolean {
+  return writeClient(p) !== undefined;
 }
 
 describe("createSession", () => {
@@ -104,7 +122,11 @@ describe("createSession", () => {
       code: "SHOP_NOT_FOUND",
       status: 404,
     });
-    expect(p.clients).toHaveLength(0);
+    // The shop read itself now runs in a transaction of its own — that is what
+    // carries the tenant context (E03-B04) — so the property is no longer "no
+    // connection at all" but "no idempotency row and no lock": the refusal still
+    // happens before the request transaction is opened.
+    expect(tookTheWriteTransaction(p)).toBe(false);
   });
 });
 
@@ -120,7 +142,11 @@ describe("confirm", () => {
     // in every handler, always (042 §5.3(b)): a replay is recognised before it
     // takes any lock on domain state, and two handlers with opposite orders
     // deadlock intermittently at a counter.
-    expect(seen[0]).toBe("BEGIN");
+    // E03-B04: the tenant context travels WITH `BEGIN`, in one statement, so it
+    // precedes the idempotency INSERT by construction and cannot be expressed
+    // later. It takes no lock, so it adds no position to 042 §5.3(b)'s order.
+    expect(seen[0]).toContain("BEGIN");
+    expect(seen[0]).toContain("set_config('longbox.shop_id'");
     expect(seen[1]).toContain("INSERT INTO request_idempotency");
     expect(seen[2]).toContain("FOR UPDATE");
     expect(seen.at(-1)).toBe("COMMIT");
@@ -237,7 +263,9 @@ describe("assessCondition", () => {
         defects: [],
       })
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
-    expect(p.clients).toHaveLength(0);
+    // As above: the validation refusal precedes the request transaction, which is
+    // the property. The scoped session read is a transaction of its own (E03-B04).
+    expect(tookTheWriteTransaction(p)).toBe(false);
   });
 
   it("appends and returns the assessment DTO", async () => {
@@ -269,7 +297,7 @@ describe("price", () => {
     expect(out.status).toBe(201);
     // Both stub providers run and each writes its own snapshot row — inside the
     // one transaction that also carries the idempotency record.
-    const inserts = (p.clients[0]?.calls ?? []).filter((c) =>
+    const inserts = (writeClient(p)?.calls ?? []).filter((c) =>
       c.text.includes("INSERT INTO pricing_snapshot")
     );
     expect(inserts).toHaveLength(2);
@@ -391,7 +419,10 @@ describe("identify — the metered fallback (042 §8.3)", () => {
     // The budget is untouched: a replay is not a second act, so it is not a
     // second unit of a shop's daily spend.
     expect(limiter.takeMetered(SHOP).allowed).toBe(true);
-    expect(p.clients).toHaveLength(0);
+    // The replay pre-read runs in a scoped transaction of its own (E03-B04), so
+    // the property is that NO request transaction was opened — no idempotency row,
+    // no lock — rather than that no connection was checked out.
+    expect(tookTheWriteTransaction(p)).toBe(false);
   });
 
   it("turns an identify that cannot answer into a 502 CODE, not a success body (042 E10)", async () => {
@@ -447,7 +478,7 @@ describe("identify — the metered fallback (042 §8.3)", () => {
       // It refused INSIDE the transaction, so anything the call did write — a
       // barcode candidate_set, say — goes back with it, and the retry is a fresh
       // act under a fresh key.
-      expect(p.clients[0]!.calls.map((c) => c.text)).toContain("ROLLBACK");
+      expect(writeClient(p)!.calls.map((c) => c.text)).toContain("ROLLBACK");
       // 502 is retryable and operator-renderable: the screen's next move is the
       // manual-search path, not an apology.
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -486,7 +517,7 @@ describe("getSessionDetail", () => {
       }
       return { rows: [] };
     });
-    const detail = await api.getSessionDetail(p.pool, SHOP, SESSION);
+    const detail = await api.getSessionDetail(deps(p.pool), SHOP, SESSION);
     expect(detail.session).toEqual({ id: SESSION, shop_id: SHOP, created_at: "t" });
     expect(detail.state).toBe("confirmed");
     // 042 §3.3: a response body may contain no key its DTO does not declare —
@@ -498,7 +529,7 @@ describe("getSessionDetail", () => {
 
   it("refuses a session that is not this shop's with SESSION_NOT_FOUND", async () => {
     const p = fakeTxPool(() => ({ rows: [] }));
-    await expect(api.getSessionDetail(p.pool, SHOP, SESSION)).rejects.toMatchObject({
+    await expect(api.getSessionDetail(deps(p.pool), SHOP, SESSION)).rejects.toMatchObject({
       code: "SESSION_NOT_FOUND",
       status: 404,
     });

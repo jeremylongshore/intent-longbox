@@ -17,8 +17,7 @@
 // Bead: longbox-e5b.2.17 (alias E02-D07). Docs: 043 §4.1–§4.5, A3, A11, §11 I5,
 // I7, I8, I9; 040 F1/F6; 033 B3; 022 P1; 019 T17/T19.
 
-import type pg from "pg";
-import { withTransaction } from "../db.js";
+import { tenantDb, withTransaction, type Queryable } from "../db.js";
 import type { ConsumerContext, ConsumerOutcome, OutboxConsumer } from "../services/outbox.js";
 import {
   assignSessionSeq,
@@ -210,7 +209,13 @@ export function composeDraftInput(facts: DraftFacts, copyKey: string): DraftProd
  * in one place rather than duplicated between the route and the job.
  */
 export type ShopifyClientResolver = (
-  pool: pg.Pool,
+  // A `Queryable` rather than a `pg.Pool` since E03-B04: the resolver is handed
+  // the job's TENANT-SCOPED handle, because `shop_credentials` and
+  // `shop_credential_version` carry a `shop_id` and therefore a policy. A pool
+  // typed here would let a caller resolve a credential with no tenant context and
+  // find nothing, which reads as "no credential configured" — a stub client in
+  // production, silently (043 §4.4).
+  db: Queryable,
   shopId: string
 ) => Promise<{ client: ShopifyClient; stub: boolean }>;
 
@@ -223,7 +228,7 @@ export type ShopifyClientResolver = (
  * swap (043 §4.3).
  */
 export async function readGuardInput(
-  db: pg.Pool,
+  db: Queryable,
   shopId: string,
   sessionId: string
 ): Promise<DraftGuardInput> {
@@ -254,6 +259,12 @@ export async function readGuardInput(
 export function createDraftRequestedConsumer(deps: { resolveClient: ShopifyClientResolver }): OutboxConsumer {
   return async function draftRequested(ctx: ConsumerContext): Promise<ConsumerOutcome> {
     const { pool, claim } = ctx;
+    // THE JOB'S TENANT IS THE CLAIMED ROW'S (E03-B04). A consumer has no session,
+    // so every read it makes runs under the shop the claim names — the same shop
+    // whose context the claim itself was taken under. `db` is used for the two
+    // fact reads and the credential resolution; the recording transaction below
+    // declares the same context for itself.
+    const db = tenantDb(pool, claim.shopId);
     const sessionId = claim.scanSessionId;
     if (sessionId === null) {
       return { status: "dead_letter", reasonCode: "session_not_draftable" };
@@ -264,7 +275,7 @@ export function createDraftRequestedConsumer(deps: { resolveClient: ShopifyClien
     //    credential resolution and a fact read on a job it was always going to
     //    refuse — and, worse, would put the decision after the code that builds
     //    the thing it is deciding about.
-    const verdict = decideDraftGuard(await readGuardInput(pool, claim.shopId, sessionId));
+    const verdict = decideDraftGuard(await readGuardInput(db, claim.shopId, sessionId));
     if (!verdict.run) {
       // Never retried automatically. A replay requires 043 §6.3's human record,
       // and 043 §5.5 is explicit that an automatic re-drive is the mechanism
@@ -273,7 +284,7 @@ export function createDraftRequestedConsumer(deps: { resolveClient: ShopifyClien
       return { status: "dead_letter", reasonCode: verdict.reasonCode };
     }
 
-    const facts = await readDraftFacts(pool, claim.shopId, sessionId);
+    const facts = await readDraftFacts(db, claim.shopId, sessionId);
     // The copy key is the physical copy (043 §4.3). Today that is the session.
     const draftInput = composeDraftInput(facts, sessionId);
     if (!draftInput) return { status: "dead_letter", reasonCode: "session_not_draftable" };
@@ -285,7 +296,7 @@ export function createDraftRequestedConsumer(deps: { resolveClient: ShopifyClien
     // client never fails, so a mixed sample would report a reliability that
     // belongs to the stub". Nothing else in the attempt log records which client
     // answered, so a row written without it is a row that can never be split.
-    const { client, stub } = await deps.resolveClient(pool, claim.shopId);
+    const { client, stub } = await deps.resolveClient(db, claim.shopId);
 
     // ── The external call: outside both transactions, and irreversible.
     const result = await client.createDraft(draftInput);
@@ -352,7 +363,13 @@ export function createDraftRequestedConsumer(deps: { resolveClient: ShopifyClien
         await setSessionStatus(tx, claim.shopId, sessionId, "drafted");
         return true;
       },
-      { label: "draft-job-record" }
+      // ⚠ THE RECORDING TRANSACTION NEEDS THE TENANT TOO (E03-B04), and the way
+      // this was FOUND is worth the line: without it `lockScanSession` locked the
+      // rows this connection could see — none — returned `false`, and the job
+      // dead-lettered as `session_not_draftable` after the provider call had
+      // already succeeded. A missing context is an empty result, never an error,
+      // so it surfaces as a wrong decision somewhere downstream.
+      { label: "draft-job-record", tenant: { shopId: claim.shopId } }
     );
     if (!recorded) return { status: "dead_letter", reasonCode: "session_not_draftable" };
 

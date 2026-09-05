@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   checkIdentityPairEdit,
+  checkServiceScopeSites,
   collectSources,
   REPO_ROOT,
   runArchitectureRules,
@@ -34,7 +35,11 @@ function changedFilesPath(): string | null {
 }
 
 const files = collectSources(join(REPO_ROOT, "src"));
-const findings = [...runArchitectureRules(files)];
+// The scope inventory spans BOTH trees — three of the six scopes are named only by
+// CLIs today — and it is called from here rather than from inside the rule set so
+// that no rule reads the filesystem itself (the invariant review's NOTE 5).
+const scriptFiles = collectSources(join(REPO_ROOT, "scripts"));
+const findings = [...runArchitectureRules(files), ...checkServiceScopeSites([...files, ...scriptFiles])];
 
 const changedPath = changedFilesPath();
 if (changedPath !== null) {
@@ -44,7 +49,7 @@ if (changedPath !== null) {
 
 if (findings.length === 0) {
   console.log(
-    `architecture gate: ok (${files.length} files, 8 tree rules` +
+    `architecture gate: ok (${files.length} files, 11 tree rules` +
       (changedPath === null
         ? `; paired-edit rule SKIPPED — no changed-file list supplied)`
         : `, plus the paired-edit rule over ${changedPath})`)

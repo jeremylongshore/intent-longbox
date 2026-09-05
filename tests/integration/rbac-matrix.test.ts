@@ -49,7 +49,7 @@ import { buildApp } from "../../src/app.js";
 import { ROUTES } from "../../src/contracts/v1/routes.js";
 import { TENANT_PREFIX } from "../../src/contracts/v1/schemas.js";
 import { ROLE_GRANTS, type Role } from "../../src/services/auth/index.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import {
   cookieHeader,
   insertUser,
@@ -78,6 +78,23 @@ describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §
   const cookies = new Map<Role, string>();
   let otherLocationId: string;
 
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_rbac_matrix");
     await runMigrations(migrateUrl);
@@ -93,7 +110,7 @@ describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §
     // A second location at the same shop, for the location-scope cases. The
     // device (and therefore every session in this suite) is pinned to the FIRST
     // one, so a grant scoped here is a grant somewhere the phone is not.
-    const other = await pool.query(
+    const other = await shopQuery(
       `INSERT INTO location (shop_id, kind, name) VALUES ($1,'store','Second counter') RETURNING id`,
       [shopId]
     );
@@ -119,7 +136,7 @@ describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §
     scopeKind: "shop" | "location",
     locationId: string | null
   ): Promise<string> {
-    const res = await pool.query(
+    const res = await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, location_id, role, effective_until, reason)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
       [
@@ -238,7 +255,11 @@ describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §
       const manager = await insertUser(pool, `locmgr-${Date.now()}@example.invalid`, "Person LocMgr");
       await grantAt(manager, "manager", "location", identity.locationId);
       const { authorize, membershipsAt } = await import("../../src/services/auth/index.js");
-      const held = await membershipsAt(pool, manager, shopId);
+      // Scoped, like the hook's own membership read (E03-B04): `membership` carries
+      // a tenant policy, and an unscoped read here returns NO grants — which
+      // `authorize` correctly reports as `refused_role`, hiding the scope refusal
+      // this case is about.
+      const held = await membershipsAt(asShop(pool, shopId), manager, shopId);
       expect(
         authorize(held, "membership.invite", { atLocation: identity.locationId, now: new Date() }).kind
       ).toBe("refused_scope");

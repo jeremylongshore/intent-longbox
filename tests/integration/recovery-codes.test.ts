@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withTransaction } from "../../src/db.js";
+import { type Queryable, type Tx, serviceDb, withTransaction } from "../../src/db.js";
 import {
   LOCKOUT_WINDOW_MS,
   RECOVERY_CODE_COUNT,
@@ -35,7 +35,7 @@ import {
 } from "../../src/services/auth/index.js";
 import { mintTotpSecret, stepAt, totpCode } from "../../src/services/auth/totp.js";
 import { hashRecoveryCode, verifyRecoveryCode } from "../../src/services/auth/secrets.js";
-import { appUrl, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 import { grant, insertUser } from "./authHelpers.js";
 import { TEST_PIN_PEPPER, testKeyring } from "../testConfig.js";
 
@@ -45,6 +45,40 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
   let pool: pg.Pool;
   let shopId: string;
   const keyring = testKeyring();
+
+  /**
+   * THE STATEMENTS THIS SUITE ISSUES ITSELF, INSIDE ITS OWN SHOP'S TENANT CONTEXT.
+   *
+   * E03-B04 put row-level security on every table carrying a `shop_id`, and this
+   * suite holds an APP-ROLE pool — the least-privileged role, which is subject to
+   * every policy. So a fixture INSERT with no tenant context is refused by
+   * `WITH CHECK` and a fixture SELECT returns nothing, exactly as a cross-tenant
+   * statement would be. These two helpers name the tenant the way the running
+   * system does (`src/db.ts`'s `tenantDb`), and nothing here is sticky: the
+   * context is set inside the statement's own transaction and reverts with it.
+   *
+   * A statement about ANOTHER shop passes that shop explicitly, so a deliberately
+   * cross-tenant fixture stays visible rather than reading like the ordinary case.
+   */
+  /**
+   * THE SECOND FACTOR IS A PERSON'S ACT, NOT A SHOP'S (E03-B04, 048 §4/§8).
+   *
+   * `user_authenticator`, `recovery_code` and `app_user` carry no `shop_id` at
+   * all — they are declared exemptions in `src/db/rowLevelSecurity.ts` — and the
+   * `auth_attempt` row a failed factor appends carries a NULL one, which matches
+   * no tenant policy by construction. So these calls declare the `second-factor`
+   * service scope, exactly as the three CLIs that reach them in production do.
+   */
+  const mfaTx = <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { service: "second-factor" } });
+
+  const mfaDb = (): Queryable => serviceDb(pool, "second-factor");
+
+  const shopQuery = (sql: string, values?: unknown[]): Promise<pg.QueryResult> =>
+    asShop(pool, shopId).query(sql, values);
+
+  const shopTx = <T>(fn: (tx: Tx) => Promise<T>, shop: string = shopId): Promise<T> =>
+    withTransaction(pool, fn, { tenant: { shopId: shop } });
 
   beforeAll(async () => {
     const migrateUrl = await createFreshDb("longbox_recovery");
@@ -66,7 +100,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     const id = await insertUser(pool, `rec-${randomUUID()}@example.invalid`, "Owner Person");
     await grant(pool, id, shopId, "owner");
     const secret = mintTotpSecret();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId: id,
         secret,
@@ -81,16 +115,14 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
   }
 
   const redeem = async (id: string, code: string) =>
-    withTransaction(pool, (tx) =>
-      redeemRecoveryCode(tx, { appUserId: id, code, pepper: TEST_PIN_PEPPER, now: new Date() })
-    );
+    mfaTx((tx) => redeemRecoveryCode(tx, { appUserId: id, code, pepper: TEST_PIN_PEPPER, now: new Date() }));
 
   it("issues a set at ENROLLMENT and stores digests that are not the codes", async () => {
     const { id, codes } = await enrolled();
     expect(codes).toHaveLength(RECOVERY_CODE_COUNT);
     expect(new Set(codes).size).toBe(RECOVERY_CODE_COUNT);
 
-    const stored = await pool.query(`SELECT code_hash FROM recovery_code WHERE app_user_id = $1`, [id]);
+    const stored = await shopQuery(`SELECT code_hash FROM recovery_code WHERE app_user_id = $1`, [id]);
     const hashes = (stored.rows as Array<{ code_hash: string }>).map((r) => r.code_hash);
     expect(hashes).toHaveLength(RECOVERY_CODE_COUNT);
     for (const hash of hashes) {
@@ -138,7 +170,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
       expect((r as PromiseRejectedResult).reason).toBeInstanceOf(RecoveryCodeAlreadyUsed);
     }
 
-    const uses = await pool.query(`SELECT code_id FROM recovery_code_use WHERE app_user_id = $1`, [id]);
+    const uses = await shopQuery(`SELECT code_id FROM recovery_code_use WHERE app_user_id = $1`, [id]);
     expect(uses.rowCount).toBe(1);
   });
 
@@ -152,7 +184,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // The state is a PREDICATE over two facts, not a flag anybody set.
     expect(await mfaState(pool, id)).toBe("must_reenroll");
     expect(await liveAuthenticator(pool, id)).toBeUndefined();
-    const ending = await pool.query(
+    const ending = await shopQuery(
       `SELECT reason FROM user_authenticator_retirement WHERE authenticator_id = $1`,
       [before.id]
     );
@@ -161,7 +193,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // And the lost factor really is dead: a code from the old secret no longer
     // verifies, which is what "forced" means when there is no screen to force.
     const later = new Date(Date.now() + 60_000);
-    const totp = await withTransaction(pool, (tx) =>
+    const totp = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(secret, stepAt(later)), keyring, now: later })
     );
     expect(totp).toEqual({ ok: false, reason: "no_authenticator" });
@@ -177,7 +209,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
 
     const now = new Date(Date.now() + 60_000);
     const secret = mintTotpSecret();
-    const out = await withTransaction(pool, (tx) =>
+    const out = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId: id,
         secret,
@@ -209,7 +241,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // Both are recorded as their own class, under their own method — folding
     // recovery attempts into `totp` would have made the one table that exists to
     // tell failures apart unable to.
-    const attempts = await pool.query(
+    const attempts = await mfaDb().query(
       `SELECT method, failure_class FROM auth_attempt WHERE app_user_id = ANY($1::uuid[])`,
       [[id, stranger]]
     );
@@ -227,9 +259,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     const { id } = await enrolled();
     const now = new Date();
     for (let i = 0; i < SECOND_FACTOR_FREE_ATTEMPTS + 1; i += 1) {
-      const spent = await withTransaction(pool, (tx) =>
-        verifyTotp(tx, { appUserId: id, code: "123456", keyring, now })
-      );
+      const spent = await mfaTx((tx) => verifyTotp(tx, { appUserId: id, code: "123456", keyring, now }));
       expect(spent).toEqual({ ok: false, reason: "wrong_code" });
     }
 
@@ -239,9 +269,10 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // The blocked attempt recorded NOTHING: the refusal happens before a
     // credential is tested, so there is no credential test to record — and
     // recording one would let a flooder ratchet their own delay (048 R5).
-    const attempts = await pool.query(`SELECT count(*)::int AS n FROM auth_attempt WHERE app_user_id = $1`, [
-      id,
-    ]);
+    const attempts = await mfaDb().query(
+      `SELECT count(*)::int AS n FROM auth_attempt WHERE app_user_id = $1`,
+      [id]
+    );
     expect((attempts.rows[0] as { n: number }).n).toBe(SECOND_FACTOR_FREE_ATTEMPTS + 1);
 
     // AND IT NEVER CLOSES (048 R5). Past the window there is no residue: the same
@@ -249,7 +280,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // second factor is refused — only a state in which it is refused *until*.
     const past = new Date(now.getTime() + LOCKOUT_WINDOW_MS + 60_000);
     const secret = mintTotpSecret();
-    const reenrolled = await withTransaction(pool, (tx) =>
+    const reenrolled = await mfaTx((tx) =>
       enrollAuthenticator(tx, {
         appUserId: id,
         secret,
@@ -261,7 +292,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     );
     expect(reenrolled.ok).toBe(true);
     const after = new Date(past.getTime() + 30_000);
-    const accepted = await withTransaction(pool, (tx) =>
+    const accepted = await mfaTx((tx) =>
       verifyTotp(tx, { appUserId: id, code: totpCode(secret, stepAt(after)), keyring, now: after })
     );
     expect(accepted.ok).toBe(true);
@@ -273,10 +304,12 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // the difference between a known residual and a surprise during an outage.
     const { recordRecoveryNomination, currentRecoveryNomination } =
       await import("../../src/services/auth/index.js");
-    await withTransaction(pool, (tx) => recordRecoveryNomination(tx, { shopId, kind: "declined" }));
-    expect((await currentRecoveryNomination(pool, shopId))?.kind).toBe("declined");
+    await shopTx((tx) => recordRecoveryNomination(tx, { shopId, kind: "declined" }));
+    // `shop_recovery_nomination` IS shop-scoped, unlike everything else in this
+    // suite, so both the write and the read name the shop (E03-B04).
+    expect((await currentRecoveryNomination(asShop(pool, shopId), shopId))?.kind).toBe("declined");
 
-    await withTransaction(pool, (tx) =>
+    await shopTx((tx) =>
       recordRecoveryNomination(tx, {
         shopId,
         kind: "named_contact",
@@ -284,12 +317,12 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
         contactNote: "reachable at the shop on weekday mornings",
       })
     );
-    const current = await currentRecoveryNomination(pool, shopId);
+    const current = await currentRecoveryNomination(asShop(pool, shopId), shopId);
     expect(current).toMatchObject({ kind: "named_contact", contact_name: "A Named Person" });
 
     // Appended, not edited: the decline is still there, which is the audit trail a
     // column would have destroyed.
-    const all = await pool.query(
+    const all = await shopQuery(
       `SELECT kind FROM shop_recovery_nomination WHERE shop_id = $1 ORDER BY created_at`,
       [shopId]
     );
@@ -298,7 +331,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // And the shape CHECK: a contact name on anything but `named_contact` is
     // unrepresentable, so "declined with a name" cannot exist.
     await expect(
-      pool.query(
+      shopQuery(
         `INSERT INTO shop_recovery_nomination (shop_id, kind, contact_name) VALUES ($1,'declined','X')`,
         [shopId]
       )

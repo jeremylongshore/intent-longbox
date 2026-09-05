@@ -21,7 +21,7 @@
 // rule is kept, §5.3's storage is skipped, and the two are separable.
 import type pg from "pg";
 import { LongboxError } from "../../contracts/v1/errors.js";
-import { withTransaction, type Queryable } from "../../db.js";
+import { serviceDb, tenantDb, withTransaction, type Queryable } from "../../db.js";
 import type { AppConfig } from "../../config.js";
 import { API_PREFIX } from "../../contracts/v1/schemas.js";
 import { replayIfSettled, runIdempotent, type IdempotentRequest } from "../idempotency.js";
@@ -90,23 +90,37 @@ export async function openDeviceSession(deps: AuthDeps, secret: string): Promise
     throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
   }
 
-  const credential = await resolveDeviceCredential(deps.pool, secret);
+  // THE ONE READ IN THIS FILE THAT CANNOT NAME A TENANT (E03-B04): the digest is
+  // presented by a phone that has not said which shop it is at, and the row it
+  // finds IS the shop. The lookup and the failure it may record therefore run in
+  // the `device-session-open` service scope — a member of the closed union in
+  // `src/db/tenantContext.ts`, not an ad-hoc bypass. The `auth_attempt` row a
+  // failure writes carries a NULL `shop_id`, and a NULL matches no tenant policy.
+  const credential = await resolveDeviceCredential(serviceDb(deps.pool, "device-session-open"), secret);
   if (!credential) {
-    await withTransaction(deps.pool, (tx) =>
-      recordFailure(tx, { method: "device_credential", failureClass: "unknown_or_revoked_credential" })
+    await withTransaction(
+      deps.pool,
+      (tx) =>
+        recordFailure(tx, { method: "device_credential", failureClass: "unknown_or_revoked_credential" }),
+      { tenant: { service: "device-session-open" } }
     );
     throw new LongboxError("SESSION_REQUIRED");
   }
 
-  const shop = await readShop(deps.pool, credential.shop_id);
-  const issued = await withTransaction(deps.pool, (tx) =>
-    issueDeviceSession(tx, {
-      shopId: credential.shop_id,
-      locationId: credential.location_id,
-      deviceId: credential.device_id,
-      deviceCredentialId: credential.credential_id,
-      now: new Date(),
-    })
+  const shop = await readShop(tenantDb(deps.pool, credential.shop_id), credential.shop_id);
+  // From here the tenant is KNOWN — the credential named it — so the session is
+  // issued under an ordinary tenant context and not under the scope above.
+  const issued = await withTransaction(
+    deps.pool,
+    (tx) =>
+      issueDeviceSession(tx, {
+        shopId: credential.shop_id,
+        locationId: credential.location_id,
+        deviceId: credential.device_id,
+        deviceCredentialId: credential.credential_id,
+        now: new Date(),
+      }),
+    { tenant: { shopId: credential.shop_id } }
   );
 
   return {
@@ -124,7 +138,7 @@ export async function openDeviceSession(deps: AuthDeps, secret: string): Promise
 
 /** The picker's roster. Display name and id, ordered by name — never by activity. */
 export async function operatorRoster(deps: AuthDeps, device: SessionRow): Promise<AuthResult> {
-  const operators: RosterEntry[] = await shopRoster(deps.pool, device.shop_id);
+  const operators: RosterEntry[] = await shopRoster(tenantDb(deps.pool, device.shop_id), device.shop_id);
   return { status: 200, body: { operators }, cookies: [] };
 }
 
@@ -151,7 +165,11 @@ export async function myShops(
   operator?: SessionRow
 ): Promise<AuthResult> {
   const principal = operator ?? device;
-  const shops: ShopSummary[] = await shopsForSession(deps.pool, {
+  // The one read whose correct answer SPANS tenants: a person may hold
+  // memberships at more than one shop (034 §2.6) and this route is how a caller
+  // learns which. It is scoped by `app_user_id` in the predicate rather than by a
+  // tenant context, which is exactly why `my-shops` is a declared service scope.
+  const shops: ShopSummary[] = await shopsForSession(serviceDb(deps.pool, "my-shops"), {
     ...(operator?.app_user_id ? { appUserId: operator.app_user_id } : {}),
     shopId: principal.shop_id,
   });
@@ -180,56 +198,67 @@ export async function openOperatorSession(
   input: { appUserId: string; pin: string }
 ): Promise<AuthResult> {
   const now = new Date();
-  const verdict = await withTransaction(deps.pool, async (tx) => {
-    const pin = await verifyOperatorPin(tx, {
-      shopId: device.shop_id,
-      deviceId: device.device_id,
-      appUserId: input.appUserId,
-      pin: input.pin,
-      pepper: deps.config.pinPepper,
-      now,
-    });
-    if (!pin.ok) return { ok: false as const };
-    // MEMBERSHIP-FIRST, and it runs AFTER the hash so the two failures cost the
-    // same (§9.3). A PIN row can outlive a membership by a moment — a revocation
-    // retires the PIN in the same transaction (§3.5), and this is the belt to
-    // that braces: the session is issued only to somebody who holds the scope
-    // right now.
-    const scope = await membershipAt(tx, input.appUserId, device.shop_id);
-    if (!scope) {
-      await recordFailure(tx, {
+  const verdict = await withTransaction(
+    deps.pool,
+    async (tx) => {
+      const pin = await verifyOperatorPin(tx, {
         shopId: device.shop_id,
         deviceId: device.device_id,
         appUserId: input.appUserId,
-        method: "operator_pin",
-        failureClass: "no_live_membership",
+        pin: input.pin,
+        pepper: deps.config.pinPepper,
+        now,
       });
-      return { ok: false as const };
-    }
-    return { ok: true as const };
-  });
+      if (!pin.ok) return { ok: false as const };
+      // MEMBERSHIP-FIRST, and it runs AFTER the hash so the two failures cost the
+      // same (§9.3). A PIN row can outlive a membership by a moment — a revocation
+      // retires the PIN in the same transaction (§3.5), and this is the belt to
+      // that braces: the session is issued only to somebody who holds the scope
+      // right now.
+      const scope = await membershipAt(tx, input.appUserId, device.shop_id);
+      if (!scope) {
+        await recordFailure(tx, {
+          shopId: device.shop_id,
+          deviceId: device.device_id,
+          appUserId: input.appUserId,
+          method: "operator_pin",
+          failureClass: "no_live_membership",
+        });
+        return { ok: false as const };
+      }
+      return { ok: true as const };
+    },
+    { tenant: { shopId: device.shop_id } }
+  );
 
   if (!verdict.ok) throw new LongboxError("PIN_INVALID");
 
-  const issued = await withTransaction(deps.pool, async (tx) => {
-    // Switching operator ENDS the previous one's chain on this phone. Without
-    // this, two operator sessions would be live on one device at once and "who
-    // is holding the phone" would have two answers — which is the attribution
-    // 019 T35(c) reconciles and 022 P1 makes the system's problem.
-    const previous = await liveOperatorChainOn(tx, device.chain_id);
-    if (previous) {
-      await revokeChain(tx, {
-        chainId: previous,
-        shopId: device.shop_id,
-        reason: "operator_switch",
-        revokedBy: input.appUserId,
-      });
-    }
-    return issueOperatorSession(tx, { parent: device, appUserId: input.appUserId, now });
-  });
+  const issued = await withTransaction(
+    deps.pool,
+    async (tx) => {
+      // Switching operator ENDS the previous one's chain on this phone. Without
+      // this, two operator sessions would be live on one device at once and "who
+      // is holding the phone" would have two answers — which is the attribution
+      // 019 T35(c) reconciles and 022 P1 makes the system's problem.
+      const previous = await liveOperatorChainOn(tx, device.chain_id);
+      if (previous) {
+        await revokeChain(tx, {
+          chainId: previous,
+          shopId: device.shop_id,
+          reason: "operator_switch",
+          revokedBy: input.appUserId,
+        });
+      }
+      return issueOperatorSession(tx, { parent: device, appUserId: input.appUserId, now });
+    },
+    { tenant: { shopId: device.shop_id } }
+  );
 
+  // `app_user` carries no tenant column and therefore no policy (its reason, and
+  // the residual it leaves, are 056 §7 and §11 R9). `shop` DOES carry one now — on
+  // its own `id` — so the read that follows names the tenant it is about.
   const person = await readUser(deps.pool, input.appUserId);
-  const shop = await readShop(deps.pool, device.shop_id);
+  const shop = await readShop(tenantDb(deps.pool, device.shop_id), device.shop_id);
   return {
     status: 201,
     body: {
@@ -247,13 +276,16 @@ export async function openOperatorSession(
  * and a PIN away, and the phone never loses its enrollment.
  */
 export async function endOperatorSession(deps: AuthDeps, operator: SessionRow): Promise<AuthResult> {
-  await withTransaction(deps.pool, (tx) =>
-    revokeChain(tx, {
-      chainId: operator.chain_id,
-      shopId: operator.shop_id,
-      reason: "signed_out",
-      revokedBy: operator.app_user_id,
-    })
+  await withTransaction(
+    deps.pool,
+    (tx) =>
+      revokeChain(tx, {
+        chainId: operator.chain_id,
+        shopId: operator.shop_id,
+        reason: "signed_out",
+        revokedBy: operator.app_user_id,
+      }),
+    { tenant: { shopId: operator.shop_id } }
   );
   return { status: 200, body: { ended: true }, cookies: [clearCookie(OPERATOR_COOKIE)] };
 }
@@ -346,7 +378,7 @@ export async function redeemInvitation(
     body: { code_digest: digestOf(input.code), pin_supplied: true },
   };
 
-  const settled = await replayIfSettled(deps.pool, req);
+  const settled = await replayIfSettled(tenantDb(deps.pool, device.shop_id), req);
   if (settled) return { status: settled.status, body: settled.body, cookies: [] };
 
   // 048 R14's DECLARED CLASS FOR THIS ROUTE — `ordinary`, keyed on THE SHOP THE
@@ -371,8 +403,17 @@ export async function redeemInvitation(
     throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
   }
 
-  const verdict = await withTransaction(deps.pool, (tx) =>
-    verifyInvitation(tx, { device, code: input.code, now: new Date() })
+  // `code-redemption` rather than the device's own shop, and the difference is a
+  // SIGNAL rather than a nicety: under a tenant context an invitation issued at
+  // another shop would simply be invisible and the recorded refusal would read
+  // `unknown_invitation`, whereas `verifyInvitation` compares the two shops itself
+  // and records `cross_shop_invitation` — a lifted code, which is worth detecting
+  // (048 §7.2, R15). The caller-visible answer is byte-identical either way; only
+  // the recorded failure class differs.
+  const verdict = await withTransaction(
+    deps.pool,
+    (tx) => verifyInvitation(tx, { device, code: input.code, now: new Date() }),
+    { tenant: { service: "code-redemption" } }
   );
   if (!verdict.ok) throw new LongboxError("INVITATION_INVALID");
   const invitation = verdict.invitation;
@@ -466,8 +507,13 @@ export async function redeemInvitation(
  */
 export async function redeemEnrollmentCode(deps: AuthDeps, input: { code: string }): Promise<AuthResult> {
   const now = new Date();
-  const verdict = await withTransaction(deps.pool, (tx) =>
-    verifyEnrollmentCode(tx, { code: input.code, now })
+  // No session and no shop: the code names the tenant the phone is about to join,
+  // so the lookup — and the `auth_attempt` row an unknown code writes with a NULL
+  // `shop_id` — run in the `code-redemption` scope.
+  const verdict = await withTransaction(
+    deps.pool,
+    (tx) => verifyEnrollmentCode(tx, { code: input.code, now }),
+    { tenant: { service: "code-redemption" } }
   );
   if (!verdict.ok) throw new LongboxError("ENROLLMENT_CODE_INVALID");
 
@@ -496,23 +542,29 @@ export async function redeemEnrollmentCode(deps: AuthDeps, input: { code: string
   // It costs no new lock and no new ordering: `app_session` is an INSERT with no
   // `FOR UPDATE`, and 042 §5.3(b)'s order is about the idempotency row, the
   // session lock and the `scan_session` anchor — none of which this route takes.
-  const enrolled = await withTransaction(deps.pool, async (tx) => {
-    const device = await enrollDevice(tx, { code: verdict.code });
-    const session = await issueDeviceSession(tx, {
-      shopId: device.shopId,
-      locationId: device.locationId,
-      deviceId: device.deviceId,
-      deviceCredentialId: device.credentialId,
-      now,
-    });
-    return { device, session };
-  }).catch((err: unknown) => {
+  const enrolled = await withTransaction(
+    deps.pool,
+    async (tx) => {
+      const device = await enrollDevice(tx, { code: verdict.code });
+      const session = await issueDeviceSession(tx, {
+        shopId: device.shopId,
+        locationId: device.locationId,
+        deviceId: device.deviceId,
+        deviceCredentialId: device.credentialId,
+        now,
+      });
+      return { device, session };
+    },
+    // The tenant is known from the code just verified, so the four rows are
+    // written under an ordinary tenant context rather than under that scope.
+    { tenant: { shopId: verdict.code.shop_id } }
+  ).catch((err: unknown) => {
     if (err instanceof EnrollmentCodeAlreadySpent) throw new LongboxError("ENROLLMENT_CODE_INVALID");
     throw err;
   });
   const issued = enrolled.session;
 
-  const shop = await readShop(deps.pool, enrolled.device.shopId);
+  const shop = await readShop(tenantDb(deps.pool, enrolled.device.shopId), enrolled.device.shopId);
   return {
     status: 201,
     body: {

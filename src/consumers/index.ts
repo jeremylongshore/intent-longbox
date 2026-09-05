@@ -15,7 +15,7 @@
 // enrols it in both; there is no way to add one and not be tested, which is the
 // property a per-instance test cannot have.
 
-import type pg from "pg";
+import type { Queryable } from "../db.js";
 import { resolveShopToken } from "../providers/registry.js";
 import { createConsumerRegistry, type ConsumerRegistry } from "../services/outbox.js";
 import { createShopifyClient, createStubShopifyClient, type ShopifyClient } from "../services/shopify.js";
@@ -59,7 +59,7 @@ import { createDraftRequestedConsumer, type ShopifyClientResolver } from "./draf
 export function createShopifyClientResolver(
   deps: { keyring?: ConnectorKeyring } = {}
 ): ShopifyClientResolver {
-  return async (pool: pg.Pool, shopId: string) => resolveShopifyClient(pool, shopId, deps.keyring);
+  return async (db: Queryable, shopId: string) => resolveShopifyClient(db, shopId, deps.keyring);
 }
 
 /**
@@ -74,16 +74,28 @@ export function createShopifyClientResolver(
  * because a resolver that could only be built from a config would push callers
  * into constructing one.
  */
-export const resolveShopifyClientForShop: ShopifyClientResolver = async (pool: pg.Pool, shopId: string) =>
-  resolveShopifyClient(pool, shopId, undefined);
+export const resolveShopifyClientForShop: ShopifyClientResolver = async (db: Queryable, shopId: string) =>
+  resolveShopifyClient(db, shopId, undefined);
 
+/**
+ * ⚠ `db` IS THE JOB'S TENANT-SCOPED HANDLE, NOT A POOL (E03-B04).
+ *
+ * Every table this function reads except `shop` carries a `shop_id` and therefore
+ * a row-level-security policy: `connector_token_version`,
+ * `connector_token_retirement`, `shop_credential_version`, `shop_credentials`. A
+ * read with no tenant context finds NOTHING on all of them — and "nothing" is not
+ * an error here, it is outcome 3: the static path, which degrades to the STUB.
+ * So a missing context would not fail, it would quietly draft against a stub in
+ * production. That is why the handle is a parameter typed as a `Queryable` the
+ * caller must have scoped, rather than a pool this function could scope wrongly.
+ */
 const resolveShopifyClient: (
-  pool: pg.Pool,
+  db: Queryable,
   shopId: string,
   keyring: ConnectorKeyring | undefined
-) => Promise<{ client: ShopifyClient; stub: boolean }> = async (pool, shopId, keyring) => {
+) => Promise<{ client: ShopifyClient; stub: boolean }> = async (db, shopId, keyring) => {
   const apiVersion = process.env["SHOPIFY_API_VERSION"] ?? "2025-07";
-  const outcome = await resolveTokenVersion(pool, shopId, CONNECTOR);
+  const outcome = await resolveTokenVersion(db, shopId, CONNECTOR);
   if (outcome.outcome === "all_retired") {
     const newest = outcome.retired[0];
     throw new ConnectorTokenRefusedError(
@@ -95,7 +107,7 @@ const resolveShopifyClient: (
     );
   }
   if (outcome.outcome === "live") {
-    const token = await openTokenValue(pool, keyring ?? requireConnectorKey(), shopId, outcome.chosen.id);
+    const token = await openTokenValue(db, keyring ?? requireConnectorKey(), shopId, outcome.chosen.id);
     return {
       client: createShopifyClient({
         storeDomain: outcome.chosen.shopDomain,
@@ -106,9 +118,9 @@ const resolveShopifyClient: (
     };
   }
 
-  const shopRes = await pool.query(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
+  const shopRes = await db.query(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
   const shopRow = shopRes.rows[0] as { shopify_domain: string | null } | undefined;
-  const adminToken = await resolveShopToken(pool, shopId, "shopify", "SHOPIFY_ADMIN_TOKEN");
+  const adminToken = await resolveShopToken(db, shopId, "shopify", "SHOPIFY_ADMIN_TOKEN");
   const storeDomain = shopRow?.shopify_domain ?? process.env["SHOPIFY_STORE_DOMAIN"];
   if (adminToken && storeDomain) {
     const client: ShopifyClient = createShopifyClient({ storeDomain, adminToken, apiVersion });

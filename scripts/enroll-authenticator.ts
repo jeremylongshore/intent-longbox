@@ -85,15 +85,25 @@ async function main(): Promise<void> {
     console.log("");
     const code = await rl.question("Enter the six-digit code the app shows now: ");
 
-    const out = await withTransaction(pool, (tx) =>
-      enrollAuthenticator(tx, {
-        appUserId: row.id,
-        secret,
-        confirmationCode: code,
-        keyring,
-        pepper,
-        now: new Date(),
-      })
+    const out = await withTransaction(
+      pool,
+      (tx) =>
+        enrollAuthenticator(tx, {
+          appUserId: row.id,
+          secret,
+          confirmationCode: code,
+          keyring,
+          pepper,
+          now: new Date(),
+        }),
+      // A PERSON-SCOPED ACT, DECLARED AS ONE (E03-B04). `user_authenticator`,
+      // `recovery_code` and `app_user` carry no `shop_id`, and the `auth_attempt`
+      // row a failure appends carries a NULL one — so there is no tenant for this
+      // transaction to name. This CLI runs as the schema owner and would bypass
+      // the policies anyway; the scope is declared so the transaction SAYS what it
+      // is, and so the route E03-D11 turns this into starts with a context that is
+      // already right rather than one somebody has to remember to add.
+      { tenant: { service: "second-factor" } }
     );
 
     if (!out.ok) {

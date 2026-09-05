@@ -16,7 +16,7 @@
 // `auth_attempt` failure — the one place the two-cookie design buys a detection
 // the single-cookie design could not express.
 import type pg from "pg";
-import { withTransaction } from "../../db.js";
+import { serviceDb, withTransaction } from "../../db.js";
 import { DEVICE_COOKIE, OPERATOR_COOKIE, readCookie } from "./policy.js";
 import { recordFailure } from "./pin.js";
 import {
@@ -61,13 +61,21 @@ export async function resolvePrincipal(
   const deviceToken = readCookie(cookieHeader, DEVICE_COOKIE);
   if (!deviceToken) return { kind: "anonymous" };
 
-  const device = await resolveToken(pool, deviceToken, now);
+  // EVERY READ IN THIS FUNCTION RUNS IN THE `session-resolution` SCOPE (E03-B04).
+  // A cookie is a digest, not a tenant: the row this finds is what establishes
+  // `shop_id` for the whole request (048 §6.1), so the lookup cannot carry the
+  // tenant it is about to produce. The scope is a member of the closed union in
+  // `src/db/tenantContext.ts` and `pnpm arch` holds the number of call sites that
+  // may name it. Everything AFTER this — the membership read, the permission
+  // decision, the request's own transaction — runs on the resolved shop.
+  const db = serviceDb(pool, "session-resolution");
+  const device = await resolveToken(db, deviceToken, now);
   if ("refusal" in device) return refuse(pool, device.refusal, device.row);
 
   const operatorToken = readCookie(cookieHeader, OPERATOR_COOKIE);
   if (!operatorToken) return { kind: "resolved", device: device.row, cookies: [] };
 
-  const operator = await resolveToken(pool, operatorToken, now);
+  const operator = await resolveToken(db, operatorToken, now);
   if ("refusal" in operator) return refuse(pool, operator.refusal, operator.row);
 
   // The pairing check (R1). One comparison, not a state machine: the operator
@@ -77,7 +85,7 @@ export async function resolvePrincipal(
     await recordPairMismatch(pool, operator.row);
     return { kind: "refused", refusal: "pair_mismatch", clearCookies: true };
   }
-  if (!(await parentChainIsLive(pool, operator.row.parent_chain_id, now))) {
+  if (!(await parentChainIsLive(db, operator.row.parent_chain_id, now))) {
     return { kind: "refused", refusal: "chain_revoked", clearCookies: true };
   }
 
@@ -100,28 +108,41 @@ async function refuse(
   row: SessionRow | undefined
 ): Promise<PrincipalOutcome> {
   if (refusal === "token_reuse" && row) {
-    await withTransaction(pool, async (tx) => {
-      await revokeForReuse(tx, row);
-      await recordFailure(tx, {
-        shopId: row.shop_id,
-        deviceId: row.device_id,
-        appUserId: row.app_user_id,
-        method: "session_token",
-        failureClass: "token_reuse",
-      });
-    });
+    // The tenant is known HERE even though the lookup that found the row could not
+    // name one: the row carries `shop_id`. So the revocation and its failure row
+    // are written under an ordinary tenant context, not under a service scope —
+    // the scope covers the reads that cannot name a tenant, never the writes that
+    // can (E03-B04).
+    await withTransaction(
+      pool,
+      async (tx) => {
+        await revokeForReuse(tx, row);
+        await recordFailure(tx, {
+          shopId: row.shop_id,
+          deviceId: row.device_id,
+          appUserId: row.app_user_id,
+          method: "session_token",
+          failureClass: "token_reuse",
+        });
+      },
+      { tenant: { shopId: row.shop_id } }
+    );
   }
   return { kind: "refused", refusal, clearCookies: true };
 }
 
 async function recordPairMismatch(pool: pg.Pool, operator: SessionRow): Promise<void> {
-  await withTransaction(pool, async (tx) => {
-    await recordFailure(tx, {
-      shopId: operator.shop_id,
-      deviceId: operator.device_id,
-      appUserId: operator.app_user_id,
-      method: "session_token",
-      failureClass: "cookie_pair_mismatch",
-    });
-  });
+  await withTransaction(
+    pool,
+    async (tx) => {
+      await recordFailure(tx, {
+        shopId: operator.shop_id,
+        deviceId: operator.device_id,
+        appUserId: operator.app_user_id,
+        method: "session_token",
+        failureClass: "cookie_pair_mismatch",
+      });
+    },
+    { tenant: { shopId: operator.shop_id } }
+  );
 }

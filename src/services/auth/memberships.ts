@@ -205,6 +205,8 @@ export async function shopsForSession(
   session: { appUserId?: string; shopId: string }
 ): Promise<ShopSummary[]> {
   if (session.appUserId === undefined) {
+    // Reached under the `my-shops` scope, which the tenant table's own policy
+    // names for exactly this read (E03-B04).
     const res = await db.query(`SELECT id, name, slug FROM shop WHERE id = $1`, [session.shopId]);
     return res.rows as ShopSummary[];
   }

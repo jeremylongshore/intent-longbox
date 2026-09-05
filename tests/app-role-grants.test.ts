@@ -42,8 +42,30 @@ describe("planAppRoleGrants", () => {
     });
   });
 
-  it("names schema_migrations as the only no-grant table today", () => {
-    expect(NO_APP_GRANT_TABLE_NAMES).toEqual(["schema_migrations"]);
+  it("names the three no-grant tables today, across BOTH declaration lists", () => {
+    // E03-D14 widened the class: `appGrant: "none"` may now sit on an
+    // APPEND-ONLY row as well as on an exemption, and the two lists are read
+    // together. `schema_migrations` is exempt-and-ungranted; the two origin
+    // tables are append-only-and-ungranted, because an appended RETIREMENT is
+    // the one write that narrows 019 T35(c)'s audited population and the
+    // application must not be able to make it (000-docs/058 §3(c)).
+    expect(NO_APP_GRANT_TABLE_NAMES).toEqual([
+      "app_user_origin",
+      "app_user_origin_retirement",
+      "schema_migrations",
+    ]);
+  });
+
+  it("puts an appGrant:'none' APPEND-ONLY table in the no-grant class, not the append-only one", () => {
+    // The ordering that makes it true: `noGrant` is tested BEFORE the
+    // append-only branch, so a table declaring both lands in the narrower class.
+    // Reversed, the origin tables would silently receive `SELECT, INSERT`.
+    expect(planAppRoleGrants(["app_user_origin", "app_user_origin_retirement", "cost_log"])).toEqual({
+      appendOnly: ["cost_log"],
+      mutable: [],
+      noGrant: ["app_user_origin", "app_user_origin_retirement"],
+      columnScoped: [],
+    });
   });
 
   it("declares no-grant only for tables that really exist (no pending rows)", () => {
@@ -74,10 +96,14 @@ describe("planAppRoleGrants", () => {
     expect(plan.mutable).toEqual(["scan_session", "shop"]);
   });
 
-  it("accepts the full declared append-only set", () => {
-    expect(planAppRoleGrants(APPEND_ONLY_TABLE_NAMES).appendOnly).toHaveLength(
-      APPEND_ONLY_TABLE_NAMES.length
-    );
+  it("accepts the full declared append-only set, minus the rows that declare no grant", () => {
+    // E03-D14: two append-only tables now declare `appGrant: "none"`, so the
+    // append-only CLASS is the declared set minus them — and the remainder is
+    // asserted by NAME rather than only by count, so a third one cannot arrive
+    // unnoticed.
+    const plan = planAppRoleGrants(APPEND_ONLY_TABLE_NAMES);
+    expect(plan.appendOnly).toHaveLength(APPEND_ONLY_TABLE_NAMES.length - plan.noGrant.length);
+    expect(plan.noGrant).toEqual(["app_user_origin", "app_user_origin_retirement"]);
   });
 });
 

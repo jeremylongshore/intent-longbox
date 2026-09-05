@@ -30,7 +30,9 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   AUTHORIZATION_DECISION_WRITER,
+  ORIGIN_DESIGNATION_WRITER,
   checkAuthorizationDecisionWriters,
+  checkOriginDesignationWriters,
   checkCostLogWriters,
   checkServiceScopeSites,
   checkTenantGucWriters,
@@ -302,6 +304,15 @@ describe("the non-graph rules, against the real tree", () => {
     expect(checkServiceScopeSites(all)).toEqual([]);
   });
 
+  // E03-D14's rule 3c reads BOTH trees for the same reason and a sharper one
+  // (058 F6): the only writers of an origin designation are reached from
+  // `scripts/`, so a rule handed `src/` alone was blind to the tree the act
+  // lives in. Asserted over the union the gate itself passes.
+  it("E03-D14: the origin designation has one writer, across src/ AND scripts/", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkOriginDesignationWriters(all)).toEqual([]);
+  });
+
   // 041 §3.3, the rule E02-D09 added: the single writer is a property of the tree,
   // not of a comment. Asserted against the REAL tree, so a route or service that
   // starts writing the column fails here rather than in a review.
@@ -500,6 +511,36 @@ describe("the non-graph rules, against fixtures that violate them", () => {
     // recording decisions leaves an empty audit behind a green gate.
     expect(
       checkAuthorizationDecisionWriters([{ path: AUTHORIZATION_DECISION_WRITER, text: "nothing" }])
+    ).toHaveLength(1);
+  });
+
+  it("058 §3: a second writer of the origin designation is a violation", () => {
+    // E03-D14's rule 3c, in the direction that matters most: a second writer of
+    // the RETIREMENT can take a person out of 019 T35(c)'s audited population
+    // from a call site nobody reviewed as a security change.
+    const findings = checkOriginDesignationWriters([
+      { path: ORIGIN_DESIGNATION_WRITER, text: "INSERT INTO app_user_origin (a)" },
+      { path: "src/services/scanSession.ts", text: "INSERT INTO app_user_origin_retirement (a)" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/scanSession.ts");
+  });
+
+  it("058 F6: a second writer in `scripts/` is a violation too — the tree the act lives in", () => {
+    // The direction the first version of this rule was blind to. Both CLIs that
+    // designate a person run from `scripts/`, so a writer added beside them
+    // passed a rule scoped to `src/`.
+    const findings = checkOriginDesignationWriters([
+      { path: ORIGIN_DESIGNATION_WRITER, text: "INSERT INTO app_user_origin (a)" },
+      { path: "scripts/designate-staff.ts", text: "INSERT INTO app_user_origin (a)" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("scripts/designate-staff.ts");
+  });
+
+  it("058 §3: the designation with NO writer is also a violation — the rule is an equality", () => {
+    expect(
+      checkOriginDesignationWriters([{ path: ORIGIN_DESIGNATION_WRITER, text: "nothing" }])
     ).toHaveLength(1);
   });
 

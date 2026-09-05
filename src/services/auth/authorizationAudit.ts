@@ -12,7 +12,27 @@
 import type { Permission } from "../../contracts/v1/permissions.js";
 import type { Queryable } from "../../db.js";
 import type { Role } from "./memberships.js";
+import { ORIGIN_PREDICATE_FUNCTION } from "./origin.js";
 import type { AuthorizationVerdict, RefusalReason } from "./permissions.js";
+
+/**
+ * One session that did not reconcile, and WHY it was in the population at all
+ * (E03-D14).
+ *
+ * `longboxOrigin` is the predicate `migrations/032` defines, evaluated at the
+ * session's own issuance. `false` means the row is here on the older ground —
+ * the person holds a `support_break_glass` grant at some time — which is a
+ * shop's own support person straying outside their ticket rather than a Longbox
+ * account at a shop it has no grant at. The two are different incidents and the
+ * audit reports them as different counts.
+ */
+export interface UnreconciledSession {
+  readonly sessionId: string;
+  readonly appUserId: string;
+  readonly shopId: string;
+  readonly issuedAt: Date;
+  readonly longboxOrigin: boolean;
+}
 
 export interface AuthorizationDecisionRecord {
   readonly shopId: string;
@@ -138,18 +158,29 @@ export async function recordAuthorizationDecision(
  * whatever the attempt table says. An unmatched row is **K1** (019 §3.4) — pause
  * live batches until the P0 bead closes with an invariant-review PASS.
  *
- * ⚠ **WHAT IT PROVES IS NARROWER THAN T35(c)'s SENTENCE, AND SAYING SO IS THE
- * POINT** (054 §6, the security lens's F3). T35(c) reconciles *"Longbox-origin
- * sessions"*. This schema has no staff flag and no way to tell a Longbox person
- * from a shop's person, so the population here is **every session of a person
- * who holds a `support_break_glass` grant at some time** — which is a superset
- * of the sessions that matter and a subset of "Longbox-origin". A Longbox
- * employee who was never granted break-glass is invisible to it, and that is a
- * real gap rather than a rounding: the predicate that would close it is
- * **E03-D14**. What this query DOES prove is the half that has an escalation in
- * it — a live break-glass grant is what turns a session into a privileged one,
- * and a session outside its grant's window is exactly the unmatched row 019
- * §3.4 makes K1.
+ * **THE POPULATION IS A UNION OF TWO PREDICATES, AND NEITHER CONTAINS THE
+ * OTHER** (E03-D14, 000-docs/058; closing 054 §6's F3).
+ *
+ * *(i) a LONGBOX-ORIGIN person, as of the moment the session was issued* —
+ * `longbox_is_origin_staff(app_user_id, issued_at)`, the predicate
+ * `migrations/032` defines and this query calls rather than re-states. This is
+ * T35(c)'s own sentence, and until E03-D14 it could not be expressed: 054 §6
+ * recorded that *"a Longbox employee who was never granted break-glass is
+ * invisible to it"*, which was invisible BY CONSTRUCTION — the population was
+ * defined by the grant the query was checking for, so no amount of running it
+ * would have found one.
+ *
+ * *(ii) a person who holds a `support_break_glass` grant at some time* — the
+ * original population, KEPT. It is not redundant: a SHOP's own person can be
+ * granted break-glass (the role is not reserved to Longbox), and a session of
+ * theirs outside its grant's window is exactly the unmatched row 019 §3.4 makes
+ * K1. Dropping it to "tidy" the query would remove the half that has already
+ * been tested.
+ *
+ * Each returned row says which predicate put it there, so the audit can report
+ * the two counts separately and an operator can tell *"our own support person
+ * strayed outside a ticket"* from *"a Longbox account was at a shop with no
+ * grant at all"* without reading a single identifier.
  *
  * **The population is deliberately NOT shop-scoped while the COVERING clause is**
  * (invariant review, note 2). A person who holds break-glass anywhere is in
@@ -160,7 +191,9 @@ export async function recordAuthorizationDecision(
  * The query returns the sessions that do NOT reconcile, so an empty result is
  * the healthy state and the caller has nothing to interpret.
  *
- * ⚠ **It has no scheduler yet, and that is E13-B04's** — the same bead that owns
+ * ⚠ **It has no scheduler yet, and that is E13-B04-D1's** (`longbox-e5b.13.4.1`,
+ * whose acceptance carries the daily-schedule clause — not its parent E13-B04,
+ * which is health and readiness) — the bead that owns
  * every other detector's heartbeat and the T34 liveness signal this writer owes
  * (019 T34 names *"the break-glass access-audit writer"* in its list). Shipping
  * the predicate now means the periodic job is a caller rather than a design.
@@ -172,19 +205,54 @@ export async function recordAuthorizationDecision(
  * path itself, and a reconciliation that could not name the person it failed to
  * reconcile would be a detector with nothing to report. It lives inside the
  * identity module, which is where 034 §3.3 puts every such read, and it has no
- * route: the only caller this function will ever have is E13-B04's job.
+ * route: the only callers this function will ever have are `pnpm audit:break-glass`
+ * and E13-B04-D1's job.
+ *
+ * ⚠ **It reconciles APPLICATION sessions.** `app_session` is 048 §3's two chains;
+ * a schema-owner DATABASE session leaves no row here and is outside this
+ * instrument by construction, which is why every artifact says *discharged for
+ * application sessions* (000-docs/058 §7, R5).
  */
 export async function unreconciledBreakGlassSessions(
-  db: Queryable
-): Promise<Array<{ sessionId: string; appUserId: string; issuedAt: Date }>> {
+  db: Queryable,
+  options: { readonly issuedSince?: Date | null } = {}
+): Promise<UnreconciledSession[]> {
   const res = await db.query(
-    `SELECT s.id, s.app_user_id, s.issued_at
+    `SELECT s.id, s.app_user_id, s.shop_id, s.issued_at,
+            ${ORIGIN_PREDICATE_FUNCTION}(s.app_user_id, s.issued_at) AS longbox_origin
        FROM app_session s
       WHERE s.app_user_id IS NOT NULL
-        AND EXISTS (
+        -- THE WINDOW (E03-D14). NULL means "every session ever", which is what
+        -- an investigation wants and what a DAILY exit code must not have: an
+        -- append-only history cannot be repaired, so an audit that never forgets
+        -- is an audit that stays red forever after one incident and is therefore
+        -- ignored. The incident record is the K1 row in 006; the exit code is
+        -- for the cadence.
+        AND ($1::timestamptz IS NULL
+             OR s.issued_at >= $1
+             -- F5. Keyed on issued_at ALONE, a lookback shorter than a session's
+             -- life drops a session that is STILL LIVE and still unreconciled —
+             -- the 24h default sits beside an OPERATOR_ABSOLUTE_MS of 12h today,
+             -- so the two are one configuration change from disagreeing. A
+             -- session whose absolute expiry has not passed is in scope whenever
+             -- it was issued. There is no watermark: this is a window, not a
+             -- cursor, and 058 §4 states the rule the caller owes instead — the
+             -- lookback must exceed the cadence, and a missed run is answered
+             -- with --hours or --all rather than by the query remembering.
+             OR s.absolute_expires_at >= $1)
+        -- WARNING: NO PREDICATE ON s.kind, DELIBERATELY (048 §3.1, and E03-D11
+        -- is adding a third chain). A device session carries no app_user_id and
+        -- is already excluded by the line above; keying on kind = 'operator'
+        -- would ALSO exclude, silently, every chain kind invented after this was
+        -- written. tests/contract/origin-designation-surface.test.ts asserts the
+        -- literal is absent, because the failure it prevents is a query that
+        -- goes quietly blind rather than red.
+        AND (
+              ${ORIGIN_PREDICATE_FUNCTION}(s.app_user_id, s.issued_at)
+           OR EXISTS (
               SELECT 1 FROM membership m
                WHERE m.app_user_id = s.app_user_id
-                 AND m.role = 'support_break_glass')
+                 AND m.role = 'support_break_glass'))
         AND NOT EXISTS (
               SELECT 1 FROM membership m
                WHERE m.app_user_id = s.app_user_id
@@ -211,12 +279,23 @@ export async function unreconciledBreakGlassSessions(
                        SELECT 1 FROM membership_revocation r
                         WHERE r.membership_id = m.id
                           AND r.created_at <= s.issued_at))
-      ORDER BY s.issued_at DESC`
+      ORDER BY s.issued_at DESC`,
+    [options.issuedSince ?? null]
   );
-  return (res.rows as Array<{ id: string; app_user_id: string; issued_at: Date | string }>).map((r) => ({
+  return (
+    res.rows as Array<{
+      id: string;
+      app_user_id: string;
+      shop_id: string;
+      issued_at: Date | string;
+      longbox_origin: boolean;
+    }>
+  ).map((r) => ({
     sessionId: r.id,
     appUserId: r.app_user_id,
+    shopId: r.shop_id,
     issuedAt: new Date(r.issued_at),
+    longboxOrigin: r.longbox_origin,
   }));
 }
 

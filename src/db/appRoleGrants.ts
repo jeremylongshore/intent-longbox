@@ -153,9 +153,16 @@ const COLUMN_SCOPED_EXEMPTIONS: ReadonlyArray<{ table: string; columns: readonly
  * `003`'s DROP-then-CREATE trigger loop, landing every trigger it touches back at
  * the bypassable `'O'` default.
  */
-export const NO_APP_GRANT_TABLE_NAMES: readonly string[] = APPEND_ONLY_EXEMPTIONS.filter(
-  (e) => e.appGrant === "none"
-).map((e) => e.table);
+export const NO_APP_GRANT_TABLE_NAMES: readonly string[] = [
+  ...APPEND_ONLY_EXEMPTIONS.filter((e) => e.appGrant === "none").map((e) => e.table),
+  // E03-D14: an APPEND-ONLY table may also declare it. The two lists are read
+  // together rather than kept apart because the question a reader asks is "what
+  // may the app touch?", and an answer split across two modules is an answer
+  // that can disagree with itself — `appendOnlyTables.ts` gives that reasoning
+  // for `appGrant` living on the exemption row, and it does not stop being true
+  // one list over.
+  ...APPEND_ONLY_TABLES.filter((t) => t.appGrant === "none").map((t) => t.table),
+].sort();
 
 /**
  * Classify the live base tables into the three privilege classes.
@@ -172,8 +179,12 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
 
   for (const table of [...liveTables].sort()) {
     const scoped = COLUMN_SCOPED_EXEMPTIONS.find((e) => e.table === table);
-    if (APPEND_ONLY_TABLE_NAMES.includes(table)) appendOnly.push(table);
-    else if (NO_APP_GRANT_TABLE_NAMES.includes(table)) noGrant.push(table);
+    // `noGrant` FIRST (E03-D14). It is the narrowest class of all, and an
+    // append-only table that declares it would otherwise be caught by the wider
+    // branch below and silently granted `SELECT, INSERT` — the same ordering bug
+    // the `columnScoped` comment records, one class over.
+    if (NO_APP_GRANT_TABLE_NAMES.includes(table)) noGrant.push(table);
+    else if (APPEND_ONLY_TABLE_NAMES.includes(table)) appendOnly.push(table);
     // BEFORE the plain-exempt branch: a row carrying `updateColumns` is a
     // narrower class, and reaching the wider one first would silently restore
     // the table-level DML this class exists to remove.

@@ -86,6 +86,17 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "028_authorization_decision.sql",
       "029_row_level_security.sql",
       "030_causal_reference_persistence.sql",
+      // E03-D14 took `032` while E03-D11 was building `031` on the same base —
+      // the SECOND gap in this list, and it is here for the same reason `027`
+      // is: the ledger keys on filename and applies unseen files in sorted
+      // order, so whichever branch merges second simply slots in.
+      "032_longbox_origin_designation.sql",
+      // `033` is `032`'s own follow-up, landing on the SAME branch: the cannon's
+      // F1 found the asymmetry 058 §3(b) CLAIMED but did not enforce, and
+      // enforcement folded back into the file that made the claim would have
+      // rewritten a migration CI had already applied. A second file is the
+      // honest shape — and it is what a deployed database will actually see.
+      "033_origin_designation_time_integrity.sql",
     ]);
 
     const tables = await pool.query(
@@ -168,10 +179,15 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  020_sessions_pin_and_auth_attempt.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
-    // (E03-B06 reserved `027` and never wrote it) plus E02-D11's `030` is 29,
-    // while the highest number is 030. The runner reads no contiguity, and this
-    // is the assertion that keeps saying so.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(29);
+    // (E03-B06 reserved `027` and never wrote it) plus E02-D11's `030` and
+    // E03-D14's `032`/`033` is 31, while the highest number is 033 — TWO gaps
+    // now, because E03-D11 is building `031` on this same base. The runner reads
+    // no contiguity, and this is the assertion that keeps saying so.
+    //
+    // ⚠ **E03-D11's `031` WILL TURN THIS LINE AND THE LIST ABOVE RED, BY DESIGN**
+    // (000-docs/058 §10). That is the assertion doing its job rather than
+    // breaking: add the filename to the list above and raise this number by one.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(31);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

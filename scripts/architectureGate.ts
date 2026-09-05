@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   checkIdentityPairEdit,
+  checkOriginDesignationWriters,
   checkServiceScopeSites,
   collectSources,
   REPO_ROOT,
@@ -39,7 +40,17 @@ const files = collectSources(join(REPO_ROOT, "src"));
 // CLIs today — and it is called from here rather than from inside the rule set so
 // that no rule reads the filesystem itself (the invariant review's NOTE 5).
 const scriptFiles = collectSources(join(REPO_ROOT, "scripts"));
-const findings = [...runArchitectureRules(files), ...checkServiceScopeSites([...files, ...scriptFiles])];
+const bothTrees = [...files, ...scriptFiles];
+// Two rules span BOTH trees and are called from here rather than from inside the
+// rule set, so that no rule reads the filesystem itself (the invariant review's
+// NOTE 5): the scope inventory (three of the six scopes are named only by CLIs)
+// and, since 058 F6, the origin-designation single-writer rule — whose only
+// writers today are reached from `scripts/`.
+const findings = [
+  ...runArchitectureRules(files),
+  ...checkServiceScopeSites(bothTrees),
+  ...checkOriginDesignationWriters(bothTrees),
+];
 
 const changedPath = changedFilesPath();
 if (changedPath !== null) {
@@ -49,7 +60,8 @@ if (changedPath !== null) {
 
 if (findings.length === 0) {
   console.log(
-    `architecture gate: ok (${files.length} files, 11 tree rules` +
+    `architecture gate: ok (${files.length} files, 11 tree rules over src/, ` +
+      `2 rules over src/ + scripts/` +
       (changedPath === null
         ? `; paired-edit rule SKIPPED — no changed-file list supplied)`
         : `, plus the paired-edit rule over ${changedPath})`)

@@ -302,6 +302,63 @@ export function checkAuthorizationDecisionWriters(files: readonly SourceFile[]):
 }
 
 // ---------------------------------------------------------------------------
+// Rule 3c — 000-docs/058 §3 (E03-D14): the origin designation has ONE writer.
+// ---------------------------------------------------------------------------
+
+/** The one module allowed to write `app_user_origin` or its retirement. */
+export const ORIGIN_DESIGNATION_WRITER = "src/services/auth/origin.ts";
+
+const ORIGIN_DESIGNATION_INSERT = /INSERT\s+INTO\s+app_user_origin(_retirement)?\b/gi;
+
+/**
+ * Rule 3b's shape, one table over, for a reason that is sharper again.
+ *
+ * `authorization_decision` with two writers is an audit table whose rows mean two
+ * different things. `app_user_origin` with two writers is worse: it decides WHO
+ * 019 T35(c)'s reconciliation watches, so a second writer is a second definition
+ * of who Longbox's own people are — and a second writer of the RETIREMENT can
+ * take a person out of the audited population from a call site nobody reviewed as
+ * a security change.
+ *
+ * The privilege layer already refuses the application role both tables (058
+ * §3(c), `appGrant: "none"`), so this rule is the second of the two and guards
+ * the case the first cannot see: a schema-owner CLI or a future in-process job
+ * reaching for the INSERT directly.
+ *
+ * ⚠ **IT SCANS `scripts/` AS WELL AS `src/`, AND THE FIRST VERSION DID NOT** (the
+ * security lens's F6). Rules 3 and 3b are scoped to `src/` because their tables
+ * are written only by the running system. This one is not: the ONLY writers of a
+ * designation today are reached from `pnpm designate-staff` and
+ * `pnpm retire-staff-designation`, so a rule blind to `scripts/` was blind to the
+ * exact tree the act lives in — a second writer added beside the CLI would have
+ * passed. It is therefore called from `architectureGate.ts` with BOTH trees, on
+ * `checkServiceScopeSites`'s precedent, and never from `runArchitectureRules`,
+ * which is handed `src/` alone. The allowlist is unchanged: one file, in `src/`.
+ *
+ * `.match()` and not `.test()`, for the reason rule 3 records: a /g regex's
+ * `test()` advances `lastIndex` between calls and skips every other match.
+ */
+export function checkOriginDesignationWriters(files: readonly SourceFile[]): Finding[] {
+  const writers = files
+    .filter((f) => (f.text.match(ORIGIN_DESIGNATION_INSERT) ?? []).length > 0)
+    .map((f) => f.path)
+    .sort();
+
+  if (writers.length === 1 && writers[0] === ORIGIN_DESIGNATION_WRITER) return [];
+  return [
+    {
+      rule: "origin-designation-has-one-writer",
+      message:
+        `app_user_origin / app_user_origin_retirement is written from ` +
+        `[${writers.join(", ") || "nothing"}]; the only writer may be ${ORIGIN_DESIGNATION_WRITER} ` +
+        `(000-docs/058 §3). A second writer of a designation is a second definition of who Longbox's ` +
+        `own people are, and a second writer of a RETIREMENT can narrow the population 019 T35(c) ` +
+        `reconciles — which is non-waivable.`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Rule 4 — 042 I22(a): a fixed lock acquisition order in every mutating handler.
 // ---------------------------------------------------------------------------
 
@@ -1173,7 +1230,11 @@ export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
     ...checkNoVerticalBranching(files),
     ...checkTransactionsDeclareTenant(files),
     ...checkTenantGucWriters(files),
-    // NOTE: `checkServiceScopeSites` is NOT called here. It needs the `scripts/`
+    // NOTE: `checkServiceScopeSites` is NOT called here — and neither is
+    // `checkOriginDesignationWriters`, for the same reason and with a sharper
+    // edge (058 F6): the only writers of an origin designation are reached from
+    // `scripts/`, so a rule handed `src/` alone would be blind to the tree the
+    // act lives in. It needs the `scripts/`
     // tree as well as `src/`, and a pure rule that reaches for the filesystem is
     // not a pure rule — the invariant review's NOTE 5. `scripts/architectureGate.ts`
     // collects both trees and calls it; `tests/contract/architecture-gate.test.ts`

@@ -771,6 +771,32 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // 032 (E03-D14): the Longbox-origin designation and its ending. Person-
+      // scoped like the two above, and the ONLY tables in the declared set the
+      // application role holds no privilege on at all (058 §3(c)) — this pool is
+      // the MIGRATE role, which is why the recipe works here and would not from
+      // the app pool.
+      case "app_user_origin": {
+        const r = await pool.query(
+          `INSERT INTO app_user_origin (app_user_id, origin, reason)
+           VALUES ($1,'longbox_staff','fixture: support rota') RETURNING id`,
+          [await freshUser()]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "app_user_origin_retirement": {
+        const designation = await pool.query(
+          `INSERT INTO app_user_origin (app_user_id, origin, reason)
+           VALUES ($1,'longbox_staff','fixture: support rota') RETURNING id`,
+          [await freshUser()]
+        );
+        const r = await pool.query(
+          `INSERT INTO app_user_origin_retirement (origin_id, reason)
+           VALUES ($1,'fixture: left the company') RETURNING id`,
+          [(designation.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       case "recovery_code": {
         const r = await pool.query(
           `INSERT INTO recovery_code (app_user_id, batch_id, code_hash)

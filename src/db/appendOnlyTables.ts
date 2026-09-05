@@ -121,6 +121,31 @@ export interface AppendOnlyTrigger {
    * was convenient" is not one.
    */
   readonly appLockable?: true;
+
+  /**
+   * What the application role may do with this table — the SAME field
+   * `AppendOnlyExemption` carries, and it lives here for the same reason
+   * (E03-D14).
+   *
+   * Absent (the default) — the uniform `SELECT, INSERT` an append-only table
+   * gets. `"none"` — the app role gets NO privilege at all: it never reads this
+   * table and must never write it, so the grant step's opening `REVOKE ALL`
+   * leaves it bare.
+   *
+   * ⚠ **`"none"` IS NOT A STRONGER FORM OF APPEND-ONLY, AND SAYING SO MATTERS.**
+   * The trigger already refuses every UPDATE and DELETE from every role, so the
+   * privilege buys nothing against *editing*. What it buys is the refusal of an
+   * **INSERT**, and it is worth taking only where an appended row would change
+   * what a control SEES: `app_user_origin_retirement` ends a Longbox-staff
+   * designation, so a compromised application holding INSERT could take a staff
+   * account out of 019 T35(c)'s audited population from that moment on. A table
+   * that records who is being watched must not be writable by the process being
+   * watched.
+   *
+   * Keep this set as small as that argument reaches. "The app does not use it"
+   * is a reason to review the grant, not by itself a reason to remove it.
+   */
+  readonly appGrant?: "none";
 }
 
 /**
@@ -159,6 +184,37 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     since: "020_sessions_pin_and_auth_attempt.sql",
     ordersByObservedAt: false,
     sessionSeq: false,
+  },
+  {
+    table: "app_user_origin",
+    trigger: "app_user_origin_append_only",
+    since: "032_longbox_origin_designation.sql",
+    // E03-D14 / 000-docs/058. "This person is Longbox-origin" is a fact that
+    // HAPPENED and is ended by a second fact, on `membership`'s grant/release
+    // idiom (034 §2.7) — never by a column an UPDATE can flip, because the whole
+    // value of the predicate is that it cannot be quietly withdrawn.
+    //
+    // Not an external observation: designating a colleague is Longbox's own act.
+    // Not session-scoped: a person's origin outlives, precedes and spans every
+    // scan, and it deliberately carries no `scan_session_id` — a designation
+    // joinable to an item would be a record of what a named person did to that
+    // item (022 P3).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+    // 058 §3 decision (c): the application neither reads nor writes this.
+    appGrant: "none",
+  },
+  {
+    table: "app_user_origin_retirement",
+    trigger: "app_user_origin_retirement_append_only",
+    since: "032_longbox_origin_designation.sql",
+    // The ending fact for the row above. `appGrant: "none"` matters MORE here
+    // than on the designation: an appended retirement is the one write that
+    // NARROWS 019 T35(c)'s audited population, which is exactly what an attacker
+    // with the application's credentials would reach for.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+    appGrant: "none",
   },
   {
     table: "auth_attempt",

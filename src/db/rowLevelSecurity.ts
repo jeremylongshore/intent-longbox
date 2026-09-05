@@ -386,6 +386,20 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
     reason: "The use fact for the row above; same scope, same reason.",
   },
   {
+    table: "app_user_origin",
+    reason:
+      "E03-D14 / 000-docs/058: whether a person is LONGBOX-ORIGIN is a fact about them and follows " +
+      "them to every shop — which is the property 019 T35(c)'s reconciliation needs, since the " +
+      "session worth finding is the one at a shop the person holds nothing at. A `shop_id` here " +
+      "would make the predicate answer per tenant and hide exactly that row. Same class as " +
+      "`app_user` (the person), and bounded more tightly than it: the app role holds NO privilege " +
+      'on this table at all (`appGrant: "none"`), so the only reader is the schema-owner audit.',
+  },
+  {
+    table: "app_user_origin_retirement",
+    reason: "The ending fact for the row above; it carries no tenant for the same reason its subject does.",
+  },
+  {
     table: "retention_hold_release",
     reason:
       "A child of `retention_hold`, which IS policied. It carries the hold's id and a timestamp and " +

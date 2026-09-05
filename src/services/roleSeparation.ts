@@ -40,6 +40,10 @@
 // asking: reachability, not today's inheritance setting.
 
 import { APPEND_ONLY_TABLE_NAMES } from "../db/appendOnlyTables.js";
+// 058 F2: the tables the application role may not touch at all. Imported from
+// the SAME declaration the grant step reads, so the boot check and the grant
+// plan cannot disagree about which tables they are.
+import { NO_APP_GRANT_TABLE_NAMES } from "../db/appRoleGrants.js";
 import {
   SERVICE_POLICY,
   SERVICE_TABLES,
@@ -265,6 +269,24 @@ export interface TenantIsolationResult {
   unprotectableRelations: string[];
   /** Views that would read their base tables as the schema owner. */
   ownerReadingViews: string[];
+  /**
+   * Tables declared `appGrant: "none"` on which this role nevertheless holds a
+   * privilege — the security lens's F2 on 000-docs/058.
+   *
+   * These are the only tables in the schema whose CONTENTS decide what a control
+   * can SEE (`app_user_origin` and its retirement decide who 019 T35(c) watches),
+   * and they carry no `shop_id`, so they are RLS exemptions and no policy stands
+   * behind the grant. That made the GRANT the whole mechanism, with nothing
+   * checking it at runtime: the lens reproduced a stray
+   * `GRANT INSERT … TO longbox_app` after which the application role appended a
+   * back-dated retirement while BOTH boot assertions reported green.
+   *
+   * `has_table_privilege` rather than a `role_table_grants` read, deliberately:
+   * the question is not "was a GRANT statement issued" but "can this role, by any
+   * path — a direct grant, PUBLIC, or a role it is a member of — touch the table",
+   * and only the privilege function answers that one.
+   */
+  forbiddenGrants: string[];
 }
 
 interface IsolationRow {
@@ -275,6 +297,7 @@ interface IsolationRow {
   unexpected: string[] | null;
   owner_views: string[] | null;
   unprotectable: string[] | null;
+  forbidden_grants: string[] | null;
 }
 
 /**
@@ -371,7 +394,19 @@ const ISOLATION_SQL = `
     -- unpoliciable with the check otherwise green.
     (SELECT array_agg((c.relname::text || ' (relkind ''' || c.relkind::text || ''')') ORDER BY c.relname)
        FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-      WHERE ns.nspname = 'public' AND c.relkind IN ('m', 'f')) AS unprotectable
+      WHERE ns.nspname = 'public' AND c.relkind IN ('m', 'f')) AS unprotectable,
+    -- 058 F2: a table the design says this role may not touch AT ALL, on which it
+    -- holds a privilege anyway. to_regclass guards the pending case — a declared
+    -- no-grant table a migration has not created yet is not a finding — and the
+    -- four privileges are asked separately because the failure is any of them:
+    -- a SELECT is a read of who is watched, an INSERT is the back-dated
+    -- retirement itself.
+    (SELECT array_agg(t ORDER BY t) FROM unnest($9::text[]) AS t
+      WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
+        AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
+          OR has_table_privilege(current_user, quote_ident(t), 'INSERT')
+          OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
+          OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))) AS forbidden_grants
 `;
 
 /**
@@ -478,6 +513,7 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
       expected.map((e) => e.check),
       TENANT_POLICY,
       [TENANT_POLICY, SERVICE_POLICY, SERVICE_WRITE_POLICY],
+      [...NO_APP_GRANT_TABLE_NAMES],
     ])
   ).rows[0] as IsolationRow | undefined;
   if (!row) throw new Error("tenant-isolation check: the catalog query returned no row");
@@ -488,6 +524,7 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
   const unexpectedPolicies = row.unexpected ?? [];
   const unprotectableRelations = row.unprotectable ?? [];
   const ownerReadingViews = row.owner_views ?? [];
+  const forbiddenGrants = row.forbidden_grants ?? [];
   return {
     ok:
       !row.bypasses &&
@@ -496,7 +533,8 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
       alteredPolicies.length === 0 &&
       unexpectedPolicies.length === 0 &&
       unprotectableRelations.length === 0 &&
-      ownerReadingViews.length === 0,
+      ownerReadingViews.length === 0 &&
+      forbiddenGrants.length === 0,
     role: identity.role,
     bypassesPolicies: row.bypasses,
     ownedPoliciedTables,
@@ -505,6 +543,7 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
     unexpectedPolicies,
     unprotectableRelations,
     ownerReadingViews,
+    forbiddenGrants,
   };
 }
 
@@ -550,6 +589,13 @@ export function describeTenantIsolationFailure(result: TenantIsolationResult): s
     parts.push(
       `${result.ownerReadingViews.length} view(s) are not security_invoker and would read their base ` +
         `tables as the schema owner: ${result.ownerReadingViews.join(", ")}`
+    );
+  }
+  if (result.forbiddenGrants.length > 0) {
+    parts.push(
+      `role "${result.role}" holds a privilege on ${String(result.forbiddenGrants.length)} table(s) ` +
+        `declared \`appGrant: "none"\` — these carry no tenant column, so no policy stands behind the ` +
+        `grant and the grant is the whole mechanism: ${result.forbiddenGrants.join(", ")}`
     );
   }
   return parts.join("; ");

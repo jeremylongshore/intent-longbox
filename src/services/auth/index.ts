@@ -203,10 +203,27 @@ export {
 } from "./permissions.js";
 export type { AuthorizationVerdict, RefusalReason } from "./permissions.js";
 
+// E03-D14 — the Longbox-origin predicate (000-docs/058). The door matters here
+// for a reason of its own: `designateOrigin` widens what 019 T35(c)'s audit can
+// SEE and `retireOrigin` narrows it, so both belong behind the same boundary as
+// the query that reads them, and neither is reachable from a route.
+export {
+  LONGBOX_STAFF_ORIGIN,
+  ORIGIN_PREDICATE_FUNCTION,
+  OriginDesignationRefused,
+  designateOrigin,
+  isLongboxOrigin,
+  liveOriginDesignationCount,
+  originDesignationsOf,
+  retireAllOriginsOf,
+  retireOrigin,
+} from "./origin.js";
+export type { DesignateOriginInput, OriginDesignation, RetireOriginInput } from "./origin.js";
+
 export {
   decisionsByUnreconciledSessions,
   recordAuthorizationDecision,
   shouldRecord,
   unreconciledBreakGlassSessions,
 } from "./authorizationAudit.js";
-export type { AuthorizationDecisionRecord } from "./authorizationAudit.js";
+export type { AuthorizationDecisionRecord, UnreconciledSession } from "./authorizationAudit.js";

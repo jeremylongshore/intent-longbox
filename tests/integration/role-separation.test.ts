@@ -221,11 +221,32 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
     const grants = await privilegesByTable(ownerPool);
     for (const table of APPEND_ONLY_TABLE_NAMES) {
       if (APP_LOCKABLE_TABLE_NAMES.includes(table)) continue; // asserted separately below
+      if (NO_APP_GRANT_TABLE_NAMES.includes(table)) continue; // and so is this class, below
       expect({ table, privileges: grants.get(table) }).toEqual({
         table,
         privileges: ["INSERT", "SELECT"],
       });
     }
+  });
+
+  // ⚠ THE SECOND EXCEPTION, AND IT NARROWS RATHER THAN WIDENS (E03-D14).
+  //
+  // `app_user_origin` and its retirement decide WHO 019 T35(c)'s reconciliation
+  // watches, so the process being watched holds nothing on them at all
+  // (000-docs/058 §3(c)). The control that matters is the refusal of an INSERT:
+  // a compromised server appending a RETIREMENT would take a staff account out
+  // of the audited population from that moment on, and the append-only trigger
+  // — which refuses UPDATE and DELETE and nothing else — could not have stopped
+  // it. Asserted as an EMPTY privilege set rather than as an absence from the
+  // loop above, so a future `GRANT` on either table fails here.
+  it("a DECLARED no-grant append-only table grants the app role NOTHING", async () => {
+    const grants = await privilegesByTable(ownerPool);
+    for (const table of ["app_user_origin", "app_user_origin_retirement"]) {
+      expect(NO_APP_GRANT_TABLE_NAMES, `${table} left the no-grant class`).toContain(table);
+      expect({ table, privileges: grants.get(table) }).toEqual({ table, privileges: undefined });
+    }
+    // And the refusal is real, not merely catalogued.
+    await expect(appPool.query(`SELECT count(*) FROM app_user_origin`)).rejects.toThrow(/permission denied/);
   });
 
   // ⚠ THE ONE EXCEPTION, AND IT IS A DECLARED ROW RATHER THAN A LEAK (E02-D07).

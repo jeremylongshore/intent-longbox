@@ -122,6 +122,22 @@ const SNAPSHOTS = [
   // E03-B06 and never written, so the twenty-seven files up to and including
   // `028` are what a database at that schema has applied.
   { name: "028", file: "tests/fixtures/schema/after-028.sql", applied: 27 },
+  // E03-D14 shipped `032` and added this one, **before the assertion at the
+  // foot of this file forced it** — for E03-B03's reason exactly, one bead
+  // later. With `028` alone the newest fixture sits three behind a head of 30,
+  // inside the limit, so nothing would be red today. It is added anyway because
+  // of the gap: E03-D11 is landing `031` on this same base, and the moment it
+  // merges head becomes 31 — FOUR past `028`, which is the limit itself, so the
+  // very next migration anybody writes fails on a stranger's PR. `030` rather
+  // than `032`, for the reason every row above gives: a snapshot is a schema
+  // somebody could be RUNNING, and `032` is the one this PR is adding. `030` is
+  // E02-D11's, merged ahead of this branch, so it is also the newest RELEASED
+  // schema at the moment this fixture was cut.
+  //
+  // `applied: 29` and not 30: the ledger counts FILES, and `027` was reserved by
+  // E03-B06 and never written, so the twenty-nine files up to and including
+  // `030` are what a database at that schema has applied.
+  { name: "030", file: "tests/fixtures/schema/after-030.sql", applied: 29 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -315,7 +331,9 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // `021`–`023` and added `020`; E03-D07 shipped `024` and added `023` rather than
     // leave the set exactly at the limit; E03-B04 shipped `029` and added `028`;
     // E02-D11 shipped `030` and added NONE, because `028` still sits two behind
-    // head. The next bead to push head past `032` adds the next one.
+    // head; E03-D14 shipped `032` and added `030`, again rather than leave the
+    // set one migration from the limit while E03-D11's `031` was in flight. The
+    // next bead to push head past `034` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

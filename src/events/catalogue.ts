@@ -547,6 +547,34 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
     table: "outbox_attempt",
     rule: "As above: delivery machinery, not a witness a consumer outside platform acts on.",
   },
+
+  // ---------------------------------------------------------------------------
+  // E03-D14 — THE LONGBOX-ORIGIN DESIGNATION (000-docs/058), landed by migration
+  // 032. The identity cluster's rule, at its sharpest:
+  //
+  //   AN AUTHENTICATION FACT IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // A designation names a PERSON and nothing else — no shop, no session, no
+  // book — so an event about one would carry an operator identifier past 034
+  // §3.3's audited accessor and into every consumer in the registry, and it
+  // would carry the single most sensitive fact this schema holds about a
+  // colleague: that they are watched. Its only reader is the schema-owner audit.
+  // ---------------------------------------------------------------------------
+  {
+    table: "app_user_origin",
+    rule:
+      "048 §10.1 / 034 §3.3 / 058 §3: a designation is an authentication-adjacent fact about a " +
+      "PERSON with no scan_session_id, and publishing it would tell every consumer which " +
+      "colleagues 019 T35(c) watches (T35 non-waivable; 022 P3). Its one reader is " +
+      "`pnpm audit:break-glass`, run by the schema owner.",
+  },
+  {
+    table: "app_user_origin_retirement",
+    rule:
+      "As `app_user_origin`. The ending of a designation is the same kind of fact as the " +
+      "designation, and it takes effect by DERIVATION at the next audit run rather than by a " +
+      "sweep something would have to trigger.",
+  },
 ];
 
 export const EVENT_NAMES: readonly string[] = EVENT_CATALOGUE.map((e) => e.event);

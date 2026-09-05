@@ -178,8 +178,13 @@ describe("I2 — an introduction is an INSERT and a retirement is a SECOND ROW",
 
   it("`reason_code` is OPEN-WORLD: a reason nobody predicted is not blocked by a CHECK", async () => {
     if (!enabled) return;
-    // `003:134-143`'s rule, applied to a credential: a schema constraint must
-    // never stop somebody retiring a key at the moment they need to.
+    // 050 §4's rule (the open-world idiom as `036:588`/`036:614` write it — a
+    // `text` column with its known values in a COMMENT and no CHECK), applied to
+    // a credential: a schema constraint must never stop somebody retiring a key
+    // at the moment they need to. ⚠ This cited `003:134-143` until E03-D14, and
+    // that range is DEAD — 003 is 97 lines long, so the citation resolved to
+    // nothing while reading as checked, which is worse than no citation at all
+    // (053 v1.0.2's B5, the same defect one record over). E03-D18 residual N1.
     const versionNo = await nextVersionNo(asShop(pool!, shopId), shopId, "shopify");
     const id = await introduceCredentialVersion(asShop(pool!, shopId), {
       shopId,

@@ -196,6 +196,107 @@ exported; string arithmetic is invisible; a spawn that mutates `src/` without
 naming it (`execSync("make")`) is invisible for the same reason; and an
 unlisted read-only tool produces a loud false positive rather than a hole.
 
+### A slow-by-nature case carries its own timeout; the default stays 5s (E02-D16, 2026-09-04)
+
+`vitest.config.ts` sets **no `testTimeout`**, so the unit lane's default is
+vitest's 5s, and it stays there. That default is a tripwire for a hung promise,
+not a performance budget: raising it globally would blunt the deadlock it exists
+to catch, and it is a hash-pinned harness artifact this repository does not edit
+anyway.
+
+The consequence is the pattern: **a case whose work is expensive by nature
+declares its own ceiling as `it(name, fn, 30000)`, and nothing else does.**
+Sixteen cases in the unit lane carry one as this note lands: the four in
+`tests/contract/architecture-gate.test.ts`, which each spawn `depcruise` over a
+copy of the whole tree (60s/120s, predating this note); seven that arrived with
+E03-D06 on the same day and independently of this bead — six in
+`tests/authenticator-service.test.ts` and one in
+`tests/contract/secret-surfaces.test.ts`, all of them running real argon2id over
+recovery codes at the parameters `secrets.ts` sets; and the five this note is
+about:
+
+| Case                                                               | File                         | Why the work is slow                                                       |
+| ------------------------------------------------------------------ | ---------------------------- | -------------------------------------------------------------------------- |
+| `A HOSTILE CANDIDATE RENDERS AS TEXT`                              | `tests/public-copy.test.ts`  | `mountApp`: jsdom import, first parse, `runScripts: "dangerously"`         |
+| `A HOSTILE BAND VALUE cannot escape the class attribute`           | `tests/public-copy.test.ts`  | the same `mountApp` render                                                 |
+| `ONE-TAP POSTS THE BOUNDED SHAPE`                                  | `tests/public-copy.test.ts`  | the same `mountApp` render                                                 |
+| `stores an argon2id digest and clears any retirement on a re-set`  | `tests/auth-service.test.ts` | one REAL argon2id at 64 MiB x 3, which 048 §9.2 makes expensive on purpose |
+| `refuses an unknown pair and a retired PIN with their own reasons` | `tests/auth-service.test.ts` | the decoy digest plus two verifies, for the same reason                    |
+
+Two of those five had a ceiling before E02-D16, and the two attributions are
+easy to run together, so: **E03-D07 gave the argon2 sibling
+(`refuses an unknown pair and a retired PIN`) its ceiling in PR #77**, in this
+same file; **E03-D06's seven are elsewhere** — `tests/authenticator-service.test.ts`
+and `tests/contract/secret-surfaces.test.ts`, landed in PR #82. Different beads,
+different files, the same rule reached three times in a week, which is the
+argument for writing it down here rather than in one file's comments. The three that did not are added
+here: `A HOSTILE BAND VALUE` and `ONE-TAP` are the cases that actually flaked —
+bead `longbox-e5b.2.26` records them as found by the E03-D10 review of PR #81
+and hit independently by three builders and a reviewer running worktrees in
+parallel at load average 20–31 — and
+`stores an argon2id digest` has not been seen to fail but does the same real
+argon2id work as the sibling that did, which makes "has not failed yet" the only
+argument for leaving it on the default. Its cost, with the command that
+reproduces it: **612ms** run alone at load 28
+(`pnpm vitest run tests/auth-service.test.ts -t "stores an argon2id digest"`),
+and **~1.0s** inside a full run — one argon2id at the parameters `secrets.ts`
+sets. The code comment on that case points here rather than carrying a number of
+its own.
+
+**The reason the two flaky cases looked cheap is the trap worth writing down.**
+Whichever `mountApp` case runs FIRST pays the `jsdom` import and the first parse;
+the ones behind it inherit a warm module and cost a few hundred milliseconds.
+Four observations, each with the condition it was taken under, because none of
+these numbers is comparable to another without one:
+
+| Condition                                                                                                     | First `mountApp` case |
+| ------------------------------------------------------------------------------------------------------------- | --------------------- |
+| whole suite, `pnpm test`, 79 files in parallel workers, load 35                                               | **4.9s**              |
+| this file alone, `pnpm vitest run tests/public-copy.test.ts --reporter=verbose`, load 31                      | **2.1s**              |
+| this file alone, the same command **`--coverage`**, load 31                                                   | **2.0s**              |
+| the E02-D16 invariant review's own pair, this file alone, no coverage at load 28 then `--coverage` at load 33 | **1.6s → 2.4s**       |
+
+**Load dominates; coverage adds.** It adds clearly in the review's pair
+(1.6s → 2.4s) and sits inside run-to-run noise in the file-alone pair, where it
+measured 0.1s FASTER — which is the honest reading of four points and the reason
+this note does not say "never subtracts": on these numbers it never materially
+subtracts, and one 0.1s step inside noise is not evidence that instrumentation
+is free either. The first draft of this note
+wrote "4.9s (2.9s under v8 coverage)" from two runs taken at different loads,
+which reads as instrumentation making the case faster — it does not, and two
+measurements taken under different conditions do not belong in one parenthesis.
+
+**The position effect is the one that reproduces**: run under
+`-t "A HOSTILE BAND VALUE"`, where it becomes the first, `A HOSTILE BAND VALUE`
+takes **2771ms** against the **285ms** it reports from its usual third position
+in the same suite — same assertions, same tree, **9.7x from position alone**,
+and the E02-D16 invariant review reproduced the same effect independently at
+**21.7x** — that figure comes from the review's own log and is NOT reproducible
+from this repository, unlike the 9.7x pair, which the command above produces.
+2771ms against a 5000ms default is a margin of 1.8x, and the table above is the
+size of the swing that margin has to absorb. Which case runs first is decided by
+`-t` filtering, `.only`, retries and file order — not by the case itself — so a
+per-case duration read off a full green run is not evidence that the case is
+fast. The ceiling belongs on every case that could be first.
+
+**What was deliberately NOT done:** no assertion changed; no argon2id parameter
+was lowered to suit a test runner, which would be tuning a security floor
+(048 §9.2); no blanket timeout was applied to files or suites;
+`vitest.config.ts` was not touched. The parameters and durations above are
+engineering facts about a test suite and are written down here for the next
+person who has to judge a slow case — **021 B16 governs what leaves the
+repository, and none of these numbers may go out as a performance claim.** The Postgres lane is unaffected and needs none of this:
+`vitest.integration.config.ts` already sets `testTimeout: 30_000` for every case,
+because provisioning a database is slow by definition.
+
+The `30000` figures are CEILINGS, not measurements: they say "if this takes half
+a minute, something is wrong", and nothing at all about how fast the suite is.
+
+`.harness-hash` was re-pinned with `pnpm exec audit-harness init` AFTER this
+edit. Nothing in the Thresholds or Classification sections moved: this is an
+observational note about two test files, not a policy change, and no threshold,
+waiver or coverage floor was touched.
+
 ### The coverage include gained `src/consumers/**` (E02-D07, 2026-09-04)
 
 The floor is unchanged at 80. What changed is its SCOPE: `src/consumers/` now

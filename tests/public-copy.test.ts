@@ -308,6 +308,14 @@ describe("public/ renders server- and model-derived strings as text only (046 §
     dom.window.close();
   }, 30000);
 
+  // The same explicit ceiling, for the same reason and with nothing asserted
+  // differently: `mountApp` is a load-sensitive jsdom render, and whichever of
+  // these three cases runs FIRST pays the `jsdom` import plus the first parse
+  // while its siblings inherit a warm module and finish in a few hundred
+  // milliseconds. Which one runs first is decided by `-t` filtering, `.only`
+  // and file order — not by this case — so the ceiling belongs on each of
+  // them. The measurements are in tests/TESTING.md (E02-D16), in one place,
+  // because three numbers in three files drift into three different claims.
   it("A HOSTILE BAND VALUE cannot escape the class attribute it used to be interpolated into", async () => {
     const { dom, window } = await mountApp();
 
@@ -324,8 +332,9 @@ describe("public/ renders server- and model-derived strings as text only (046 §
     expect(bandLine.querySelector("span")!.className).toBe("band low");
     expect(bandLine.textContent).toContain("Not sure enough to guess");
     dom.window.close();
-  });
+  }, 30000);
 
+  // Third `mountApp` case, same ceiling for the same reason as the two above.
   it("ONE-TAP POSTS THE BOUNDED SHAPE the v1 contract declares (E03-D02's client half)", async () => {
     const { dom, window, posted } = await mountApp((url) =>
       Promise.resolve({
@@ -369,5 +378,5 @@ describe("public/ renders server- and model-derived strings as text only (046 §
       upc: "071486021728",
     });
     dom.window.close();
-  });
+  }, 30000);
 });

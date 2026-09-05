@@ -457,6 +457,14 @@ describe("the PIN (048 §3.5, §9.1, §9.2)", () => {
     expect(calls).toHaveLength(0);
   });
 
+  // ⚠ AN EXPLICIT TIMEOUT, for the reason set out at length below: this case
+  // computes a REAL argon2id at 64 MiB x 3, which 048 §9.2 makes expensive on
+  // purpose. It is the only other case in this file that hashes for real, so
+  // it is the only other one that can be pushed past the 5s default by
+  // coverage instrumentation on a loaded box. What it actually costs, and the
+  // command that reproduces it, are in tests/TESTING.md (E02-D16) — one place,
+  // so a number here cannot drift away from the one there. Ceiling only:
+  // nothing asserted in this case changed.
   it("stores an argon2id digest and clears any retirement on a re-set", async () => {
     const { db, calls } = fakeDb(() => []);
     const out = await setOperatorPin(db, { ...pair, pin: "428713", pepper: TEST_PIN_PEPPER });
@@ -464,7 +472,7 @@ describe("the PIN (048 §3.5, §9.1, §9.2)", () => {
     expect(calls[0]!.text).toContain("ON CONFLICT (device_id, app_user_id)");
     expect(calls[0]!.text).toContain("retired_at = NULL");
     expect(String(calls[0]!.values![3])).toMatch(/^\$argon2id\$/);
-  });
+  }, 30000);
 
   it("takes the anchor lock BEFORE it counts, and holds it through the failure INSERT", async () => {
     const { db, calls } = fakeDb((text) => {

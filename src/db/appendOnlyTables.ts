@@ -244,6 +244,25 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: false,
   },
   {
+    table: "device_enrollment_code",
+    trigger: "device_enrollment_code_append_only",
+    since: "024_invitations_and_device_enrollment.sql",
+    // An ISSUANCE fact (048 §7.3). Its expiry is fixed when it is written and
+    // "expired" is a predicate; its ending is `device_enrollment_code_use`, and
+    // there is no status column for a second redemption to read as `pending`.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "device_enrollment_code_use",
+    trigger: "device_enrollment_code_use_append_only",
+    since: "024_invitations_and_device_enrollment.sql",
+    // 048 §7.1a's `UNIQUE (code_id)`. Single-use is that index, and this row is
+    // the fact it is an index on.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "edition",
     trigger: "edition_append_only",
     since: "016_catalog_core.sql",
@@ -282,6 +301,25 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     // SHOP-scoped but not SESSION-scoped: it keys on a `human_confirmation_id`,
     // not on a `scan_session_id`, so it carries no `session_seq`. 041 I1's
     // criterion is the column, not the tenancy.
+    sessionSeq: false,
+  },
+  {
+    table: "invitation",
+    trigger: "invitation_append_only",
+    since: "024_invitations_and_device_enrollment.sql",
+    // 048 §7.1: an invitation is a fact naming a shop, a person, a role, an
+    // inviter and an expiry. Nothing edits it — a mind changed about an
+    // invitation is a new invitation, and the old one expires unredeemed.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "invitation_use",
+    trigger: "invitation_use_append_only",
+    since: "024_invitations_and_device_enrollment.sql",
+    // 048 §7.1's `UNIQUE (invitation_id)`: "single-use is a constraint or it is
+    // a race". The membership is granted in the same transaction as this row.
+    ordersByObservedAt: false,
     sessionSeq: false,
   },
   {
@@ -359,6 +397,26 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     table: "membership_revocation",
     trigger: "membership_revocation_append_only",
     since: "019_identity_core.sql",
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "operator_pin_retirement",
+    trigger: "operator_pin_retirement_append_only",
+    since: "024_invitations_and_device_enrollment.sql",
+    // 048 §3.5's retirement, as a FACT rather than as `operator_pin.retired_at`
+    // (E03-D07). Its three siblings — `membership_revocation`,
+    // `device_credential_revocation`, `app_session_revocation` — all have this
+    // shape, and this one has a specific reason of its own: `operator_pin` is
+    // the LOCKOUT ANCHOR, so an `UPDATE` retirement would write the
+    // security-critical row on a path that is not a PIN verification and would
+    // destroy the record of when and why the PIN was taken away.
+    //
+    // Its UNIQUE is `(operator_pin_id, retired_pin_updated_at)` rather than
+    // `(operator_pin_id)`, because one `operator_pin` row is UNIQUE per
+    // `(device_id, app_user_id)` and can be re-set for a re-hired person; the
+    // retirement names the VERSION of the anchor it retires. Liveness is the
+    // predicate "no retirement names my current `updated_at`".
     ordersByObservedAt: false,
     sessionSeq: false,
   },

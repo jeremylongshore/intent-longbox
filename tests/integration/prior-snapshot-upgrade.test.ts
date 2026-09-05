@@ -87,6 +87,13 @@ const SNAPSHOTS = [
   // unchanged, so an older fixture regenerated today still diffs as a schema
   // change rather than as noise.
   { name: "020", file: "tests/fixtures/schema/after-020.sql", applied: 20 },
+  // E03-D07 shipped `024` and added this one. With `020` alone the newest
+  // fixture would sit exactly four behind head, which passes today and fails on
+  // the next migration anybody writes — and the point of the assertion at the
+  // foot of this file is that the set does not go stale silently. `023` is the
+  // last schema released before this bead's own migration, so it is the one an
+  // operator upgrading a deployed database would actually be starting from.
+  { name: "023", file: "tests/fixtures/schema/after-023.sql", applied: 23 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -251,8 +258,9 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // shipping `011` was the moment to add `010`; E02-D07 shipped `011`/`012` and
     // added it; E06-D01 shipped `015`, which put head five past `010`, and added
     // `014`; E03-D09 shipped `019`/`020` and added `018`; E03-B05 shipped
-    // `021`–`023` and added `020`. The next bead to push head past `024` adds
-    // the next one.
+    // `021`–`023` and added `020`; E03-D07 shipped `024` and added `023` rather than
+    // leave the set exactly at the limit. The next bead to push head past `027`
+    // adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

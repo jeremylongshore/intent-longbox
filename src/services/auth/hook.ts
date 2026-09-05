@@ -173,7 +173,18 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
     // same reason 048 §9.1 accepts the lockout's: the worst outcome available to
     // a flooder is a wait on a route a shop touches once per phone per month,
     // and the alternative on the table was an unmetered write path.
-    if (required === "none" && spec?.rateClass === "device") {
+    //
+    // **E03-D07 WIDENED THE CONDITION FROM `=== "device"` TO "any class at
+    // all"**, and the widening is the same bug one route later. `POST
+    // /api/v1/device-enrollments` is anonymous and declares `rateClass:
+    // "ordinary"` — because 048 R14 keys it on the shop the CODE names — and
+    // `ordinary` is taken by the tenant plugin's hook, which this route is
+    // outside of. Under the old condition it would have declared a class and
+    // been bucketed by nothing, which is precisely the state the paragraph above
+    // was written about. A sessionless route now gets the aggregate bucket
+    // whatever class it declares, and its class-specific bucket is taken in the
+    // service once the body has been read.
+    if (required === "none" && spec !== undefined && spec.rateClass !== "none") {
       const decision = deps.limiter.takeRoute(url);
       if (!decision.allowed) {
         throw new LongboxError("RATE_LIMITED", { retry_after_seconds: decision.retryAfterSeconds });

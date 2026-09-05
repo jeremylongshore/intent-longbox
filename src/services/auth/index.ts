@@ -22,6 +22,12 @@ export {
   OPERATOR_ROTATE_MS,
   ROTATION_GRACE_MS,
   LOCKOUT_WINDOW_MS,
+  ENROLLMENT_TTL_MS,
+  INVITATION_TTL_MS,
+  MAX_OUTSTANDING_ENROLLMENT_CODES_PER_SHOP,
+  MAX_OUTSTANDING_INVITATIONS_PER_SHOP,
+  SHOP_REDEMPTION_FREE_ATTEMPTS,
+  redemptionWaitMs,
   PIN_LENGTH,
   clearCookie,
   isSameOriginRequest,
@@ -69,8 +75,55 @@ export {
 } from "./pin.js";
 export type { AuthMethod, OperatorPinRow, PinVerdict } from "./pin.js";
 
+export {
+  CODE_ALPHABET,
+  ENROLLMENT_CODE_LENGTH,
+  INVITATION_CODE_LENGTH,
+  digestOf,
+  mintEnrollmentCode,
+  mintInvitationCode,
+  normaliseCode,
+} from "./codes.js";
+
+export {
+  InvitationAlreadySpent,
+  countOutstandingInvitations,
+  grantInvitation,
+  issueInvitation,
+  redemptionWait,
+  verifyInvitation,
+} from "./invitations.js";
+export type {
+  InvitableRole,
+  InvitationRow,
+  InvitationVerdict,
+  IssuedInvitation,
+  RedemptionRefusal,
+} from "./invitations.js";
+
+export {
+  EnrollmentCodeAlreadySpent,
+  countOutstandingEnrollmentCodes,
+  enrollDevice,
+  issueEnrollmentCode,
+  verifyEnrollmentCode,
+} from "./enrollment.js";
+export type {
+  DeviceKind,
+  EnrolledDevice,
+  EnrollmentCodeRow,
+  EnrollmentVerdict,
+  IssuedEnrollmentCode,
+} from "./enrollment.js";
+
 export { resolvePrincipal } from "./principal.js";
 export type { Principal, PrincipalOutcome } from "./principal.js";
 
-export { liveMembershipShopIds, membershipAt, shopRoster, shopsForSession } from "./memberships.js";
+export {
+  liveMembershipShopIds,
+  membershipAt,
+  revokeMembership,
+  shopRoster,
+  shopsForSession,
+} from "./memberships.js";
 export type { MembershipScope, Role, RosterEntry, ShopSummary } from "./memberships.js";

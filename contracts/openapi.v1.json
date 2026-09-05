@@ -154,6 +154,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -231,6 +234,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -308,6 +314,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -450,6 +459,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -527,6 +539,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -604,6 +619,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -681,6 +699,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -831,6 +852,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -908,6 +932,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -985,6 +1012,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1139,6 +1169,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1216,6 +1249,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1293,6 +1329,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1370,6 +1409,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1520,6 +1562,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1597,6 +1642,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1674,6 +1722,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1751,6 +1802,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1784,6 +1838,916 @@
                 "type": "object",
                 "properties": {},
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invitations/redemptions": {
+      "post": {
+        "summary": "Redeem an invitation on this enrolled phone and set a PIN.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "operator": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "display_name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "display_name"
+                      ]
+                    },
+                    "shop": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "shop"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, PIN_REFUSED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "SESSION_REQUIRED, INVITATION_INVALID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "pin": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "pin"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device-enrollments": {
+      "post": {
+        "summary": "Redeem a device enrollment code and receive a device session.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "device": {
+                      "type": "object",
+                      "properties": {
+                        "shop_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "shop_name": {
+                          "type": "string"
+                        },
+                        "location_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "shop_id",
+                        "shop_name",
+                        "location_id"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "device"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "ENROLLMENT_CODE_INVALID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ]
               }
             }
           }
@@ -1914,6 +2878,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1991,6 +2958,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2068,6 +3038,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2145,6 +3118,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2222,6 +3198,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2299,6 +3278,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2376,6 +3358,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2880,6 +3865,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2957,6 +3945,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3034,6 +4025,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3111,6 +4105,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3188,6 +4185,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3265,6 +4265,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3425,6 +4428,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3502,6 +4508,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3579,6 +4588,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3656,6 +4668,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3733,6 +4748,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3810,6 +4828,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3887,6 +4908,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3964,6 +4988,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4041,6 +5068,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4174,6 +5204,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4251,6 +5284,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4328,6 +5364,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4405,6 +5444,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4482,6 +5524,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4559,6 +5604,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4747,6 +5795,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4824,6 +5875,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4901,6 +5955,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4978,6 +6035,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5055,6 +6115,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5132,6 +6195,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5209,6 +6275,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5286,6 +6355,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5363,6 +6435,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5563,6 +6638,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5640,6 +6718,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5717,6 +6798,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5794,6 +6878,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5871,6 +6958,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5948,6 +7038,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6025,6 +7118,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6261,6 +7357,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6338,6 +7437,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6415,6 +7517,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6492,6 +7597,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6569,6 +7677,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6646,6 +7757,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6723,6 +7837,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7008,6 +8125,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7085,6 +8205,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7162,6 +8285,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7239,6 +8365,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7316,6 +8445,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7393,6 +8525,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7470,6 +8605,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7692,6 +8830,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7769,6 +8910,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7846,6 +8990,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7923,6 +9070,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8000,6 +9150,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8077,6 +9230,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8154,6 +9310,9 @@
                             "SESSION_REQUIRED",
                             "OPERATOR_REQUIRED",
                             "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8271,6 +9430,9 @@
                   "SESSION_REQUIRED",
                   "OPERATOR_REQUIRED",
                   "PIN_INVALID",
+                  "PIN_REFUSED",
+                  "INVITATION_INVALID",
+                  "ENROLLMENT_CODE_INVALID",
                   "RATE_LIMITED",
                   "WRITE_CONFLICT_RETRY_EXHAUSTED",
                   "INTERNAL_ERROR"
@@ -8463,6 +9625,24 @@
       "operator_renderable": true,
       "copy_row": "021 — E05 owes the registered string"
     },
+    "PIN_REFUSED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "INVITATION_INVALID": {
+      "status": 401,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "ENROLLMENT_CODE_INVALID": {
+      "status": 401,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
     "RATE_LIMITED": {
       "status": 429,
       "retryable": true,
@@ -8523,6 +9703,20 @@
       "path": "/api/v1/operator-sessions/end",
       "kind": "exemption",
       "reason": "the operator switch: it revokes the operator chain named by the cookies and touches no shop-scoped row, so it has no tenant to be prefixed by.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/invitations/redemptions",
+      "kind": "exemption",
+      "reason": "an employee redeems an invitation on the shop's own counter phone (048 §7.1, §7.2). The TOKEN names the shop and the DEVICE SESSION names the shop, and the redemption succeeds only when those are the same shop (R15) — so a shopId in the path would be a third, caller-asserted answer to a question two authenticated facts already agree on, which is 042 E4's defect re-created on a credential route.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/device-enrollments",
+      "kind": "exemption",
+      "reason": "a phone redeems an enrollment code and becomes an enrolled device (048 §7.3). The caller holds no session by construction — that is what enrollment means — so it can name no tenant; the shop and the location are properties of the CODE.",
       "closing_bead": null
     },
     {

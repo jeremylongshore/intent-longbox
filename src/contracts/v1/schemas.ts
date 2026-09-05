@@ -421,6 +421,52 @@ export const operatorSessionResponse = z.object({
   shop: z.object({ id: uuid, name: z.string() }),
 });
 
+/**
+ * Redeeming an invitation (E03-D07, 048 §7.1, §7.2).
+ *
+ * Two fields, both credentials, both `.strict()`. The code is bounded generously
+ * because `normaliseCode` strips hyphens and spaces before it is digested — a
+ * person who types the groups they saw must not be refused by a length check
+ * that counted the separators.
+ *
+ * **There is no `app_user_id`, no `display_name` and no `email` here, and their
+ * absence is the design.** The invitation NAMES the person it was written for
+ * (`migrations/024`), so whoever holds the code cannot decide who they are.
+ */
+export const invitationRedemptionRequest = z
+  .object({ code: z.string().min(1).max(64), pin: z.string().min(1).max(32) })
+  .strict();
+
+/**
+ * What a redeemed invitation returns: the person's own id and display name —
+ * which they just proved they are entitled to by holding the code written for
+ * them — and the shop they now hold a membership at. Identical in shape to
+ * `operatorSessionResponse`, because it answers the same question.
+ */
+export const invitationRedemptionResponse = z.object({
+  operator: z.object({ id: uuid, display_name: z.string() }),
+  shop: z.object({ id: uuid, name: z.string() }),
+});
+
+/**
+ * Redeeming a device enrollment code (E03-D07, 048 §7.3).
+ *
+ * One field, because the phone has nothing else to offer: it holds no session,
+ * which is what enrollment means.
+ */
+export const deviceEnrollmentRequest = z.object({ code: z.string().min(1).max(64) }).strict();
+
+/**
+ * What an enrolled phone is told about itself — the same DTO
+ * `POST …/device-sessions` returns, because the phone is in the same state
+ * afterwards: it holds a device session and knows which counter it is at.
+ *
+ * **It does NOT carry the device credential's secret**, and that is a decision
+ * rather than an omission: the secret is minted, hashed and discarded, and the
+ * phone holds only the rotating session (see `redeemEnrollmentCode`).
+ */
+export const deviceEnrollmentResponse = deviceSessionResponse;
+
 /** Signing an operator out is a body-less act on the session the cookies name. */
 export const endOperatorSessionRequest = z.object({}).strict();
 export const endOperatorSessionResponse = z.object({ ended: z.literal(true) });

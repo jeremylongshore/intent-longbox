@@ -135,7 +135,21 @@ describe("the route table (042 §3.1, I6)", () => {
     // replay: an authentication act's effect is its `Set-Cookie`, which
     // `request_idempotency` does not hold, so a replayed 201 would be a screen
     // that says signed-in while the browser holds nothing.
-    expect(mutating).toHaveLength(10);
+    //
+    // TWELVE at E03-D07, which adds the two redemption routes (048 §7). Both
+    // require the header for the same CSRF reason; they part company on §5.1's
+    // STORAGE, and the split is the ruling this bead had to make rather than
+    // inherit. `POST …/invitations/redemptions` takes a `request_idempotency`
+    // row — it writes a `membership` and sets a PIN, which are witness rows that
+    // outlive the response, so it fails the exemption's clause (b) and 042
+    // v1.3.0's forward-looking sentence about "E03-D07's enrollment redemption"
+    // does not reach it. `POST …/device-enrollments` IS exempt, under 042
+    // v1.4.2's clause (b2) — a shown-once credential plus a UNIQUE on the act,
+    // which it names as `device_enrollment_code_use (code_id)`. The class is FOUR
+    // routes: the three session ones sit under (b1) (a `Set-Cookie` and nothing
+    // else) and owe no constraint, which is why v1.4.2 had to make (b) two
+    // disjuncts — v1.4.1's conjunction expelled three of its own members.
+    expect(mutating).toHaveLength(12);
     for (const route of ROUTES) {
       expect(route.mutating).toBe(route.method === "POST");
     }

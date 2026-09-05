@@ -25,6 +25,8 @@
     "grant-app-role": "tsx scripts/grant-app-role.ts",
     "register-shop": "tsx scripts/register-shop.ts",
     "register-pack": "tsx scripts/register-pack.ts",
+    "issue-invitation": "tsx scripts/issue-invitation.ts",
+    "issue-enrollment-code": "tsx scripts/issue-enrollment-code.ts",
     "rebuild-survivor-projection": "tsx scripts/rebuild-survivor-projection.ts",
     "fixture:schema": "tsx scripts/makeSchemaFixture.ts",
     "arch": "tsx scripts/architectureGate.ts",

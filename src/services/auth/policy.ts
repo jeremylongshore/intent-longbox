@@ -216,6 +216,77 @@ export function lockoutWaitMs(args: {
 }
 
 // ---------------------------------------------------------------------------
+// 048 §7 — the two redemption codes: how long they live, how many a shop may
+// have outstanding, and how many times a shop may guess (E03-D07).
+//
+// **Every number below is a PROVISIONAL floor** (042 A3, 021 B16), set at build
+// time and recorded rather than measured. None of them may be quoted as a
+// security property, a capacity, a throughput or a reliability figure in any
+// artifact at any class. What they are is the smallest set of bounds that makes
+// 048 §7.1a's permission for a short invitation code true rather than asserted.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long an invitation is redeemable. A day, because 048 §7.2's delivery is
+ * "the owner hands it to the employee in person" and the realistic gap is a
+ * shift — the employee who is invited at closing time redeems it when they next
+ * come in. Longer would leave a short code live over a weekend; much shorter
+ * would push an owner to re-issue, and a flow that trains people to re-issue is
+ * a flow with more live codes in it, not fewer.
+ */
+export const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long an enrollment code is redeemable. 048 §7.3 says **short-lived** in
+ * those words, and the flow it describes is an owner reading a code off their
+ * own screen to a phone standing next to them — which takes a minute, not a day.
+ */
+export const ENROLLMENT_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * 048 §7.1a's "per-shop ceiling on OUTSTANDING codes", for each kind.
+ *
+ * It bounds the thing the expiry alone does not: a shop with a hundred live
+ * invitations has a hundred simultaneous chances for a 40-bit code to be guessed,
+ * so the effective keyspace of the short code shrinks by the number outstanding.
+ * The ceiling is what keeps that divisor small enough for the length in
+ * `codes.ts` to be the number it claims to be.
+ *
+ * Counted over UNEXPIRED, UNREDEEMED rows — both halves are predicates, because
+ * neither table has a status column (`migrations/024`).
+ */
+export const MAX_OUTSTANDING_INVITATIONS_PER_SHOP = 10;
+/** Fewer, because a shop enrolls a phone far less often than it hires a person. */
+export const MAX_OUTSTANDING_ENROLLMENT_CODES_PER_SHOP = 5;
+
+/**
+ * 048 §7.1a's "per-shop ceiling on REDEMPTION ATTEMPTS", as the same shape §9.1
+ * gives the PIN: a delay that grows with recent failures and NEVER closes.
+ *
+ * The key is **the shop the token names**, which is 048 R14's table verbatim —
+ * never an IP (042 §8.1: one shop is one IP) and never a person (§9.1: "never a
+ * global lock a stranger can trigger against a named person"). A wrong code
+ * names no person at all, so there is nobody for it to be keyed on but the shop
+ * whose door it is being tried on.
+ *
+ * **It never closes, for 048 R5's reason applied one flow over.** A terminal
+ * lock here means an owner mid-onboarding, with a new employee standing at the
+ * counter, cannot finish — so the control's failure mode is the shop's morning,
+ * and a control whose failure mode is the shop's morning is a control that gets
+ * disabled. The DoS trade is the same one §9.1 accepts and is smaller: the worst
+ * a griefer achieves is that one shop's invitations are slow for a few minutes.
+ *
+ * The window is `LOCKOUT_WINDOW_MS`, deliberately shared rather than a fourth
+ * number nobody has measured.
+ */
+export const SHOP_REDEMPTION_FREE_ATTEMPTS = 5;
+
+/** The wait a shop must serve before another redemption is looked at. */
+export function redemptionWaitMs(args: { failures: number; lastFailureAgeMs: number }): number {
+  return requiredWaitMs({ ...args, freeAttempts: SHOP_REDEMPTION_FREE_ATTEMPTS });
+}
+
+// ---------------------------------------------------------------------------
 // 048 §3.6 — the cookie, as a string this module owns end to end.
 // ---------------------------------------------------------------------------
 

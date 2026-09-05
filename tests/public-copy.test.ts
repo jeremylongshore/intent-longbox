@@ -272,6 +272,11 @@ describe("public/ renders server- and model-derived strings as text only (046 §
     expect(inlineScripts).toEqual([]);
   });
 
+  // An explicit timeout for the same reason the PIN case above has one: the
+  // jsdom render is slow under v8 coverage instrumentation and intermittently
+  // blew vitest's 5s default in a required check. Nothing about the assertion
+  // changed. (E03-D02's suite; touched here only because the flake is in a
+  // check E03-D07's PR must turn green, and the fix is one argument.)
   it("A HOSTILE CANDIDATE RENDERS AS TEXT: the markup is visible, not executed", async () => {
     const { dom, window } = await mountApp();
 
@@ -301,7 +306,7 @@ describe("public/ renders server- and model-derived strings as text only (046 §
     expect(list.textContent).toContain("<script>");
     expect(list.innerHTML).not.toContain("<img");
     dom.window.close();
-  });
+  }, 30000);
 
   it("A HOSTILE BAND VALUE cannot escape the class attribute it used to be interpolated into", async () => {
     const { dom, window } = await mountApp();

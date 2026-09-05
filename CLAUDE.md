@@ -70,7 +70,14 @@ pnpm register-shop --name "Gotham City Limit" --slug gotham   # one-command shop
 # and the same run enrols ONE phone and gives the owner that PIN, printing the
 # device secret once — without it a fresh database cannot run the scan flow at
 # all, because every shop-scoped route is behind a device session (048 I1).
-# Refused when NODE_ENV=production: the real enrollment flow is E03-D07's.
+# Refused when NODE_ENV=production: the real enrollment flow is E03-D07's, below.
+#
+# E03-D07 — adding a person and a phone, out of band (048 §7). Both print their
+# code ONCE and store it nowhere; both run as the schema owner. They are CLIs and
+# not routes because issuance needs 048 §4.1's privileged session and that arrives
+# with E03-D06 — the routes are declared `pending: true` on the auth allowlist.
+pnpm issue-invitation --shop <uuid> --by <owner-uuid> --email <addr> --name "<name>"
+pnpm issue-enrollment-code --shop <uuid> --location <uuid> --by <owner-uuid> --label "counter phone"
 pnpm dev                # tsx watch src/server.ts
 pnpm typecheck          # tsc --noEmit over src/scripts/tests (tsconfig.check.json)
 pnpm build              # tsc → dist/
@@ -97,6 +104,8 @@ Layout: `migrations/` (SQL, append-only triggers enforce the Hickey model in the
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 
 **Identity seam (E03-D09, doc 048):** every request carries a name. **Two principals, two `__Host-` cookies**: a long-lived DEVICE session (the enrolled phone, which pins the shop and the location) and a short OPERATOR session on top of it (the person, established by tapping a name and entering a six-digit PIN). Both are **append-only issuance facts with no status column** — a session is live iff its row exists, no revocation names its `chain_id`, no successor supersedes it, and now is before both its expiries — and **idle expiry is enforced by ROTATION, not by a mutable `last_seen_at`**, which is what keeps the security-critical row out of every transaction's write set. The authentication hook runs `Sec-Fetch-Site` → `Idempotency-Key` → session read → membership-first tenant, in that order and **before `@fastify/multipart`**, so a refused request touches no disk and no database; `shop_id` comes from the session and the URL is a value checked against it, with a wrong tenant answered exactly as an absent one (`SHOP_NOT_FOUND`, no details). The session lock joins 042 §5.3(b)'s order at a fixed position — **idempotency INSERT → `app_session` FOR NO KEY UPDATE → `scan_session` anchor** — policed by `pnpm arch`. Every write stamps `operator_id` + `actor_verified` from the session and never from a body. **`LONGBOX_PIN_PEPPER` is required and the server refuses to boot without it**; losing it invalidates every PIN. **Operator attribution is an attribution of record and is NOT non-repudiable** (048 §3.5's RULE): a coworker who watches a PIN can act as that person on that phone, and no artifact, 021 C-row or partner-facing sentence may say otherwise. Read 048 §3, §5, §6 and §9 before changing any of it.
+
+**Joining a shop (E03-D07, doc 048 §7, migration 024):** a person and a phone arrive as **append-only single-use facts**, and single use is a CONSTRAINT rather than a status column — `invitation_use` carries `UNIQUE (invitation_id)`, `device_enrollment_code_use` carries `UNIQUE (code_id)`, expiry is a predicate over `expires_at`, and neither issuance table has a `status`, a `used` or a `redeemed_at`. **An invitation is redeemable ONLY on a phone already holding a live device session at the shop the token names** (048 R15; a cross-shop attempt answers `INVITATION_INVALID` byte-identically to an unknown code — 019 T24), which is why its code may be **short** (8 Crockford-base32 characters) with the per-shop ceilings enforced. **An enrollment code is 128 bits and the difference is not a preference**: the caller of an enrollment is the phone being enrolled, so the device binding is unsatisfiable and a wrong guess names no shop for the per-shop ceiling to key on — the entropy is the bound. Redeeming an enrollment mints the device credential, hashes it and **discards the secret**; the phone holds only the rotating session. **A membership revocation retires the person's PIN rows as a FACT** (`operator_pin_retirement`, `UNIQUE (operator_pin_id, retired_pin_updated_at)`) and never as an `UPDATE`, because `operator_pin` is the lockout anchor — `revokeMembership` does the revocation, the session revocations and the retirement in one transaction. Issuance is `pnpm issue-invitation` / `pnpm issue-enrollment-code` until E03-D06 lands privileged sessions. Idempotency splits by 042 §5.1's widened class: the invitation redemption takes the `request_idempotency` row (it writes a membership), the enrollment redemption does not (its exactly-once comes from the UNIQUE, and a stored replay would return a 201 with no cookie).
 
 ## Beads Issue Tracker
 

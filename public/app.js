@@ -100,6 +100,30 @@ const ERROR_COPY = {
   SESSION_REQUIRED: "This phone needs to be set up for the shop. Ask the owner.",
   OPERATOR_REQUIRED: "Tap your name to carry on.",
   PIN_INVALID: "That didn't work. Try again in a moment.",
+  // E03-D07 (048 §7). Same discipline: the server answers ONE code for an
+  // unknown, spent, expired or wrong-shop code, so this screen cannot tell them
+  // apart and must not guess. It says the one thing that is true in every case
+  // and that a person at a counter can act on — ask for another code.
+  // ⚠ ONE CODE, TWO SITUATIONS, AND THIS SENTENCE IS WRONG FOR ONE OF THEM.
+  // 048 §9.3 makes the server answer INVITATION_INVALID identically for an
+  // unknown, spent, expired or cross-shop code AND for a shop inside its
+  // redemption delay — which is the point, because a screen that could tell them
+  // apart would be the oracle the constant answer exists to remove. But "ask the
+  // owner for a new one" is an INSTRUCTION, and it is the wrong instruction for
+  // the delay: a new code will not help, and it spends an owner's time issuing
+  // one. So the copy names the action that is right in both cases and leaves the
+  // cause unsaid — which is what the client can honestly do with one code.
+  // **The registered string is E05's under 021's T26 pre-send** and this is not
+  // it; the constraint is recorded here so the next author does not "improve" it
+  // back into a diagnosis the server did not make.
+  INVITATION_INVALID: "That code didn't work. Wait a moment and try again, or ask the owner for a new one.",
+  ENROLLMENT_CODE_INVALID:
+    "That setup code didn't work. Wait a moment and try again, or ask the owner for a new one.",
+  // The one refusal on the redemption screen that is NOT about a secret the
+  // server holds: it is about the six digits the person just chose, so it can say
+  // what to do without disclosing anything. It does not list the rules — 048 §3.5
+  // keeps the denylist at set time precisely so nobody can read it off a screen.
+  PIN_REFUSED: "Choose a different PIN. Not repeated digits, not in order, and not the shop's own numbers.",
   INTERNAL_ERROR: "Something went wrong on our side. Try again.",
 };
 const FALLBACK_COPY = "Something went wrong. Try again.";

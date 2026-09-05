@@ -483,9 +483,8 @@ describe("the PIN (048 §3.5, §9.1, §9.2)", () => {
     // The ORDER is the property (041 §4.2's anchor pattern): lock, then count,
     // then verify, then record. Every reader of the count is a writer of the row
     // the count is about, which is what closes the write skew.
-    expect(calls[0]!.text).toContain(
-      "FROM operator_pin WHERE device_id = $1 AND app_user_id = $2 FOR UPDATE"
-    );
+    expect(calls[0]!.text).toContain("FROM operator_pin p WHERE p.device_id = $1 AND p.app_user_id = $2");
+    expect(calls[0]!.text).toContain("FOR UPDATE OF p");
     expect(calls[1]!.text).toContain("FROM auth_attempt");
     expect(calls[2]!.text).toContain("INSERT INTO auth_attempt");
   });
@@ -511,6 +510,21 @@ describe("the PIN (048 §3.5, §9.1, §9.2)", () => {
     expect(calls.some((c) => c.text.includes("INSERT INTO auth_attempt"))).toBe(false);
   });
 
+  // ⚠ AN EXPLICIT TIMEOUT, BECAUSE VITEST'S 5s DEFAULT IS NOT A PERFORMANCE
+  // ASSERTION AND WAS BEING READ AS ONE. This case computes real argon2id at
+  // 64 MiB x 3 passes four times over (the decoy digest and the candidate, for
+  // the unknown pair and the retired PIN), and 048 Section 9.2 picks those
+  // parameters PRECISELY so the hash is expensive. Under `test:coverage`, v8
+  // instrumentation over `hash-wasm` pushes it past five seconds on a loaded
+  // box; it finishes in about 1.5s without. It failed intermittently in a
+  // REQUIRED check, which is the worst kind of red — it says nothing about
+  // correctness and trains people to re-run.
+  //
+  // The ceiling is raised rather than the work reduced: dropping the argon2id
+  // parameters to suit a test runner would be tuning a security floor, and
+  // 021 B16 forbids quoting any of these numbers as performance anyway. It is
+  // set HERE and not in `vitest.config.ts`, which is a hash-pinned harness
+  // artifact this bead must not edit.
   it("refuses an unknown pair and a retired PIN with their own reasons, both recorded", async () => {
     const noRow = fakeDb((text) =>
       text.includes("count(*)")
@@ -539,20 +553,36 @@ describe("the PIN (048 §3.5, §9.1, §9.2)", () => {
         now: new Date(),
       })
     ).toEqual({ ok: false, reason: "retired" });
-  });
+  }, 30000);
 
   it("reads a pin row scoped to exactly one (device, person) pair", async () => {
     const { db, calls } = fakeDb(() => [{ id: "pin-1" }]);
     await readOperatorPin(db, "device-1", "person-1");
     expect(calls[0]!.values).toEqual(["device-1", "person-1"]);
-    expect(calls[0]!.text).toContain("device_id = $1 AND app_user_id = $2");
+    expect(calls[0]!.text).toContain("p.device_id = $1 AND p.app_user_id = $2");
   });
 
-  it("retires a person's PIN rows at one scope, and says how many", async () => {
-    const { db, calls } = fakeDb(() => []);
-    await retireOperatorPins(db, "person-1", "shop-1");
-    expect(calls[0]!.text).toContain("SET retired_at = now()");
+  it("retires a person's PIN rows at one scope as an APPEND-ONLY FACT, never an UPDATE", async () => {
+    // E03-D07 replaced `020`'s `UPDATE operator_pin SET retired_at = now()` with
+    // an `operator_pin_retirement` row (048 §3.5, `migrations/024`). The
+    // assertion is written as a REFUSAL of the old shape as well as a check on
+    // the new one, because the failure mode being guarded is somebody restoring
+    // the column write "because it is simpler" — which would silently write the
+    // lockout anchor from a path that is not a PIN verification.
+    const { db, calls } = fakeDb((text) =>
+      text.includes("FOR UPDATE") ? [{ id: "pin-1", shop_id: "shop-1", updated_at: new Date(0) }] : []
+    );
+    await retireOperatorPins(db, {
+      appUserId: "person-1",
+      shopId: "shop-1",
+      reason: "membership revoked",
+    });
+    expect(calls[0]!.text).toContain("FROM operator_pin p");
+    expect(calls[0]!.text).toContain("FOR UPDATE");
     expect(calls[0]!.values).toEqual(["person-1", "shop-1"]);
+    expect(calls[1]!.text).toContain("INSERT INTO operator_pin_retirement");
+    expect(calls[1]!.text).toContain("ON CONFLICT (operator_pin_id, retired_pin_updated_at) DO NOTHING");
+    expect(calls.some((c) => /UPDATE\s+operator_pin/i.test(c.text))).toBe(false);
   });
 
   it("records a failure with its class and NEVER a success", async () => {

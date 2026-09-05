@@ -20,9 +20,17 @@ import {
   openDeviceSession,
   openOperatorSession,
   operatorRoster,
+  redeemEnrollmentCode,
+  redeemInvitation,
   type AuthDeps,
   type AuthResult,
 } from "../services/auth/api.js";
+
+/** One header value, whatever Fastify's union says. Never an empty string. */
+function headerValue(raw: string | string[] | undefined): string | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === undefined || value.length === 0 ? undefined : value;
+}
 
 function parse<T extends ZodTypeAny>(schema: T, value: unknown): ReturnType<T["parse"]> {
   const result = schema.safeParse(value);
@@ -70,6 +78,35 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
       pin: body.pin,
     });
     return send(req, reply, result);
+  });
+
+  // E03-D07. Behind a live DEVICE session (048 R15): an invitation is redeemable
+  // only on a phone the shop already owns, and the service additionally refuses a
+  // token naming a different shop than that phone's (019 T24).
+  app.post(`${P}/invitations/redemptions`, async (req, reply) => {
+    const body = parse(contract.invitationRedemptionRequest, req.body ?? {});
+    // The header's PRESENCE is the hook's (048 R10); its VALUE is needed here,
+    // because this route is not in 042 §5.1's authentication-act exemption and
+    // takes a real `request_idempotency` row. The `??` is unreachable — the hook
+    // refuses an absent or empty key on every mutating route — and is here for
+    // the reason `requireDevice` is: "the hook guarantees it" stops holding the
+    // day somebody edits a row, and a thrown code is cheaper than a 500.
+    const key = headerValue(req.headers["idempotency-key"]);
+    if (key === undefined) throw new LongboxError("IDEMPOTENCY_KEY_REQUIRED");
+    const result = await redeemInvitation(deps, requireDevice(req), {
+      code: body.code,
+      pin: body.pin,
+      idempotencyKey: key,
+    });
+    return send(req, reply, result);
+  });
+
+  // E03-D07. Anonymous by construction: the caller is the phone being enrolled,
+  // so it holds no session. The CODE is the authentication, exactly as the device
+  // credential is on `POST …/device-sessions`.
+  app.post(`${P}/device-enrollments`, async (req, reply) => {
+    const body = parse(contract.deviceEnrollmentRequest, req.body ?? {});
+    return send(req, reply, await redeemEnrollmentCode(deps, { code: body.code }));
   });
 
   app.post(`${P}/operator-sessions/end`, async (req, reply) => {

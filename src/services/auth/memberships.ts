@@ -5,7 +5,9 @@
 // never the tenant itself.** That is 034 §3.1's `RequestContext` finally having
 // something trustworthy to fill in, and it is the sentence 046 §9.2 put on this
 // bead.
-import type { Queryable } from "../../db.js";
+import type { Queryable, Tx } from "../../db.js";
+import { retireOperatorPins } from "./pin.js";
+import { revokeSessionsOf } from "./sessions.js";
 
 /**
  * 034 §2.6's four roles, ranked for RESOLUTION only.
@@ -203,4 +205,68 @@ export async function shopRoster(db: Queryable, shopId: string): Promise<RosterE
     [shopId]
   );
   return res.rows as RosterEntry[];
+}
+
+/**
+ * **Revoking a membership, with everything 048 requires it to drag with it**
+ * (E03-D07).
+ *
+ * §2.7's grant/release idiom says the ending is a ROW: the grant was never
+ * wrong, and `membership_revocation` carries `UNIQUE (membership_id)` so two
+ * concurrent revocations leave one. This function adds the two consequences 048
+ * attaches to that row and which, left to a caller to remember, are exactly the
+ * kind of thing a caller forgets:
+ *
+ *   1. **§3.4 — every live session of that person is revoked in the SAME
+ *      transaction.** A membership write that leaves a live session behind is a
+ *      person acting under a scope they no longer hold, for as long as the
+ *      session lasts.
+ *   2. **§3.5 — that person's PIN rows at that scope are RETIRED, as an
+ *      append-only fact** (`operator_pin_retirement`). Otherwise a fired
+ *      employee's PIN sits live on the counter phone against a membership that
+ *      no longer exists, and the only thing between it and an operator session
+ *      is a membership check somebody has to remember to write.
+ *
+ * The order is deliberate: the revocation row first, so the retirement can NAME
+ * it (`operator_pin_retirement.membership_revocation_id`) and the two facts are
+ * one chain rather than two rows with a similar timestamp.
+ *
+ * `ON CONFLICT DO NOTHING` on the revocation makes the whole call idempotent —
+ * a second revocation of the same grant writes nothing new, and the PIN
+ * retirement it would have caused is itself deduplicated by its own UNIQUE. The
+ * return value says what this call actually wrote.
+ */
+export async function revokeMembership(
+  tx: Tx,
+  args: { membershipId: string; revokedBy?: string | null; reason: string }
+): Promise<{ revoked: boolean; sessionsRevoked: number; pinsRetired: number }> {
+  const membership = await tx.query(
+    `SELECT m.id, m.shop_id, m.app_user_id FROM membership m WHERE m.id = $1`,
+    [args.membershipId]
+  );
+  const row = membership.rows[0] as { id: string; shop_id: string; app_user_id: string } | undefined;
+  if (!row) return { revoked: false, sessionsRevoked: 0, pinsRetired: 0 };
+
+  const revocation = await tx.query(
+    `INSERT INTO membership_revocation (shop_id, membership_id, revoked_by, reason)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (membership_id) DO NOTHING
+     RETURNING id`,
+    [row.shop_id, row.id, args.revokedBy ?? null, args.reason]
+  );
+  const revocationId = (revocation.rows[0] as { id: string } | undefined)?.id;
+
+  // Run BOTH consequences even when the revocation row already existed. A
+  // previous call that crashed between the revocation and the retirement would
+  // otherwise leave a live PIN behind a revoked membership forever, and "the
+  // second attempt is a no-op" would be the reason nobody noticed.
+  const sessionsRevoked = await revokeSessionsOf(tx, row.app_user_id);
+  const pinsRetired = await retireOperatorPins(tx, {
+    appUserId: row.app_user_id,
+    shopId: row.shop_id,
+    reason: args.reason,
+    membershipRevocationId: revocationId ?? null,
+  });
+
+  return { revoked: revocationId !== undefined, sessionsRevoked, pinsRetired };
 }

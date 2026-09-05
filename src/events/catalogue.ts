@@ -216,6 +216,58 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   },
 
   // ---------------------------------------------------------------------------
+  // E03-D07 — INVITATIONS, DEVICE ENROLLMENT AND THE PIN RETIREMENT (048 §7,
+  // §3.5), landed by migration 024. Five tables, and they fall under the SAME
+  // rule the seven above state:
+  //
+  //   AN AUTHENTICATION FACT IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // Each row cites it rather than restating it. What is worth adding once, here,
+  // is the shape that makes these five a particularly bad fit: an event about a
+  // redemption would carry a shop, a person and a phone into every consumer in
+  // the registry — three of the four identifiers 034 §3.3's accessor exists to
+  // give ONE reader — in exchange for telling a consumer something with no
+  // `scan_session_id`, which means `outbox.session_seq` would be permanently
+  // NULL on it and 043 §3.2's within-session delivery order would not apply.
+  // ---------------------------------------------------------------------------
+  {
+    table: "invitation",
+    rule:
+      "048 §7.1 / 034 §3.3: an authentication fact. An invitation names a person and a shop and " +
+      "carries no scan_session_id; an event about one would carry an operator identifier past the " +
+      "audited accessor (019 T35, non-waivable) to tell a consumer about a code it must never see.",
+  },
+  {
+    table: "invitation_use",
+    rule:
+      "As `invitation`. Its EFFECT — the membership — is written in the SAME transaction " +
+      "(048 §7.1), so there is nothing eventual for a consumer to react to: by the time a poller " +
+      "saw the event, the grant it announces would already be what every request reads.",
+  },
+  {
+    table: "device_enrollment_code",
+    rule:
+      "048 §7.3: as `device_credential` — issuing a code is an act on a PHONE that does not exist " +
+      "yet, with no session in scope. Its only reader is the redemption path.",
+  },
+  {
+    table: "device_enrollment_code_use",
+    rule:
+      "As `device_enrollment_code`. The `device` and `device_credential` it names are written in " +
+      "the same transaction (048 §7.3), and the phone learns the outcome from the response that " +
+      "sets its cookie — not from a bus.",
+  },
+  {
+    table: "operator_pin_retirement",
+    rule:
+      "048 §3.5: as `membership_revocation`, whose consequence it is. It takes effect by " +
+      "DERIVATION at the next PIN verification — liveness is a predicate over this table " +
+      "(`src/services/auth/pin.ts`) — so there is no sweep to trigger and therefore no event to " +
+      "trigger it, and an event would publish 'this named person's PIN was taken away on this " +
+      "phone' to every consumer in the registry.",
+  },
+
+  // ---------------------------------------------------------------------------
   // E03-B05 — THE CREDENTIAL LIFECYCLE (050 §4), landed by migrations 021/022.
   // Two tables, ONE rule:
   //

@@ -23,7 +23,12 @@ import type pg from "pg";
 import { LongboxError } from "../../contracts/v1/errors.js";
 import { withTransaction, type Queryable } from "../../db.js";
 import type { AppConfig } from "../../config.js";
+import { API_PREFIX } from "../../contracts/v1/schemas.js";
+import { replayIfSettled, runIdempotent, type IdempotentRequest } from "../idempotency.js";
+import { digestOf } from "./codes.js";
 import { resolveDeviceCredential } from "./devices.js";
+import { EnrollmentCodeAlreadySpent, enrollDevice, verifyEnrollmentCode } from "./enrollment.js";
+import { InvitationAlreadySpent, grantInvitation, verifyInvitation } from "./invitations.js";
 import {
   membershipAt,
   shopRoster,
@@ -31,7 +36,7 @@ import {
   type RosterEntry,
   type ShopSummary,
 } from "./memberships.js";
-import { recordFailure, verifyOperatorPin } from "./pin.js";
+import { recordFailure, setOperatorPin, verifyOperatorPin } from "./pin.js";
 import { tokenHash } from "./secrets.js";
 import type { ShopRateLimiter } from "../rateLimit.js";
 import { DEVICE_COOKIE, OPERATOR_COOKIE, clearCookie, setCookie } from "./policy.js";
@@ -278,4 +283,245 @@ async function readUser(db: Queryable, id: string): Promise<{ id: string; displa
   const row = res.rows[0] as { id: string; display_name: string } | undefined;
   if (!row) throw new LongboxError("SESSION_REQUIRED");
   return row;
+}
+
+// ===========================================================================
+// E03-D07 — invitations and device enrollment (048 §7)
+// ===========================================================================
+
+/**
+ * **Redeem an invitation on a phone the shop already owns** (048 §7.1, R15).
+ *
+ * The employee taps in the code the owner handed them across the counter and
+ * chooses a PIN, and the two happen in one act because 048 §7.2 says they do:
+ * *"the employee enters it on the enrolled device and sets a PIN."* Splitting
+ * them would leave a person holding a membership and no way to sign in, which is
+ * a state somebody then has to be told how to escape.
+ *
+ * ⚠ **THIS ROUTE IS NOT IN 042 §5.1's AUTHENTICATION-ACT EXEMPTION, AND THE
+ * SENTENCE THAT PREDICTED IT WOULD BE IS AMENDED BY THIS BEAD.** 042 v1.3.0
+ * wrote that the class's next members "will be E03-D06's password sign-in and
+ * E03-D07's enrollment redemption" — and it also wrote the class's BOUNDARY,
+ * which decides the question against that prediction for this route: the
+ * exemption covers a route that "(a) writes no witness row about a book, a batch
+ * or a shop's catalog, and (b) whose entire externally visible effect is a
+ * cookie". **Redeeming an invitation writes a `membership`** — the record of who
+ * may act in this shop, which is the substrate 019 T35(c) reconciles against —
+ * **and it sets a PIN**, and neither is a cookie: both outlive the response, and
+ * a duplicate of either is a second grant and a second credential rather than
+ * one spare row on a chain the phone stops using.
+ *
+ * So it takes the header AND the `request_idempotency` row.
+ *
+ * **The order below is the part that has to be right.** `replayIfSettled` runs
+ * FIRST, before anything looks at the code, for the reason `identify` does the
+ * same (`idempotency.ts`: *"a caller that SPENDS before it calls this has
+ * already lost"*). Without it a genuine retry would re-verify a code its own
+ * first call had already spent, be refused as `spent`, and turn a lost response
+ * into a dead invitation. Then the verification transaction, which COMMITS
+ * whatever the verdict because the `auth_attempt` row is what the delay is
+ * derived from (048 §9.1, R5); then `runIdempotent`, which sets the PIN, grants
+ * the membership and writes the use row in ONE transaction.
+ */
+export async function redeemInvitation(
+  deps: AuthDeps,
+  device: SessionRow,
+  input: { code: string; pin: string; idempotencyKey: string }
+): Promise<AuthResult> {
+  const req: IdempotentRequest = {
+    shopId: device.shop_id,
+    idempotencyKey: input.idempotencyKey,
+    route: `${API_PREFIX}/invitations/redemptions`,
+    method: "POST",
+    params: {},
+    // **THE RAW BODY IS NOT WHAT IS HASHED, AND THAT IS DELIBERATE.** 042 §5.4
+    // hashes the body so a reused key with different content is a 422 — and this
+    // body is a code and a PIN, which `request_idempotency.request_hash` would
+    // then be an offline verifier for: a 40-bit code and a six-digit PIN are both
+    // enumerable against a stored SHA-256 by anybody holding a dump, and 048 §9.2
+    // spends a whole section keeping exactly that out of reach. What is hashed is
+    // the code's DIGEST plus a marker that a PIN was supplied, which separates two
+    // different redemptions under one key exactly as well and stores nothing a
+    // dump can invert into either secret.
+    body: { code_digest: digestOf(input.code), pin_supplied: true },
+  };
+
+  const settled = await replayIfSettled(deps.pool, req);
+  if (settled) return { status: settled.status, body: settled.body, cookies: [] };
+
+  // 048 R14's DECLARED CLASS FOR THIS ROUTE — `ordinary`, keyed on THE SHOP THE
+  // TOKEN NAMES, which R15 makes the device session's shop on every path that
+  // can succeed.
+  //
+  // ⚠ IT IS TAKEN HERE, AND THE REASON IS A BUG THIS BEAD SHIPPED AND AN
+  // INVARIANT REVIEW CAUGHT. The first version declared `ordinary` and enforced
+  // NOTHING: the hook's bucket is gated on `rateClass === "device"`, and
+  // `app.ts`'s `takeOrdinary` hook lives INSIDE the tenant plugin — this route is
+  // registered on the root instance, so neither ran. Two hundred posts produced
+  // two hundred refusals, zero throttles and zero limiter calls, while the route
+  // walk asserted the declaration and passed. That is the
+  // `POST /api/v1/device-sessions` finding for the third time, and the third time
+  // is what a class of defect looks like rather than an accident.
+  //
+  // **Before `verifyInvitation`**, not after: a throttled request must not test a
+  // credential, must not append an `auth_attempt` row, and must not spend the
+  // budget the delay is derived from (048 §9.1, R5).
+  const budget = deps.limiter.takeOrdinary(device.shop_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  const verdict = await withTransaction(deps.pool, (tx) =>
+    verifyInvitation(tx, { device, code: input.code, now: new Date() })
+  );
+  if (!verdict.ok) throw new LongboxError("INVITATION_INVALID");
+  const invitation = verdict.invitation;
+
+  const outcome = await runIdempotent(deps.pool, req, async (tx) => {
+    const set = await setOperatorPin(tx, {
+      shopId: invitation.shop_id,
+      deviceId: device.device_id,
+      appUserId: invitation.app_user_id,
+      pin: input.pin,
+      pepper: deps.config.pinPepper,
+    });
+    // A weak PIN is refused BEFORE the grant, so a rejected PIN does not spend
+    // the invitation: the throw rolls the whole transaction back, the use row is
+    // never written, and the employee tries a different six digits. This is the
+    // one refusal on this route that is NOT §9.3's constant answer, and that is
+    // deliberate — the sameness protects an authentication boundary from becoming
+    // a query interface over which codes and people exist, and "the PIN you just
+    // chose is not allowed" is a statement about a value the caller invented,
+    // which discloses nothing about this system at all.
+    if (!set.ok) throw new LongboxError("PIN_REFUSED");
+
+    await grantInvitation(tx, { invitation, device, deviceSessionId: device.id });
+    const person = await readUser(tx, invitation.app_user_id);
+    const shop = await readShop(tx, invitation.shop_id);
+    return {
+      status: 201,
+      body: {
+        operator: { id: person.id, display_name: person.display_name },
+        shop: { id: shop.id, name: shop.name },
+      },
+    };
+  }).catch((err: unknown) => {
+    // The loser of a concurrent redemption: `UNIQUE (invitation_id)` refused the
+    // use row and the transaction rolled back with it, so there is no second
+    // membership and no second PIN. The answer is the same one code every other
+    // refusal on this route gets (048 §9.3).
+    if (err instanceof InvitationAlreadySpent) throw new LongboxError("INVITATION_INVALID");
+    throw err;
+  });
+
+  return { status: outcome.status, body: outcome.body, cookies: [] };
+}
+
+/**
+ * **Redeem an enrollment code from the phone being enrolled** (048 §7.3).
+ *
+ * Anonymous by construction — the phone holds no session, which is what
+ * enrollment means — so the code IS the authentication, exactly as the device
+ * credential is on `POST …/device-sessions`. Its compensating controls are
+ * `codes.ts`'s 128 bits, the route's aggregate bucket taken in the hook before
+ * any body parsing, the per-shop delay and the `ordinary` bucket taken below,
+ * the fifteen-minute expiry, and `UNIQUE (code_id)`.
+ *
+ * ⚠ **THIS ROUTE *IS* IN 042 §5.1's EXEMPTION, BY AN EXTENSION THIS BEAD RECORDS
+ * RATHER THAN ASSUMES.** The class's clause (b) read "whose entire externally
+ * visible effect is a cookie", and this route's effect is a cookie plus three
+ * durable rows — so it did not qualify as written. It is admitted by an
+ * amend-by-a-row (042 v1.4.0, corrected at v1.4.2) making (b) **two disjuncts**:
+ * **(b1)** a `Set-Cookie` and nothing else, which is where the three session
+ * routes sit and why they owe no constraint; or **(b2)** a shown-once secret
+ * PLUS a UNIQUE on THE ACT, named by table and columns. This route is the only
+ * (b2) member and it names **`device_enrollment_code_use (code_id)`**.
+ *
+ * **The disjunction is not decoration — v1.4.1 wrote it as a CONJUNCTION and
+ * that expelled three of the class's four members**, because nothing in
+ * `app_session` makes a repeated sign-in a failed INSERT and nothing should.
+ * The admission rests on the argument §5.1 makes for the class in the first
+ * place: storing a response here would replay a byte-identical `201` **with no
+ * cookie**, leaving a phone that believes it is enrolled and holds nothing, and
+ * the duplicate that storage exists to prevent is already impossible —
+ * `UNIQUE (code_id)` is a stronger guarantee than an idempotency key, taken by
+ * the database, on the act itself.
+ *
+ * **The cost of that ruling, stated rather than discovered**: a retry after a
+ * lost response finds the code spent and is refused, so the shop issues another.
+ * That is a minute of an owner's time on a flow a shop performs once per phone,
+ * against the alternative of a phone that has been told it is enrolled and
+ * cannot prove it.
+ *
+ * **The credential secret is minted, hashed and DISCARDED** — never returned,
+ * never stored, never reaching the phone. 048 §7.4 accepts with its eyes open
+ * that a device credential is *"bearer material sitting in a browser cookie jar
+ * on a phone that lives on a shop counter"*; a phone enrolled here holds only a
+ * ROTATING SESSION, and the credential row exists as that session's anchor and
+ * as the thing a revocation names. **The trade is real and is stated**: a phone
+ * idle past `DEVICE_IDLE_MS` cannot re-authenticate itself and must be
+ * re-enrolled with a new code. For a phone that lives on a counter and is used
+ * daily that is the correct direction, and it removes §7.4's residual for every
+ * device this route creates.
+ */
+export async function redeemEnrollmentCode(deps: AuthDeps, input: { code: string }): Promise<AuthResult> {
+  const now = new Date();
+  const verdict = await withTransaction(deps.pool, (tx) =>
+    verifyEnrollmentCode(tx, { code: input.code, now })
+  );
+  if (!verdict.ok) throw new LongboxError("ENROLLMENT_CODE_INVALID");
+
+  // 048 R14's declared class for this route — `ordinary`, keyed on THE SHOP THE
+  // CODE NAMES. Taken here rather than in the hook for the reason
+  // `openDeviceSession`'s credential bucket is: the shop is a property of the
+  // code, the code is in the BODY, and `onRequest` runs before any body parsing.
+  // The hook's aggregate `takeRoute` bucket is the half that CAN run there, and
+  // the two answer different questions — "how much of this route at all" and
+  // "how much of this route against this shop".
+  const budget = deps.limiter.takeOrdinary(verdict.code.shop_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  // ONE TRANSACTION FOR ALL FOUR ROWS, and the fourth is the one this bead first
+  // got wrong. The `device`, the `device_credential` and the
+  // `device_enrollment_code_use` committed together, and `issueDeviceSession` ran
+  // in a SECOND transaction afterwards — so a crash in the gap left a spent code,
+  // an enrolled phone and no session: the phantom phone `migrations/024`'s header
+  // says this design prevents, arriving through the one seam the header did not
+  // look at. Caught by the invariant review, not by a test, which is why the
+  // integration suite now has a case that rolls the session INSERT back and
+  // asserts the device and the use row roll back with it.
+  //
+  // It costs no new lock and no new ordering: `app_session` is an INSERT with no
+  // `FOR UPDATE`, and 042 §5.3(b)'s order is about the idempotency row, the
+  // session lock and the `scan_session` anchor — none of which this route takes.
+  const enrolled = await withTransaction(deps.pool, async (tx) => {
+    const device = await enrollDevice(tx, { code: verdict.code });
+    const session = await issueDeviceSession(tx, {
+      shopId: device.shopId,
+      locationId: device.locationId,
+      deviceId: device.deviceId,
+      deviceCredentialId: device.credentialId,
+      now,
+    });
+    return { device, session };
+  }).catch((err: unknown) => {
+    if (err instanceof EnrollmentCodeAlreadySpent) throw new LongboxError("ENROLLMENT_CODE_INVALID");
+    throw err;
+  });
+  const issued = enrolled.session;
+
+  const shop = await readShop(deps.pool, enrolled.device.shopId);
+  return {
+    status: 201,
+    body: {
+      device: {
+        shop_id: enrolled.device.shopId,
+        shop_name: shop.name,
+        location_id: enrolled.device.locationId,
+      },
+    },
+    cookies: [setCookie(DEVICE_COOKIE, issued.token, issued.row.absolute_expires_at)],
+  };
 }

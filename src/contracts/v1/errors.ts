@@ -353,6 +353,47 @@ export const ERROR_CODES = {
       "per-operator fact leaking out of an authentication boundary (022 P3). The delay is " +
       "enforced by refusing until it passes, which is what R5's 'refused UNTIL' means.",
   },
+  PIN_REFUSED: {
+    status: 400,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §3.5 (E03-D07) — the PIN POLICY, refused at SET time and never at verify time. Distinct " +
+      "from PIN_INVALID and the distinction is the whole reason it exists: PIN_INVALID answers a " +
+      "credential TEST and is deliberately indistinguishable across every cause (§9.3), while this " +
+      "answers a value the caller just invented and discloses nothing about this system — no " +
+      "person, no device, no code, no shop. It carries NO `details`: naming which rule the chosen " +
+      "PIN broke would publish the denylist, and 048 §3.5 keeps that check at set time precisely " +
+      "so a verify-time attacker cannot learn which PINs are impossible.",
+  },
+  INVITATION_INVALID: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §7.1a / §9.3 (E03-D07) — ONE code for every invitation-redemption outcome that is not " +
+      "success: an unknown code, a spent one, an expired one, one naming a DIFFERENT SHOP than the " +
+      "device this phone is enrolled at (R15, and 019 T24's non-waivable line), the loser of a " +
+      "concurrent redemption refused by `UNIQUE (invitation_id)`, and a shop still inside its " +
+      "per-shop redemption delay. NO `details`: a helpful answer here is a query interface over " +
+      "which codes exist and which shop each belongs to.",
+  },
+  ENROLLMENT_CODE_INVALID: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §7.3 / §9.3 (E03-D07) — the same constant answer for a device-enrollment redemption: " +
+      "unknown, spent, expired, inside the shop's delay, or the loser of a concurrent redemption " +
+      "refused by `UNIQUE (code_id)`. SEPARATE from INVITATION_INVALID because the two are reached " +
+      "from different screens by different people — a phone being enrolled by an owner, and an " +
+      "employee joining on a phone that already exists — and the client must be able to choose " +
+      "which recovery to offer without parsing prose (042 §4.3). Neither code discloses which of " +
+      "its causes fired.",
+  },
   RATE_LIMITED: {
     status: 429,
     retryable: true,
@@ -428,6 +469,9 @@ export const MESSAGES: Record<ErrorCode, string> = {
   SESSION_REQUIRED: "this route requires a session and none resolved",
   OPERATOR_REQUIRED: "this route requires the second of the two session chains",
   PIN_INVALID: "the submitted credential was not accepted",
+  PIN_REFUSED: "the chosen PIN does not satisfy the PIN policy",
+  INVITATION_INVALID: "the submitted invitation code was not accepted",
+  ENROLLMENT_CODE_INVALID: "the submitted enrollment code was not accepted",
   RATE_LIMITED: "a provisional rate floor was exceeded for the key this route is bucketed on",
   WRITE_CONFLICT_RETRY_EXHAUSTED: "a write conflict survived the transaction retry budget",
   INTERNAL_ERROR: "an unhandled error occurred",

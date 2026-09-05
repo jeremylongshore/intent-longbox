@@ -98,6 +98,30 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
       "the operator switch: it revokes the operator chain named by the cookies and touches no " +
       "shop-scoped row, so it has no tenant to be prefixed by.",
   },
+  // E03-D07's two redemption routes. Both are CORRECT outside the tenant prefix
+  // and for the same underlying reason as the four above: they are how a caller
+  // acquires a tenant, so a tenant-prefixed spelling would need the answer before
+  // it could ask the question.
+  {
+    method: "POST",
+    path: "/api/v1/invitations/redemptions",
+    kind: "exemption",
+    reason:
+      "an employee redeems an invitation on the shop's own counter phone (048 §7.1, §7.2). The " +
+      "TOKEN names the shop and the DEVICE SESSION names the shop, and the redemption succeeds " +
+      "only when those are the same shop (R15) — so a shopId in the path would be a third, " +
+      "caller-asserted answer to a question two authenticated facts already agree on, which is " +
+      "042 E4's defect re-created on a credential route.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/device-enrollments",
+    kind: "exemption",
+    reason:
+      "a phone redeems an enrollment code and becomes an enrolled device (048 §7.3). The caller " +
+      "holds no session by construction — that is what enrollment means — so it can name no " +
+      "tenant; the shop and the location are properties of the CODE.",
+  },
   // The unversioned aliases. 042 §9.1 row 5 — "the unversioned aliases are
   // removed; the Deprecation/Sunset window closes" — is E02-B10's contract step,
   // so they are declared here rather than deleted here.
@@ -259,14 +283,59 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     path: "/api/v1/device-enrollments",
     principal: "none",
     kind: "route",
-    pending: true,
-    closingBead: "E03-D07 (048 §7, §7.1a)",
     reason:
-      "DECLARED AND NOT REGISTERED. Redeeming an enrollment code — an append-only, single-use " +
-      "fact bound to a device already holding a live device session at the same shop (048 R15) — " +
-      "is E03-D07's, and it needs the E05 screens. The row is here so the day that route is " +
-      "registered its principal is a decision somebody already made, rather than one inferred " +
-      "at 5pm by whoever is adding the handler. The walk asserts this path is ABSENT today.",
+      "REGISTERED BY E03-D07, AND THE PRINCIPAL THIS ROW ALREADY DECLARED IS THE RIGHT ONE — but " +
+      "its previous REASON was not, so it is corrected here rather than left to read as a " +
+      "decision. That reason said the code is 'bound to a device already holding a live device " +
+      "session at the same shop (048 R15)', which is R15's rule applied to the one object it " +
+      "cannot fit: the caller of this route IS the phone being enrolled, so it holds no session " +
+      "— that is what enrollment means, and 048 §7.3's own sentence is 'the phone posts it once " +
+      "and receives a device session'. The binding is therefore unavailable, §7.1a's other clause " +
+      "governs ('a short code without both is refused'), and the code is 128 bits. Its bounds are " +
+      "the entropy, the route's aggregate bucket taken in the hook before any body parsing, the " +
+      "per-shop delay and `ordinary` bucket taken in the service once the code names a shop, a " +
+      "fifteen-minute expiry, and `UNIQUE (code_id)`. See `src/services/auth/enrollment.ts`.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/invitations/redemptions",
+    principal: "device",
+    kind: "route",
+    reason:
+      "R15's DEVICE BINDING, and this is the route it was written for. An invitation is redeemable " +
+      "ONLY on a phone already holding a live device session at the shop the token names — a " +
+      "correct code presented from a browser with no device session, or from another shop's " +
+      "phone, is refused with §9.3's constant answer. `device` and not `device+operator`: the " +
+      "person redeeming is not an operator yet, which is the whole point of the route.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/invitations",
+    principal: "device+operator",
+    kind: "route",
+    pending: true,
+    closingBead: "E03-D06 (048 §4.1's privileged session)",
+    reason:
+      "DECLARED AND NOT REGISTERED. Issuing an invitation is an owner/manager act in a PRIVILEGED " +
+      "session (048 §4.1), and privileged sessions do not exist until E03-D06 lands TOTP and the " +
+      "freshness window. E03-D07 builds the service (`issueInvitation`, which checks the role) and " +
+      "reaches it from `scripts/issue-invitation.ts`, because a route that called itself " +
+      "privileged while nothing enforced privilege would be a worse artifact than an honest CLI. " +
+      "The row is here so the principal is a decision somebody already made rather than one " +
+      "inferred by whoever adds the handler. The walk asserts this path is ABSENT today.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/device-enrollment-codes",
+    principal: "device+operator",
+    kind: "route",
+    pending: true,
+    closingBead: "E03-D06 (048 §4.1's privileged session)",
+    reason:
+      "DECLARED AND NOT REGISTERED, for the same reason as the row above: issuing an enrollment " +
+      "code is 048 §7.3's 'an owner or manager, IN A PRIVILEGED SESSION'. E03-D07 builds " +
+      "`issueEnrollmentCode` (role checked, location checked, ceiling enforced) and reaches it " +
+      "from `scripts/issue-enrollment-code.ts`.",
   },
 ];
 
@@ -454,6 +523,64 @@ export const ROUTES: readonly RouteSpec[] = [
       "INTERNAL_ERROR",
     ],
     summary: "End the operator session; the device session survives.",
+  },
+  {
+    // E03-D07. `ordinary`, keyed on THE SHOP THE TOKEN NAMES (048 R14) — which
+    // is the device session's shop, because R15 makes a redemption succeed only
+    // when those two are the same.
+    //
+    // ⚠ THE BUCKET IS TAKEN IN `redeemInvitation`, AND THE FIRST VERSION OF THIS
+    // COMMENT DESCRIBED AN ENFORCEMENT THAT DID NOT EXIST. It said the hook
+    // "keys `ordinary` off the tenant prefix" — which is true of `app.ts`'s hook
+    // and useless here, because that hook is registered INSIDE the tenant plugin
+    // and this route is on the root instance, so it never runs for it. The hook's
+    // own bucket is gated on `rateClass === "device"`. Nothing bucketed this
+    // route at all: two hundred posts, two hundred 401s, zero limiter calls.
+    // The service now takes `takeOrdinary(device.shop_id)` BEFORE any credential
+    // is tested, and `tests/contract/rate-class-enforcement.test.ts` no longer
+    // accepts a substring as evidence — it requires the call to sit in the
+    // function the handler invokes and refuses a guard the route cannot satisfy.
+    method: "POST",
+    path: `${s.API_PREFIX}/invitations/redemptions`,
+    pluginPath: null,
+    mutating: true,
+    rateClass: "ordinary",
+    request: s.invitationRedemptionRequest,
+    response: s.invitationRedemptionResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "SESSION_REQUIRED",
+      "INVITATION_INVALID",
+      "PIN_REFUSED",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Redeem an invitation on this enrolled phone and set a PIN.",
+  },
+  {
+    // E03-D07. `ordinary`, keyed on the shop the CODE names — unknown until the
+    // code is looked up, so the hook takes the route's aggregate bucket and the
+    // service takes the shop's. See `src/services/auth/enrollment.ts` for why
+    // that ordering is forced here and not on the invitation route.
+    method: "POST",
+    path: `${s.API_PREFIX}/device-enrollments`,
+    pluginPath: null,
+    mutating: true,
+    rateClass: "ordinary",
+    request: s.deviceEnrollmentRequest,
+    response: s.deviceEnrollmentResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "ENROLLMENT_CODE_INVALID",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Redeem a device enrollment code and receive a device session.",
   },
   {
     method: "POST",

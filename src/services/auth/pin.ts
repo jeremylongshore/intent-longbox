@@ -42,8 +42,46 @@ export interface OperatorPinRow {
   app_user_id: string;
   pin_hash: string;
   pepper_version: number;
+  /**
+   * `020`'s column. **Nothing writes it after E03-D07** — a retirement is an
+   * `operator_pin_retirement` row — and it is still READ, so a row written by
+   * the old mechanism before `024` is still honoured. See `retired` below.
+   */
   retired_at: Date | null;
+  /** The version of this row a retirement fact names (E03-D07). */
+  updated_at: Date;
+  /** `EXISTS` a retirement naming this row's current `updated_at`. */
+  retired_by_fact: boolean;
+  /**
+   * **Retirement, as a PREDICATE over two facts** (048 §3.5, E03-D07).
+   *
+   * Either mechanism retires the PIN: a retirement row naming this row's current
+   * version, or a non-null `retired_at` left by the pre-`024` `UPDATE`. It is
+   * computed here, once, so no caller can read one half and miss the other —
+   * which is the failure mode of replacing a column with a table.
+   */
+  retired: boolean;
 }
+
+/**
+ * The projection every read of this row uses, and the retirement predicate spelled
+ * ONCE. 042 I5(b) requires every projection to name its columns, and without
+ * this constant the retirement predicate would be spelled twice — in the plain
+ * read and in the anchor read — which is how two readers of one rule start
+ * disagreeing.
+ */
+const PIN_COLUMNS = `p.id, p.shop_id, p.device_id, p.app_user_id, p.pin_hash, p.pepper_version,
+       p.retired_at, p.updated_at,
+       EXISTS (SELECT 1 FROM operator_pin_retirement r
+                WHERE r.operator_pin_id = p.id
+                  AND r.retired_pin_updated_at = p.updated_at) AS retired_by_fact`;
+
+function hydrate(row: RawPinRow | undefined): OperatorPinRow | undefined {
+  if (!row) return undefined;
+  return { ...row, retired: row.retired_by_fact || row.retired_at !== null };
+}
+
+type RawPinRow = Omit<OperatorPinRow, "retired">;
 
 /**
  * A decoy digest, verified when no PIN row exists for the pair, so an unknown
@@ -69,11 +107,10 @@ export async function readOperatorPin(
   appUserId: string
 ): Promise<OperatorPinRow | undefined> {
   const res = await db.query(
-    `SELECT id, shop_id, device_id, app_user_id, pin_hash, pepper_version, retired_at
-       FROM operator_pin WHERE device_id = $1 AND app_user_id = $2`,
+    `SELECT ${PIN_COLUMNS} FROM operator_pin p WHERE p.device_id = $1 AND p.app_user_id = $2`,
     [deviceId, appUserId]
   );
-  return res.rows[0] as OperatorPinRow | undefined;
+  return hydrate(res.rows[0] as RawPinRow | undefined);
 }
 
 /**
@@ -108,12 +145,68 @@ export async function setOperatorPin(
   return { ok: true };
 }
 
-/** 048 §3.5: a membership revocation retires that person's PIN rows at that scope. */
-export async function retireOperatorPins(tx: Tx, appUserId: string, shopId: string): Promise<number> {
+/**
+ * **048 §3.5's retirement, as an append-only FACT** (E03-D07).
+ *
+ * A membership revocation retires that person's PIN rows at that scope, in the
+ * same transaction as §3.4's rotation. Otherwise a fired employee's PIN sits
+ * live on the counter phone against a membership that no longer exists, and the
+ * only thing between it and an operator session is a membership check somebody
+ * has to remember to write.
+ *
+ * **It is an INSERT and never an UPDATE**, and that is a change of mechanism
+ * from `020`'s `retired_at` column with three reasons, each sufficient:
+ *
+ *   1. every other ending in this schema is a row — `membership_revocation`,
+ *     `device_credential_revocation`, `app_session_revocation` — each with its
+ *     own UNIQUE, and 047 §5.1's no-status-column rule is what they all express;
+ *   2. `operator_pin` is **the lockout anchor** (048 §9.1). An `UPDATE`
+ *     retirement writes the security-critical row from a path that is not a PIN
+ *     verification, next to a `FOR UPDATE` sequence whose correctness argument
+ *     assumes the row's only writer is a PIN change;
+ *   3. an `UPDATE` keeps no record of WHEN or WHY, and "why was this PIN taken
+ *     away" is precisely what a support conversation and 019 T35(c)'s
+ *     reconciliation ask.
+ *
+ * **The rows are locked before they are read** (`FOR UPDATE`), for the same
+ * reason `verifyOperatorPin` locks: `updated_at` is the version this retirement
+ * names, and a PIN change committing between the read and the INSERT would
+ * produce a retirement naming a version that no longer exists — a retirement
+ * that retires nothing. Holding the anchor makes the two serial.
+ *
+ * `ON CONFLICT DO NOTHING` on `(operator_pin_id, retired_pin_updated_at)`: two
+ * revocations of two overlapping memberships retire the same PIN version once.
+ * That is the idempotence a status column cannot give — and the return value is
+ * the number of rows this call actually WROTE, so a caller can tell "already
+ * retired" from "retired now".
+ */
+export async function retireOperatorPins(
+  tx: Tx,
+  args: { appUserId: string; shopId: string; reason: string; membershipRevocationId?: string | null }
+): Promise<number> {
+  // The lock, taken first and on its own. It is what makes the `updated_at` the
+  // INSERT below reads the same version this call decided to retire.
+  await tx.query(`SELECT p.id FROM operator_pin p WHERE p.app_user_id = $1 AND p.shop_id = $2 FOR UPDATE`, [
+    args.appUserId,
+    args.shopId,
+  ]);
+
+  // **`updated_at` NEVER LEAVES POSTGRES, and that is not a style preference.**
+  // `timestamptz` is microsecond-precision and a JavaScript `Date` is
+  // millisecond-precision, so reading the column into the application and passing
+  // it back as a parameter TRUNCATES it — the retirement would then name a
+  // version that does not exist, `retired_pin_updated_at = p.updated_at` would be
+  // false, and the PIN would read live with a retirement row sitting next to it.
+  // Reproduced on postgres:16 while building this bead. So the value is carried
+  // by an `INSERT … SELECT` and the round trip never happens.
   const res = await tx.query(
-    `UPDATE operator_pin SET retired_at = now(), updated_at = now()
-      WHERE app_user_id = $1 AND shop_id = $2 AND retired_at IS NULL`,
-    [appUserId, shopId]
+    `INSERT INTO operator_pin_retirement
+       (shop_id, operator_pin_id, retired_pin_updated_at, membership_revocation_id, reason)
+     SELECT p.shop_id, p.id, p.updated_at, $3, $4
+       FROM operator_pin p
+      WHERE p.app_user_id = $1 AND p.shop_id = $2
+     ON CONFLICT (operator_pin_id, retired_pin_updated_at) DO NOTHING`,
+    [args.appUserId, args.shopId, args.membershipRevocationId ?? null, args.reason]
   );
   return (res as { rowCount?: number }).rowCount ?? 0;
 }
@@ -160,18 +253,19 @@ export async function verifyOperatorPin(
   // subject of the count, nothing references it by foreign key, and the stronger
   // lock is the one 041 §4.2 specifies for an anchor.
   const anchor = await tx.query(
-    `SELECT id, shop_id, device_id, app_user_id, pin_hash, pepper_version, retired_at
-       FROM operator_pin WHERE device_id = $1 AND app_user_id = $2 FOR UPDATE`,
+    `SELECT ${PIN_COLUMNS}
+       FROM operator_pin p WHERE p.device_id = $1 AND p.app_user_id = $2
+       FOR UPDATE OF p`,
     [args.deviceId, args.appUserId]
   );
-  const row = anchor.rows[0] as OperatorPinRow | undefined;
+  const row = hydrate(anchor.rows[0] as RawPinRow | undefined);
 
   const wait = await lockoutWait(tx, args.deviceId, args.appUserId, args.now);
   if (wait > 0) return { ok: false, reason: "wait" };
 
   // The same work in every case (§9.3). An unknown pair and a retired PIN both
   // verify the decoy, so neither returns faster than a wrong PIN does.
-  const digest = row && row.retired_at === null ? row.pin_hash : await decoy(args.pepper);
+  const digest = row && !row.retired ? row.pin_hash : await decoy(args.pepper);
   const matched = await verifyPin(args.pin, args.pepper, digest);
 
   if (!row) {
@@ -184,7 +278,7 @@ export async function verifyOperatorPin(
     });
     return { ok: false, reason: "no_pin" };
   }
-  if (row.retired_at !== null) {
+  if (row.retired) {
     await recordFailure(tx, {
       shopId: args.shopId,
       deviceId: args.deviceId,

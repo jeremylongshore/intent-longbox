@@ -592,6 +592,106 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // 024 (E03-D07): invitations, device enrollment and the PIN retirement.
+      // 048 §7's whole shape is that single use is a CONSTRAINT rather than a
+      // status column, so all five are things that HAPPENED and none is exempt.
+      case "invitation": {
+        const r = await pool.query(
+          `INSERT INTO invitation
+             (shop_id, app_user_id, role, scope_kind, token_digest, expires_at, invited_by)
+           VALUES ($1,$2,'operator','shop',$3, now() + interval '1 day', $4) RETURNING id`,
+          // A digest of a value that is not a code, and never a code: this suite
+          // exercises the trigger, and a realistic-looking token in a fixture is
+          // the shape 048 §7.1's header refuses.
+          [shopId, await freshUser(), `sha256:${randomUUID()}`, await freshUser()]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "invitation_use": {
+        const person = await freshUser();
+        const invitation = await pool.query(
+          `INSERT INTO invitation
+             (shop_id, app_user_id, role, scope_kind, token_digest, expires_at, invited_by)
+           VALUES ($1,$2,'operator','shop',$3, now() + interval '1 day', $4) RETURNING id`,
+          [shopId, person, `sha256:${randomUUID()}`, await freshUser()]
+        );
+        const membership = await pool.query(
+          `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
+           VALUES ($1,$2,'shop','operator') RETURNING id`,
+          [person, shopId]
+        );
+        const session = await pool.query(
+          `INSERT INTO app_session
+             (chain_id, kind, shop_id, location_id, device_id, device_credential_id, token_hash,
+              rotate_after, idle_expires_at, absolute_expires_at)
+           VALUES (gen_random_uuid(),'device',$1,$2,$3,$4,$5,
+                   now() + interval '1 day', now() + interval '2 days', now() + interval '30 days')
+           RETURNING id`,
+          [shopId, locationId, deviceId, credentialId, `sha256:${randomUUID()}`]
+        );
+        const r = await pool.query(
+          `INSERT INTO invitation_use
+             (shop_id, invitation_id, membership_id, redeemed_on_device_id, redeemed_on_session_id)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [
+            shopId,
+            (invitation.rows[0] as { id: string }).id,
+            (membership.rows[0] as { id: string }).id,
+            deviceId,
+            (session.rows[0] as { id: string }).id,
+          ]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "device_enrollment_code": {
+        const r = await pool.query(
+          `INSERT INTO device_enrollment_code
+             (shop_id, location_id, device_label, device_kind, code_digest, expires_at, issued_by)
+           VALUES ($1,$2,'counter phone','phone',$3, now() + interval '15 minutes', $4) RETURNING id`,
+          [shopId, locationId, `sha256:${randomUUID()}`, await freshUser()]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "device_enrollment_code_use": {
+        const code = await pool.query(
+          `INSERT INTO device_enrollment_code
+             (shop_id, location_id, device_label, device_kind, code_digest, expires_at, issued_by)
+           VALUES ($1,$2,'counter phone','phone',$3, now() + interval '15 minutes', $4) RETURNING id`,
+          [shopId, locationId, `sha256:${randomUUID()}`, await freshUser()]
+        );
+        const enrolled = await freshDevice();
+        const credential = await pool.query(
+          `INSERT INTO device_credential (shop_id, device_id, token_hash) VALUES ($1,$2,$3) RETURNING id`,
+          [shopId, enrolled, `sha256:${randomUUID()}`]
+        );
+        const r = await pool.query(
+          `INSERT INTO device_enrollment_code_use (shop_id, code_id, device_id, device_credential_id)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [shopId, (code.rows[0] as { id: string }).id, enrolled, (credential.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "operator_pin_retirement": {
+        // The PIN row is written with a digest that is not a hash of any PIN —
+        // this suite tests the trigger, not the credential, and 048 I9's canary
+        // rule is that no fixture carries anything a real hash could be confused
+        // with.
+        const pin = await pool.query(
+          `INSERT INTO operator_pin (shop_id, device_id, app_user_id, pin_hash)
+           VALUES ($1,$2,$3,'not-a-hash') RETURNING id, updated_at`,
+          [shopId, await freshDevice(), await freshUser()]
+        );
+        const row = pin.rows[0] as { id: string; updated_at: Date };
+        const r = await pool.query(
+          `INSERT INTO operator_pin_retirement
+             (shop_id, operator_pin_id, retired_pin_updated_at, reason)
+           SELECT $1, p.id, p.updated_at, 'membership revoked'
+             FROM operator_pin p WHERE p.id = $2
+           RETURNING id`,
+          [shopId, row.id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }

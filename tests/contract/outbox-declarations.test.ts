@@ -263,6 +263,19 @@ describe("the synchronous Shopify call does not come back into the route (043 §
         `directly — and depcruise cannot catch this one, because this file is a by-name ` +
         `exemption on providers-are-contained (E02-D08).`
     ).not.toMatch(/services\/shopify/);
+    // ⚠ `src/services/connectors/shopify/` IS NOT COVERED BY THE PATTERN ABOVE,
+    // AND THAT IS CORRECT RATHER THAN AN OVERSIGHT (E03-B06). Two different
+    // things wear the word: `src/services/shopify.ts` is the CHANNEL CLIENT —
+    // the thing that mutates a merchant's catalog, which a request handler must
+    // never reach, because a provider call in a handler cannot join the
+    // transaction that records it (043 §1 E4). The connector module is the
+    // AUTHORIZATION LIFECYCLE — an OAuth callback and a signed webhook — whose
+    // whole job is to be reached from an HTTP route, and which performs no
+    // channel mutation at all.
+    //
+    // The property that actually matters is enforced either way and by the
+    // assertion above it: `createDraft` is the channel mutation, and no route
+    // file may name it however it got hold of a client.
   });
 });
 
@@ -286,7 +299,11 @@ describe("this file reports a fixed number of cases on an identical tree (E02-D1
    * more case and this assertion still pass — the guard failed on exactly the
    * change it exists to catch.
    */
-  const DECLARED_CASES = 19;
+  // 19 → 20 at E03-B06, and the reason is exactly the one the message below
+  // offers: a new file under `src/routes` (`connectors.ts`), which the `it.each`
+  // over `routeFiles` sweeps. The guard did its job — it failed on a real change
+  // rather than on drift, and the literal is bumped deliberately.
+  const DECLARED_CASES = 20;
 
   /**
    * The arrays this file is allowed to parameterise over, by the identifier the

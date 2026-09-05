@@ -1,14 +1,21 @@
 import { join } from "node:path";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, {
+  LogController,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type pg from "pg";
 import { spendCeilings, type AppConfig } from "./config.js";
 import { LongboxError } from "./contracts/v1/errors.js";
 import { API_PREFIX, TENANT_PREFIX } from "./contracts/v1/schemas.js";
-import { DEPRECATION_HEADERS } from "./contracts/v1/routes.js";
+import { DEPRECATION_HEADERS, isNoRequestLogPath } from "./contracts/v1/routes.js";
 import { registerErrorHandling } from "./http/errors.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerConnectorRoutes } from "./routes/connectors.js";
+import { resolveAppCredentials } from "./services/connectors/shopify/index.js";
 import { registerScanSessionRoutes } from "./routes/scanSessions.js";
 import { ShopRateLimiter } from "./services/rateLimit.js";
 import type { ApiDeps } from "./services/sessionApi.js";
@@ -17,6 +24,24 @@ import { registerAuthentication } from "./services/auth/hook.js";
 export interface BuildAppOptions {
   /** Injected so the rate posture is testable without wall-clock sleeps. */
   limiter?: ShopRateLimiter;
+  /**
+   * Where the logger writes. Injected for ONE reason, and it is a security
+   * reason rather than a convenience (E03-B06, 019 T31).
+   *
+   * **The log posture is now an asserted property, not a habit.** A provider
+   * callback's URL carries an OAuth state, a code and a signature, so what does
+   * and does not reach a log line is part of this bead's contract — and the
+   * opposite property is asserted alongside it: an unhandled 500 MUST still
+   * emit a line carrying the correlation id (042 I14), because the first
+   * attempt at the redaction silenced the logger and deleted that evidence.
+   *
+   * Neither can be asserted without a destination the test holds: pino's default
+   * writes to file descriptor 1 directly, so patching `process.stdout.write` or
+   * replacing methods on `app.log` sees nothing — and `req.log` is a CHILD
+   * logger, so a stub on `app.log` misses the error path entirely. Left
+   * `undefined` in every non-test caller, which is pino's default destination.
+   */
+  logDestination?: NodeJS.WritableStream;
 }
 
 /**
@@ -47,7 +72,41 @@ export async function buildApp(
     logger: {
       // Never log request bodies or headers (keys travel in neither, but belt-and-braces).
       redact: ["req.headers.authorization", "req.headers['x-api-key']"],
+      ...(opts.logDestination ? { stream: opts.logDestination } : {}),
     },
+    // ⚠ THE REQUEST LINE IS SUPPRESSED FOR THE PROVIDER-CALLBACK CLASS, AND IT
+    // HAS TO BE DECIDED HERE (E03-B06; the invariant review of `16f17ef`,
+    // finding 6, and its re-verification).
+    //
+    // Fastify logs `req.url` on every request, and an OAuth callback's URL
+    // carries the authorization code, the signature and the RAW STATE — the
+    // value `migrations/026` keeps out of every column and 019 T31 keeps out of
+    // every log. A digest discipline in the schema is beside the point if the
+    // log line holds the plaintext.
+    //
+    // **It is a SERVER option in this Fastify version and not a route option**,
+    // so the per-route form is this predicate rather than a literal on the
+    // route. The first attempt used `logLevel: "silent"` on the two routes,
+    // which IS a route option and is the wrong tool twice over: it suppressed
+    // the request line and every ERROR line with it, so an unhandled 500 on the
+    // one route a merchant reaches mid-install would have left no server line at
+    // all — and 042 I14's correlation id exists to be joined to exactly that
+    // line. **Silencing a logger to redact a field is a redaction that deletes
+    // the evidence.**
+    //
+    // The predicate is DERIVED from the auth allowlist's `provider-callback`
+    // rows, so a future member is covered by declaring what it is; and it reads
+    // only the part of the url before `?`, because deciding on the query would
+    // mean reading the thing being kept out.
+    //
+    // It goes through `logController` rather than the top-level
+    // `disableRequestLogging`, which this Fastify version deprecates and warns
+    // about on every boot (`FSTDEP023`) — and a deprecation warning printed by
+    // the server on start is exactly the kind of noise an operator learns to
+    // scroll past, including on the day it says something else.
+    logController: new LogController({
+      disableRequestLogging: (req) => isNoRequestLogPath(req.raw.url),
+    }),
   });
 
   // The metered ceilings come from the CONFIG, which has already refused an
@@ -110,6 +169,30 @@ export async function buildApp(
   // tenant rather than assume one, and therefore the five that cannot live
   // inside the prefix plugin below.
   registerAuthRoutes(app, deps);
+
+  // E03-B06's two connector routes (000-docs/053 §8). Registered on the root
+  // instance, beside the identity routes and for a related reason: their caller
+  // establishes a tenant rather than asserting one — here by a SIGNATURE rather
+  // than by a credential — so a `shopId` in either path would be a tenant chosen
+  // by whoever completed a redirect.
+  //
+  // The app credentials are resolved ONCE, here, and the absence of a client
+  // secret is carried as an empty string rather than as an unregistered route.
+  // That is deliberate: the routes must exist so an unsigned or unconfigured
+  // call is REFUSED by a verifier rather than answered by Fastify's 404 handler,
+  // and `receiveWebhook`/`completeInstall` both refuse outright on an empty
+  // secret. A verifier with no key accepts nothing; it does not accept
+  // everything, and it does not disappear.
+  registerConnectorRoutes(app, {
+    pool: db,
+    limiter: deps.limiter,
+    app: resolveAppCredentials() ?? {
+      clientId: "",
+      clientSecret: "",
+      redirectUri: "",
+      apiVersion: process.env.SHOPIFY_API_VERSION ?? "2025-07",
+    },
+  });
 
   // 042 §3.4 half one — ONE prefix, ONE plugin. Every shop-scoped route is
   // registered inside this boundary and cannot spell a different one.

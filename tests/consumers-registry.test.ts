@@ -114,10 +114,65 @@ describe("resolveShopifyClientForShop — and the stub flag 043 §5.3 segments o
     expect(r.stub).toBe(false);
   });
 
-  it("looks the shop up by id, so one shop's config can never answer for another (T24)", async () => {
+  it("keys EVERY lookup on the shop id, so one shop's config can never answer for another (T24)", async () => {
     const { pool, calls } = poolFor({});
     await resolveShopifyClientForShop(pool, SHOP);
-    expect(calls[0]?.text).toMatch(/FROM shop WHERE id = \$1/);
-    expect(calls[0]?.values).toEqual([SHOP]);
+    // ⚠ THIS USED TO ASSERT `calls[0]` WAS THE SHOP LOOKUP, AND E03-B06 PUT A
+    // QUERY IN FRONT OF IT — the connector token versions, which now decide the
+    // client before the legacy path is reached at all. The assertion is
+    // rewritten to the PROPERTY rather than to the position: every statement
+    // this resolver issues is bound to the shop id it was handed, so no ordering
+    // change can quietly introduce a lookup that answers for another tenant.
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.values, `${call.text} was not bound to the shop id`).toContain(SHOP);
+    }
+    expect(calls.some((c) => /FROM connector_token_version/.test(c.text))).toBe(true);
+    expect(calls.some((c) => /FROM shop WHERE id = \$1/.test(c.text))).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-B06 (053 §7.4) — the connector token's precedence, and the refusal that
+  // makes an uninstall mean something.
+  // -------------------------------------------------------------------------
+  /** A pool whose connector-version query answers with the rows a test names. */
+  function connectorPool(rows: Array<Record<string, unknown>>) {
+    return fakePool((text) => {
+      if (text.includes("FROM connector_token_version v")) return { rows };
+      if (text.includes("FROM shop ")) return { rows: [{ shopify_domain: null }] };
+      return undefined;
+    });
+  }
+
+  it("REFUSES when every connector token version is retired — never the static token", async () => {
+    // The half that makes a deletion real (050 §4's rule, one connector over).
+    // Falling through to `SHOPIFY_ADMIN_TOKEN` here would let a shop whose app
+    // was uninstalled keep drafting through a credential nobody revoked, and the
+    // "deletion" would have made the system carry on working.
+    process.env.SHOPIFY_ADMIN_TOKEN = "shpat-test-token";
+    process.env.SHOPIFY_STORE_DOMAIN = "fallback.myshopify.com";
+    const { pool } = connectorPool([
+      {
+        id: "11111111-1111-4111-8111-111111111112",
+        connector: "shopify",
+        shop_domain: "gotham.myshopify.com",
+        granted_scopes: ["write_products", "read_products"],
+        version_no: 1,
+        key_version: 1,
+        introduced_at: new Date("2026-09-01T00:00:00Z"),
+        retired: true,
+        retired_reason: "uninstall",
+      },
+    ]);
+    await expect(resolveShopifyClientForShop(pool, SHOP)).rejects.toThrow(/every one is retired/);
+  });
+
+  it("falls through to the legacy path only when the shop has NO connector version at all", async () => {
+    // The third outcome, and the one that keeps the pilot working: a shop that
+    // never installed the app is still served by the per-store Dev Dashboard
+    // token, and still degrades to the stub when that token is absent.
+    const { pool } = connectorPool([]);
+    const r = await resolveShopifyClientForShop(pool, SHOP);
+    expect(r.stub).toBe(true);
   });
 });

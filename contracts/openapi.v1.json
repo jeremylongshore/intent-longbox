@@ -157,6 +157,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -237,6 +239,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -317,6 +321,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -462,6 +468,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -542,6 +550,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -622,6 +632,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -702,6 +714,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -855,6 +869,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -935,6 +951,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1015,6 +1033,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1172,6 +1192,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1252,6 +1274,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1332,6 +1356,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1412,6 +1438,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1565,6 +1593,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1645,6 +1675,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1725,6 +1757,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1805,6 +1839,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -1974,6 +2010,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2054,6 +2092,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2134,6 +2174,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2214,6 +2256,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2294,6 +2338,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2466,6 +2512,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2546,6 +2594,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2626,6 +2676,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2706,6 +2758,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2748,6 +2802,639 @@
                 "required": [
                   "code"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/shopify/callback": {
+      "get": {
+        "summary": "Complete a connector install: verify the grant and introduce the token version.",
+        "parameters": [
+          {
+            "name": "shop",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "hmac",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "timestamp",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connector": {
+                      "const": "shopify"
+                    },
+                    "shop_domain": {
+                      "type": "string"
+                    },
+                    "granted_scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "connector",
+                    "shop_domain",
+                    "granted_scopes"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, CONNECTOR_CALLBACK_REFUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/shopify/webhooks": {
+      "post": {
+        "summary": "Receive one signed Shopify webhook: authenticate, record, then act.",
+        "parameters": [
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "acknowledged": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "acknowledged"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "WEBHOOK_SIGNATURE_INVALID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -2881,6 +3568,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -2961,6 +3650,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3041,6 +3732,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3121,6 +3814,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3201,6 +3896,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3281,6 +3978,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3361,6 +4060,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3868,6 +4569,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -3948,6 +4651,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4028,6 +4733,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4108,6 +4815,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4188,6 +4897,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4268,6 +4979,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4431,6 +5144,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4511,6 +5226,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4591,6 +5308,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4671,6 +5390,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4751,6 +5472,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4831,6 +5554,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4911,6 +5636,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -4991,6 +5718,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5071,6 +5800,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5207,6 +5938,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5287,6 +6020,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5367,6 +6102,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5447,6 +6184,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5527,6 +6266,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5607,6 +6348,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5798,6 +6541,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5878,6 +6623,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -5958,6 +6705,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6038,6 +6787,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6118,6 +6869,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6198,6 +6951,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6278,6 +7033,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6358,6 +7115,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6438,6 +7197,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6641,6 +7402,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6721,6 +7484,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6801,6 +7566,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6881,6 +7648,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -6961,6 +7730,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7041,6 +7812,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7121,6 +7894,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7360,6 +8135,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7440,6 +8217,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7520,6 +8299,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7600,6 +8381,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7680,6 +8463,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7760,6 +8545,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -7840,6 +8627,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8128,6 +8917,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8208,6 +8999,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8288,6 +9081,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8368,6 +9163,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8448,6 +9245,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8528,6 +9327,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8608,6 +9409,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8833,6 +9636,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8913,6 +9718,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -8993,6 +9800,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -9073,6 +9882,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -9153,6 +9964,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -9233,6 +10046,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -9313,6 +10128,8 @@
                             "PIN_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
                             "RATE_LIMITED",
                             "WRITE_CONFLICT_RETRY_EXHAUSTED",
                             "INTERNAL_ERROR"
@@ -9433,6 +10250,8 @@
                   "PIN_REFUSED",
                   "INVITATION_INVALID",
                   "ENROLLMENT_CODE_INVALID",
+                  "CONNECTOR_CALLBACK_REFUSED",
+                  "WEBHOOK_SIGNATURE_INVALID",
                   "RATE_LIMITED",
                   "WRITE_CONFLICT_RETRY_EXHAUSTED",
                   "INTERNAL_ERROR"
@@ -9643,6 +10462,18 @@
       "operator_renderable": true,
       "copy_row": "021 — E05 owes the registered string"
     },
+    "CONNECTOR_CALLBACK_REFUSED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
+    "WEBHOOK_SIGNATURE_INVALID": {
+      "status": 401,
+      "retryable": false,
+      "operator_renderable": false,
+      "copy_row": null
+    },
     "RATE_LIMITED": {
       "status": 429,
       "retryable": true,
@@ -9717,6 +10548,20 @@
       "path": "/api/v1/device-enrollments",
       "kind": "exemption",
       "reason": "a phone redeems an enrollment code and becomes an enrolled device (048 §7.3). The caller holds no session by construction — that is what enrollment means — so it can name no tenant; the shop and the location are properties of the CODE.",
+      "closing_bead": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/connectors/shopify/callback",
+      "kind": "exemption",
+      "reason": "the OAuth authorization-code callback (000-docs/053 §8.3). The shop is resolved from the single-use install state Longbox itself minted, and cross-checked against the `shop` parameter inside the signed message — two facts that must agree, neither of them a path segment. Shopify chooses the URL shape here, not this repository: it is the `redirect_uri` registered with the app, and a tenant-prefixed spelling would need the answer before it could ask the question.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/connectors/shopify/webhooks",
+      "kind": "exemption",
+      "reason": "the signed webhook receiver (053 §8.2). ONE path for every topic, because the authentication, the dedupe and the receipt are identical and only the EFFECT differs — and the tenant is `X-Shopify-Shop-Domain` inside the signed bytes, resolved to a shop when one exists and recorded with a null resolution when it does not (a `shop/redact` for an already-offboarded store is the commonest message this route receives).",
       "closing_bead": null
     },
     {

@@ -117,8 +117,31 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
     // letting the target do all of them (I6(f)).
     if (row?.kind === "redirect") return;
 
+    // ⚠ THE ONE MECHANISM SUBSTITUTION IN THIS HOOK, AND IT IS DECLARED RATHER
+    // THAN INFERRED (E03-B06; 042 §5.1 CLASS TWO at v1.4.3; 048 I6(d)/(e) as
+    // amended at v1.5.2; 000-docs/053 §8).
+    //
+    // A `provider-callback` row is an inbound call from a THIRD-PARTY SYSTEM —
+    // Shopify's servers, or a merchant's browser at the end of Shopify's
+    // redirect. Neither can be made to send `Sec-Fetch-Site` or an
+    // `Idempotency-Key`: the first is a browser header a server-to-server POST
+    // does not have, and the second is a Longbox convention a provider has never
+    // heard of. Demanding them would not make the route safer; it would make it
+    // unreachable, which is how a receiver ends up unsigned instead.
+    //
+    // **Both mechanisms are REPLACED, and by strictly stronger ones.** For CSRF:
+    // the handler verifies an HMAC over the request's own bytes under the app
+    // secret, and a cross-site HTML form cannot produce one — which is a
+    // stronger statement than "this request claims to be same-origin". For
+    // exactly-once: the route table's `idempotency.uniqueOn` NAMES the database
+    // constraint that makes a second execution a failed INSERT, and a contract
+    // test asserts that index exists in `migrations/`. The class is bounded by
+    // the allowlist row, so a future route joins it by having somebody write a
+    // row and an argument — never by an author deciding a header is awkward.
+    const providerCallback = row?.kind === "provider-callback";
+
     // ---- 1. cross-site (048 §5.1, R9) ------------------------------------
-    if (!SAFE_METHODS.has(req.method)) {
+    if (!providerCallback && !SAFE_METHODS.has(req.method)) {
       const same = isSameOriginRequest(
         {
           secFetchSite: headerOf(req, "sec-fetch-site"),
@@ -137,7 +160,7 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
     // reason: a rule enforced by fourteen copies is a rule with thirteen places
     // to be forgotten. A mutating route absent from the table is treated as
     // mutating anyway — fail closed on the table too.
-    if (!SAFE_METHODS.has(req.method) && (spec === undefined || spec.mutating)) {
+    if (!providerCallback && !SAFE_METHODS.has(req.method) && (spec === undefined || spec.mutating)) {
       const key = headerOf(req, "idempotency-key");
       if (key === undefined || key.length === 0 || key.length > 200) {
         throw new LongboxError("IDEMPOTENCY_KEY_REQUIRED");

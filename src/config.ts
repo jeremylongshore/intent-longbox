@@ -3,6 +3,7 @@
 import "dotenv/config";
 import { requireAuthenticatorKey, type AuthenticatorKeyring } from "./services/auth/aead.js";
 import { requirePinPepper } from "./services/auth/secrets.js";
+import { requireConnectorKey, type ConnectorKeyring } from "./services/connectors/shopify/custody.js";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./services/media.js";
 import {
   PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET,
@@ -56,6 +57,23 @@ export interface AppConfig {
    * source, a mode-0600 tmpfs `EnvironmentFile` as the form — is 050 §3's.
    */
   authenticatorKeys?: AuthenticatorKeyring;
+  /**
+   * 000-docs/053 §3 (E03-B06) — the AEAD key ring every CONNECTOR access token
+   * is sealed under.
+   *
+   * **A SECOND RING, not the authenticator's**, and the separation is the
+   * decision: one key for two subsystems means one compromise is two, and it
+   * would make the one destruction Longbox can actually perform — destroying a
+   * key version so a stored ciphertext can never be opened again — an act that
+   * also takes every owner's second factor with it.
+   *
+   * OPTIONAL in the type and ALWAYS set by `loadConfig`, on
+   * `authenticatorKeys`' reasoning verbatim: there is no safe default, because a
+   * config without a ring cannot open anything, and a ring minted on the spot
+   * would seal every install made in that process and open none after a restart.
+   * The BOOT REFUSAL is `loadConfig` calling `requireConnectorKey`.
+   */
+  connectorKeys?: ConnectorKeyring;
   /**
    * 048 §5.1 (R9) — the origin(s) this deployment answers on.
    *
@@ -245,6 +263,11 @@ export function loadConfig(): AppConfig {
     // server that starts without the authenticator key is a server that will
     // refuse every second factor it holds, at the moment somebody needs one.
     authenticatorKeys: requireAuthenticatorKey(),
+    // The same fail-closed posture, one subsystem over (E03-B06, 053 §3): a
+    // server that starts without the connector ring is a server that will refuse
+    // every draft it owes, at the moment a shop needs one — and would silently
+    // seal any install completed in that process under a key it cannot restore.
+    connectorKeys: requireConnectorKey(),
     publicOrigins: publicOrigins(),
     spendCeilings: assertSpendCeilingsOrThrow(
       {

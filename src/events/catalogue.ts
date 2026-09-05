@@ -349,6 +349,68 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   },
 
   // ---------------------------------------------------------------------------
+  // E03-B06 — THE CONNECTOR LIFECYCLE (053 §5), landed by migration 026. Five
+  // tables, under the SAME rule the two above state:
+  //
+  //   A CREDENTIAL'S LIFE IS NOT A SUBJECT OF THE SESSION EVENT STREAM.
+  //
+  // The reasoning transfers whole and one line has to be added to it, because a
+  // reader will ask: **an uninstall DOES have a consumer** — the draft consumer
+  // stops being able to work — and that is precisely why there is no event. The
+  // client resolver reads liveness DIRECTLY on every draft
+  // (`src/consumers/index.ts`), with no cache, for 050 §12's stated reason, so by
+  // the time a poller saw an `app_uninstalled` event the resolver would already
+  // have refused. An event here could only ever arrive LATE and tell a consumer
+  // something it had already acted on — which is the definition of an event that
+  // is a second, weaker copy of a predicate.
+  //
+  // **And the strong form.** An event about a token version would carry a
+  // credential's identity out of the connector module and into every consumer in
+  // the registry; an event about a webhook receipt would carry a store's
+  // `shop/redact` or `customers/redact` — a privacy request — onto a bus, when
+  // 041 §8.4's whole rule is that the log holds references and never personal
+  // values. The one place an ending IS announced is the OFFBOARDING RECEIPT
+  // (053 §7.3), which is addressed to a person and is not a bus message.
+  // ---------------------------------------------------------------------------
+  {
+    table: "connector_install_state",
+    rule:
+      "053 §5.1: a CSRF token's issuance, with no session in scope and no scan_session_id. Its " +
+      "only reader is the callback that spends it, and it is spent within fifteen minutes of " +
+      "being minted — an event about it could not reach a consumer in time to be about anything.",
+  },
+  {
+    table: "connector_install_state_use",
+    rule:
+      "As `connector_install_state`. The token version it names is written in the SAME " +
+      "transaction (053 §5.2), so there is nothing eventual to react to, and the merchant learns " +
+      "the outcome from the response to their own redirect rather than from a bus.",
+  },
+  {
+    table: "connector_token_version",
+    rule:
+      "053 §5.3 / 050 §4: an introduction is configuration state read DIRECTLY by the client " +
+      "resolver on every draft, with no cache (050 §12), so an event could only tell a consumer " +
+      "something the resolver has already acted on. An event would also carry a credential's " +
+      "identity out of the connector module and into every consumer in the registry.",
+  },
+  {
+    table: "connector_token_retirement",
+    rule:
+      "As `connector_token_version`. A retirement takes effect by DERIVATION at the next draft " +
+      "(053 §7.4) — the resolver REFUSES rather than falling back — so an event would arrive " +
+      "after the effect it announced.",
+  },
+  {
+    table: "connector_webhook_receipt",
+    rule:
+      "053 §5.5: Longbox's record that a signed provider message arrived (041 §2.5). Its EFFECT, " +
+      "when it has one, is written in the same transaction as the receipt; and three of the four " +
+      "topics it records are PRIVACY REQUESTS, so an event would put a `customers/redact` on a " +
+      "bus that 041 §8.4 keeps personal values off entirely. E03-B09 reads the table.",
+  },
+
+  // ---------------------------------------------------------------------------
   // E04-D01 — THE CATALOG CLUSTER (030 §7, 047 §4–§9), landed by migrations
   // 014/015. Twelve tables, ONE rule, stated once and cited by each row so that a
   // reader does not have to reconstruct it twelve times:

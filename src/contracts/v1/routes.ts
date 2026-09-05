@@ -122,6 +122,34 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
       "holds no session by construction — that is what enrollment means — so it can name no " +
       "tenant; the shop and the location are properties of the CODE.",
   },
+  // E03-B06's two connector routes. Both are CORRECT outside the tenant prefix,
+  // and for a reason neither of the two above has: their caller is not a Longbox
+  // client at all. A `shopId` in either path would be a tenant asserted by
+  // whoever completed a redirect or posted a body — 042 E4's defect, arriving on
+  // the two routes where the tenant is established by a SIGNATURE instead.
+  {
+    method: "GET",
+    path: "/api/v1/connectors/shopify/callback",
+    kind: "exemption",
+    reason:
+      "the OAuth authorization-code callback (000-docs/053 §8.3). The shop is resolved from the " +
+      "single-use install state Longbox itself minted, and cross-checked against the `shop` " +
+      "parameter inside the signed message — two facts that must agree, neither of them a path " +
+      "segment. Shopify chooses the URL shape here, not this repository: it is the `redirect_uri` " +
+      "registered with the app, and a tenant-prefixed spelling would need the answer before it " +
+      "could ask the question.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/connectors/shopify/webhooks",
+    kind: "exemption",
+    reason:
+      "the signed webhook receiver (053 §8.2). ONE path for every topic, because the " +
+      "authentication, the dedupe and the receipt are identical and only the EFFECT differs — " +
+      "and the tenant is `X-Shopify-Shop-Domain` inside the signed bytes, resolved to a shop when " +
+      "one exists and recorded with a null resolution when it does not (a `shop/redact` for an " +
+      "already-offboarded store is the commonest message this route receives).",
+  },
   // The unversioned aliases. 042 §9.1 row 5 — "the unversioned aliases are
   // removed; the Deprecation/Sunset window closes" — is E02-B10's contract step,
   // so they are declared here rather than deleted here.
@@ -181,8 +209,20 @@ export interface AuthAllowlistRow {
    * resolves no tenant. **I6(f) asserts an alias path and its `/api/v1` target
    * refuse identically** — a redirect that answers differently from its target is
    * an oracle sitting on the front door with the word "deprecated" over it.
+   *
+   * `provider-callback` — E03-B06's own kind (042 §5.1 CLASS TWO at v1.4.3, 048
+   * I6(d)/(e) as amended at v1.5.2, 000-docs/053 §8). An inbound call from a
+   * THIRD-PARTY SYSTEM: it holds no Longbox session and can be given none, it
+   * cannot be made to send an `Idempotency-Key` or a `Sec-Fetch-Site`, and its
+   * authenticity is a signature over its own bytes verified before any row is
+   * read or written. **The two mechanisms are REPLACED, not dropped**, and by
+   * strictly stronger ones — a cross-site form cannot produce a valid HMAC, and
+   * exactly-once is a named UNIQUE on the ACT rather than a header a caller
+   * chose. The row is a separate KIND rather than a `none` principal alone
+   * because "anonymous" and "not a browser and not our client" are different
+   * facts, and only the second one licenses skipping a CSRF check.
    */
-  readonly kind: "route" | "redirect";
+  readonly kind: "route" | "redirect" | "provider-callback";
   readonly reason: string;
   /**
    * A row for a route the DESIGN has settled and this bead does not register.
@@ -331,6 +371,61 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
       "already made rather than one inferred by whoever adds the handler; E03-D11 lands it. " +
       " The walk asserts this path is ABSENT today.",
   },
+  // -------------------------------------------------------------------------
+  // E03-B06's connector rows. Both are `provider-callback`, and the kind is the
+  // whole of what makes them safe outside the two CSRF mechanisms — see the
+  // `kind` documentation above and 000-docs/053 §8.
+  // -------------------------------------------------------------------------
+  {
+    method: "GET",
+    path: "/api/v1/connectors/shopify/callback",
+    principal: "none",
+    kind: "provider-callback",
+    reason:
+      "THE SIGNATURE AND THE SINGLE-USE STATE ARE THE AUTHENTICATION. A merchant's browser " +
+      "arrives here at the end of Shopify's redirect holding no Longbox session — that is what an " +
+      "install IS — and the request is accepted only when the query's HMAC verifies under the " +
+      "app secret AND names an unspent, unexpired state Longbox minted for that exact store. " +
+      "**It is a GET that WRITES, which 048 I6(d) forbade flatly and now permits for this kind " +
+      "alone (v1.5.2)**: the reason I6(d) existed is that a cross-site GET carries the browser's " +
+      "AMBIENT CREDENTIAL, and this route reads no cookie at all, so there is no ambient " +
+      "authority to abuse. Its exactly-once guarantee is `connector_install_state_use (state_id)` " +
+      "— a replayed callback is a failed INSERT the database decides.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/connectors/shopify/webhooks",
+    principal: "none",
+    kind: "provider-callback",
+    reason:
+      "Shopify's servers post here. They send no cookie, no `Sec-Fetch-Site` and no " +
+      "`Idempotency-Key`, and no amount of configuration can make them: the caller is not a " +
+      "browser and not our client. `X-Shopify-Hmac-Sha256` over the RAW body under the app secret " +
+      "is the authentication, verified before a single row is read or written, so a forged " +
+      "message costs one HMAC and leaves no trace. Exactly-once is " +
+      "`connector_webhook_receipt (connector, webhook_id)`, because Shopify's delivery is " +
+      "at-least-once BY DESIGN and an at-least-once delivery met by anything other than a unique " +
+      "index is an at-least-once EFFECT.",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/connectors/shopify/install",
+    principal: "device+operator",
+    kind: "route",
+    pending: true,
+    closingBead: "E10-B02 `longbox-e5b.10.2` (the Shopify app lifecycle and the unlisted app)",
+    reason:
+      "DECLARED AND NOT REGISTERED, on the precedent the two rows below set. Starting an install " +
+      "is an OWNER act, 048 §7.3 puts owner acts in a privileged session, and privileged sessions " +
+      "still do not exist (048 §12.4 row 3a) — so E03-B06 builds the SERVICE (`mintInstallState`, " +
+      "which mints the state and the authorize URL) and reaches it from " +
+      "`scripts/connector-install.ts`, exactly as E03-D07 reaches `issueInvitation` from a CLI. " +
+      "The route this row describes is the merchant-facing landing an UNLISTED PUBLIC APP needs " +
+      "(Shopify's `app_url`), which is the distribution mode CLAUDE.md locked decision 3 makes " +
+      "the END STATE and not the pilot's. It is declared so its principal is a decision somebody " +
+      "already made rather than one inferred by whoever adds the handler. The walk asserts this " +
+      "path is ABSENT today.",
+  },
   {
     method: "POST",
     path: "/api/v1/device-enrollment-codes",
@@ -349,6 +444,37 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
 
 /** The rows whose routes must be registered; `pending` rows must not be. */
 export const AUTH_ALLOWLIST_ACTIVE = AUTH_ALLOWLIST.filter((r) => r.pending !== true);
+
+/**
+ * The paths whose REQUEST LINE must never be logged (E03-B06, 019 T31).
+ *
+ * DERIVED FROM THE ALLOWLIST rather than written as a literal, so a route that
+ * joins the `provider-callback` class gets the suppression by declaring what it
+ * is — the same reason the authentication hook reads these rows instead of a
+ * list of paths.
+ *
+ * **Why the class and not a hand-picked path.** A provider callback's URL is
+ * chosen by the PROVIDER and carries whatever the provider puts in it: today an
+ * OAuth `state`, a `code` and an `hmac`, all of which 019 T31 keeps out of a log
+ * and `migrations/026` keeps out of a column. The next member's query string is
+ * not knowable now, which is exactly why the rule is about the KIND.
+ */
+export const NO_REQUEST_LOG_PATHS: readonly string[] = AUTH_ALLOWLIST.filter(
+  (r) => r.kind === "provider-callback"
+).map((r) => r.path);
+
+/**
+ * Whether this request's line must be suppressed.
+ *
+ * Takes the RAW url and compares only the part before `?`: the decision is about
+ * the route, and reading the query here would be reading the thing being kept
+ * out of the log.
+ */
+export function isNoRequestLogPath(url: string | undefined): boolean {
+  if (url === undefined) return false;
+  const path = url.split("?", 1)[0]!;
+  return NO_REQUEST_LOG_PATHS.includes(path);
+}
 
 export function authRowFor(method: string, path: string): AuthAllowlistRow | undefined {
   return AUTH_ALLOWLIST_ACTIVE.find(
@@ -400,6 +526,35 @@ export interface RouteSpec {
   /** 042 §8.2 — only `identify` spends money. */
   readonly rateClass: RateClass;
   readonly request: ZodTypeAny | null;
+  /**
+   * The QUERY schema, for a route whose input arrives in the query string
+   * (E03-B06). Null everywhere else.
+   *
+   * A separate field from `request` rather than a reuse of it, because the two
+   * land in different places in the generated document — `requestBody` versus
+   * `parameters[in=query]` — and a route table that conflated them would emit an
+   * artifact describing a body no client sends (042 §3.3 property 3's fiction
+   * rule).
+   */
+  readonly query?: ZodTypeAny;
+  /**
+   * 042 §5.1 CLASS TWO, at v1.4.3 (E03-B06). Present ONLY on a route whose
+   * caller is a third-party system that cannot be made to send an
+   * `Idempotency-Key`.
+   *
+   * **`uniqueOn` is required and is the whole point.** 042 §5.1 already rules
+   * that "a UNIQUE constraint" alone is not a test — every table here has a
+   * surrogate primary key, which is a UNIQUE — so a member of the class must
+   * NAME the constraint that makes a second execution of the same request a
+   * failed INSERT rather than a second effect. `tests/contract/api-contract.test.ts`
+   * reads this string and asserts the index exists in `migrations/`.
+   */
+  readonly idempotency?: {
+    readonly exemptionClass: "provider-callback";
+    /** `table (columns)`, spelled as the migration spells it. */
+    readonly uniqueOn: string;
+    readonly reason: string;
+  };
   /**
    * The success body's schema, or `null` when the route answers BYTES rather
    * than JSON. Null is not "undescribed": `responseMediaType` then carries what
@@ -589,6 +744,70 @@ export const ROUTES: readonly RouteSpec[] = [
       "INTERNAL_ERROR",
     ],
     summary: "Redeem a device enrollment code and receive a device session.",
+  },
+  {
+    // E03-B06. **A GET that MUTATES, and the only one in this table.** It is
+    // permitted by 048 I6(d) as amended at v1.5.2, for the `provider-callback`
+    // kind alone: I6(d) existed because a cross-site GET carries the browser's
+    // ambient credential, and this route reads no cookie, so there is no ambient
+    // authority for a cross-site navigation to spend. What it reads instead is a
+    // signature it cannot forge and a state it cannot guess.
+    //
+    // `mutating: true` is stated honestly rather than softened to `false` to
+    // dodge a test: the route writes two rows, and a route table that lied about
+    // that would be a worse artifact than an amended invariant.
+    method: "GET",
+    path: `${s.API_PREFIX}/connectors/shopify/callback`,
+    pluginPath: null,
+    mutating: true,
+    // `ordinary`, keyed on the shop the STATE names (048 R14's shape). The
+    // hook takes the route's aggregate bucket because the shop is unknown until
+    // the state is resolved; `completeInstall` takes the shop's own bucket after
+    // the signature verifies, so an unsigned flood is refused more cheaply than
+    // a signed one.
+    rateClass: "ordinary",
+    request: null,
+    query: s.connectorCallbackQuery,
+    response: s.connectorCallbackResponse,
+    successStatus: 200,
+    errors: ["VALIDATION_FAILED", "CONNECTOR_CALLBACK_REFUSED", "RATE_LIMITED", "INTERNAL_ERROR"],
+    idempotency: {
+      exemptionClass: "provider-callback",
+      uniqueOn: "connector_install_state_use (state_id)",
+      reason:
+        "Shopify chooses this URL's shape and sends no header of ours. A GET takes no " +
+        "Idempotency-Key under 042 §5.1 in any case (the rule governs non-safe methods), so the " +
+        "exactly-once guarantee has to be a constraint on the ACT: a replayed callback fails to " +
+        "insert the state's use row, inside the same transaction as the token version it names, " +
+        "so the loser writes neither.",
+    },
+    summary: "Complete a connector install: verify the grant and introduce the token version.",
+  },
+  {
+    // E03-B06. The signed webhook receiver — ONE route for every topic, because
+    // the authentication, the dedupe and the receipt are identical and only the
+    // effect differs.
+    method: "POST",
+    path: `${s.API_PREFIX}/connectors/shopify/webhooks`,
+    pluginPath: null,
+    mutating: true,
+    // `ordinary`, keyed on the shop the SIGNED DOMAIN names — taken in
+    // `receiveWebhook` after the HMAC, for the same reason as the callback.
+    rateClass: "ordinary",
+    request: null,
+    response: s.connectorWebhookResponse,
+    successStatus: 200,
+    errors: ["WEBHOOK_SIGNATURE_INVALID", "RATE_LIMITED", "INTERNAL_ERROR"],
+    idempotency: {
+      exemptionClass: "provider-callback",
+      uniqueOn: "connector_webhook_receipt (connector, webhook_id)",
+      reason:
+        "Shopify's delivery is at-least-once BY DESIGN and it sends no Idempotency-Key. The " +
+        "guarantee is the unique index on ITS id: the receipt insert is the duplicate check " +
+        "(041 §4.2(i)), and the effect runs only for the insert that won, in the same " +
+        "transaction, so a crash between the two replays both.",
+    },
+    summary: "Receive one signed Shopify webhook: authenticate, record, then act.",
   },
   {
     method: "POST",

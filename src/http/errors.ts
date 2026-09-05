@@ -105,7 +105,22 @@ export function registerErrorHandling(app: FastifyInstance): void {
 
   app.setErrorHandler((err, req, reply) => {
     const mapped = classify(err);
-    if (mapped.code === "INTERNAL_ERROR") req.log.error({ err }, "unhandled error");
+    // ⚠ THE CORRELATION ID IS ON THE LOG LINE, NOT ONLY IN THE RESPONSE (042 I14,
+    // added by E03-B06's invariant re-verification). The id is what an operator
+    // joins a report to a server line with, and until now it reached only the
+    // caller: a person holding a failing request's id had nothing to grep for.
+    //
+    // It matters most on the routes that log least. E03-B06's two connector
+    // routes carry `disableRequestLogging` — their URL holds an OAuth state, a
+    // code and a signature (019 T31) — so this is the ONLY line an unhandled
+    // throw on them produces, and a line with no id would be a line nobody can
+    // attribute.
+    //
+    // **The URL is deliberately absent** and so is every request field: `err`
+    // and an id, and nothing that could carry a query string into a log.
+    if (mapped.code === "INTERNAL_ERROR") {
+      req.log.error({ err, correlation_id: correlationIdOf(req) }, "unhandled error");
+    }
     const retryAfter = mapped.details["retry_after_seconds"];
     if (typeof retryAfter === "number") void reply.header("retry-after", String(retryAfter));
     void reply.code(mapped.status).send(envelope(mapped.code, correlationIdOf(req), mapped.details));

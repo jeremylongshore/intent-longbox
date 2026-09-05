@@ -394,6 +394,52 @@ export const ERROR_CODES = {
       "which recovery to offer without parsing prose (042 §4.3). Neither code discloses which of " +
       "its causes fired.",
   },
+  /**
+   * E03-B06 (053 §8.3). The ONE answer every install-callback refusal produces.
+   *
+   * `CallbackRefusal` in `src/services/connectors/shopify/api.ts` distinguishes
+   * ten causes and NONE of them reaches the wire, on 048 §9.3's constant-answer
+   * reasoning applied one connector over: a caller who could tell `unknown_state`
+   * from `state_expired` from `domain_mismatch` would hold an oracle over which
+   * install states exist, and one who could tell `bad_signature` from
+   * `scope_excessive` would learn whether their forged signature was the thing
+   * that failed. `details` is empty for the same reason.
+   *
+   * **400 and not 401.** The caller is a merchant's browser mid-redirect, not a
+   * principal that could authenticate: there is no credential to supply and no
+   * `WWW-Authenticate` that would mean anything. What failed is the REQUEST —
+   * its signature, its state or its grant — which is what 400 names.
+   */
+  CONNECTOR_CALLBACK_REFUSED: {
+    status: 400,
+    retryable: false,
+    operatorRenderable: false,
+    copyRow: null,
+    implements:
+      "000-docs/053 §8.3 — one constant answer for every OAuth-callback refusal. NOT operator " +
+      "renderable: the reader of this response is a browser at the end of a provider redirect, " +
+      "and the person's next step is the operator console the install was started from, not a " +
+      "string on a page nobody designed.",
+  },
+  /**
+   * E03-B06 (053 §8.2). A webhook whose HMAC did not verify.
+   *
+   * **401, and it is a provider requirement as well as the right code.** Shopify
+   * expects an unauthenticated webhook to be refused with 401 on the mandatory
+   * compliance topics; answering 200 to a bad signature is how an app passes a
+   * review it should fail. The refusal happens BEFORE any row is read or
+   * written, so a forged message costs one HMAC and leaves no trace.
+   */
+  WEBHOOK_SIGNATURE_INVALID: {
+    status: 401,
+    retryable: false,
+    operatorRenderable: false,
+    copyRow: null,
+    implements:
+      "000-docs/053 §8.2; 046 §5 A13 (a forged webhook) — the surface that did not exist when 046 " +
+      "was written. No `details`: an unsigned caller learns nothing about which header, which " +
+      "topic or which store would have been accepted.",
+  },
   RATE_LIMITED: {
     status: 429,
     retryable: true,
@@ -472,6 +518,8 @@ export const MESSAGES: Record<ErrorCode, string> = {
   PIN_REFUSED: "the chosen PIN does not satisfy the PIN policy",
   INVITATION_INVALID: "the submitted invitation code was not accepted",
   ENROLLMENT_CODE_INVALID: "the submitted enrollment code was not accepted",
+  CONNECTOR_CALLBACK_REFUSED: "the connector authorization callback was not accepted",
+  WEBHOOK_SIGNATURE_INVALID: "the request signature did not verify",
   RATE_LIMITED: "a provisional rate floor was exceeded for the key this route is bucketed on",
   WRITE_CONFLICT_RETRY_EXHAUSTED: "a write conflict survived the transaction retry budget",
   INTERNAL_ERROR: "an unhandled error occurred",

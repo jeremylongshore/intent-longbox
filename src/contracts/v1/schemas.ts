@@ -471,5 +471,72 @@ export const deviceEnrollmentResponse = deviceSessionResponse;
 export const endOperatorSessionRequest = z.object({}).strict();
 export const endOperatorSessionResponse = z.object({ ended: z.literal(true) });
 
+// ---------------------------------------------------------------------------
+// E03-B06 — the connector surface (000-docs/053 §8).
+// ---------------------------------------------------------------------------
+
+/**
+ * The OAuth callback's query, as Shopify sends it.
+ *
+ * ⚠ **THE SCHEMA IS NOT THE AUTHENTICATION AND MUST NOT BE READ AS ONE.** It
+ * bounds the SHAPE — a string of a stated length, present or absent — and every
+ * field in it is attacker-controlled until `verifyQueryHmac` has run over the
+ * whole query with the app secret. `shop` in particular is checked a second time
+ * against `isShopifyShopDomain` before it is used, because the next thing the
+ * install does with it is POST this app's client secret to it.
+ *
+ * `.strict()` is deliberately NOT used, and this is the one contract in the file
+ * where a passthrough is the safe choice: Shopify adds parameters to this
+ * callback over time (`host` arrived after `timestamp`), every one of them is
+ * INSIDE the signed message, and a strict schema would refuse an authentic
+ * callback the day the provider adds a field. The signature — which covers every
+ * parameter, including ones this schema has never heard of — is what makes that
+ * safe.
+ */
+export const connectorCallbackQuery = z.object({
+  shop: z.string().min(1).max(255),
+  code: z.string().min(1).max(255),
+  state: z.string().min(1).max(255),
+  hmac: z.string().min(1).max(128),
+  timestamp: z.string().max(32).optional(),
+  host: z.string().max(512).optional(),
+});
+
+/**
+ * What the callback answers.
+ *
+ * THREE FIELDS AND NO IDENTIFIERS. It carries no token, obviously; it also
+ * carries no `connector_token_version_id`, no state id and no shop id, because
+ * the reader is a browser at the end of a provider redirect and none of those is
+ * anything it can act on — while every one of them would be an id disclosed to
+ * whoever completed the redirect. `granted_scopes` IS here: it is exactly what
+ * the merchant approved on Shopify's own consent screen a second earlier, so it
+ * discloses nothing they were not just shown, and it is the one thing worth
+ * seeing at that moment.
+ *
+ * ⚠ IT IS JSON, NOT A PAGE. 042 §4.3 rules that the server emits no operator
+ * prose, so this route cannot answer with a "Longbox is connected" screen. The
+ * merchant-facing install and consent SURFACE — including the words on it — is
+ * E10-B02's, and its copy is a candidate C-row for 000-docs/021 under the T26
+ * pre-send (053 §9). It is not written here.
+ */
+export const connectorCallbackResponse = z.object({
+  connector: z.literal("shopify"),
+  shop_domain: z.string(),
+  granted_scopes: z.array(z.string()),
+});
+
+/**
+ * What a webhook receiver answers: an acknowledgement and nothing else.
+ *
+ * Not the receipt id, not `duplicate`, not the topic. The reader is Shopify's
+ * delivery system, which acts on the STATUS CODE alone — and every additional
+ * field would be a fact about this system's state returned to a caller that
+ * authenticated with a shared secret rather than as a tenant. A redelivery and a
+ * first delivery answer identically, which is what an idempotent receiver
+ * should look like from outside.
+ */
+export const connectorWebhookResponse = z.object({ acknowledged: z.literal(true) });
+
 export type SessionDetail = z.infer<typeof sessionDetailResponse>;
 export type IdentifyResponse = z.infer<typeof identifyResponse>;

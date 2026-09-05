@@ -7,13 +7,13 @@
 // the contract at all), I9 (the server declares no operator-facing field and
 // emits no operator prose) and I15 (the committed OpenAPI equals a
 // regeneration).
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES, ERROR_CODE_NAMES } from "../../src/contracts/v1/errors.js";
 import { renderOpenApiDocument } from "../../src/contracts/v1/openapi.js";
-import { ROUTES, ROUTE_ALLOWLIST, STATIC_MOUNTS } from "../../src/contracts/v1/routes.js";
+import { ROUTES, ROUTE_ALLOWLIST, STATIC_MOUNTS, authRowFor } from "../../src/contracts/v1/routes.js";
 import { API_PREFIX, TENANT_PREFIX, eventDtos } from "../../src/contracts/v1/schemas.js";
 import { GRADE_LABELS } from "../../src/services/condition.js";
 
@@ -149,9 +149,75 @@ describe("the route table (042 §3.1, I6)", () => {
     // routes: the three session ones sit under (b1) (a `Set-Cookie` and nothing
     // else) and owe no constraint, which is why v1.4.2 had to make (b) two
     // disjuncts — v1.4.1's conjunction expelled three of its own members.
-    expect(mutating).toHaveLength(12);
+    //
+    // FOURTEEN at E03-B06, and this is where §5.1 grew a SECOND CLASS
+    // (042 v1.4.3). The two connector routes are mutating and require no
+    // `Idempotency-Key`, because their caller is a THIRD-PARTY SYSTEM that
+    // cannot be made to send one — Shopify's servers, and a merchant's browser
+    // at the end of Shopify's redirect. The header is not dropped, it is
+    // REPLACED: each names the UNIQUE constraint that makes a second execution a
+    // failed INSERT, and the block below asserts the named index actually exists
+    // in `migrations/` rather than taking the string's word for it.
+    expect(mutating).toHaveLength(14);
     for (const route of ROUTES) {
-      expect(route.mutating).toBe(route.method === "POST");
+      // POST always mutates. A GET mutates ONLY as a provider callback — 048
+      // I6(d) as amended at v1.5.2, whose original ground was that a cross-site
+      // GET carries the browser's AMBIENT CREDENTIAL. A `provider-callback` row
+      // reads no cookie at all, so there is no ambient authority to spend, and
+      // the route table states the write honestly instead of declaring
+      // `mutating: false` to dodge a test.
+      if (route.method === "POST") expect(route.mutating, route.path).toBe(true);
+      else if (route.mutating) {
+        expect(route.idempotency?.exemptionClass, route.path).toBe("provider-callback");
+        expect(authRowFor(route.method, route.path)?.kind, route.path).toBe("provider-callback");
+        expect(authRowFor(route.method, route.path)?.principal, route.path).toBe("none");
+      }
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // 042 §5.1 CLASS TWO (v1.4.3, E03-B06) — a member NAMES its constraint, and the
+  // name is CHECKED.
+  //
+  // §5.1 already rules that "a UNIQUE constraint" alone is not a test: every
+  // table here has a surrogate primary key, which is a UNIQUE, so a clause
+  // satisfied by `id uuid PRIMARY KEY` is satisfied by every route in the
+  // system. What (b2) needed — and what this class needs for the same reason —
+  // is a constraint on the ACT. So the row names one, and this test reads the
+  // migrations to confirm it exists. Without this, "exempt because a UNIQUE
+  // protects it" is a sentence rather than a control.
+  // ---------------------------------------------------------------------------
+  it("makes every idempotency exemption name a UNIQUE INDEX that exists in migrations", () => {
+    const sql = readdirSync("migrations")
+      .filter((f) => f.endsWith(".sql"))
+      .map((f) => readFileSync(join("migrations", f), "utf8"))
+      .join("\n")
+      .replace(/\s+/g, " ");
+
+    const exempt = ROUTES.filter((r) => r.idempotency !== undefined);
+    expect(exempt.length, "the class exists and has members").toBeGreaterThan(0);
+
+    for (const route of exempt) {
+      const { uniqueOn, reason } = route.idempotency!;
+      const match = /^(\w+)\s*\(([^)]+)\)$/.exec(uniqueOn);
+      expect(
+        match,
+        `${route.path}: uniqueOn must read \`table (columns)\`, got '${uniqueOn}'`
+      ).not.toBeNull();
+      const table = match![1]!;
+      const columns = match![2]!;
+      // The index, as the migration spells it: a CREATE UNIQUE INDEX over that
+      // table with those columns, in that order. Whitespace is normalised above
+      // so the assertion is about the SQL and not about a line break.
+      const pattern = new RegExp(
+        `CREATE UNIQUE INDEX[^;]*ON ${table} \\( *${columns
+          .split(",")
+          .map((c) => c.trim())
+          .join(", *")} *\\)`,
+        "i"
+      );
+      expect(pattern.test(sql), `${route.path}: no UNIQUE INDEX on ${uniqueOn} in migrations/`).toBe(true);
+      expect(reason.length, `${route.path}: the exemption states no reason`).toBeGreaterThan(60);
     }
   });
 

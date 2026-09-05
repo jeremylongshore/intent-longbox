@@ -42,7 +42,15 @@ async function main(): Promise<void> {
   // Two processes are safe by construction: each one's claim transaction takes
   // `FOR UPDATE … SKIP LOCKED`, so the second skips rows the first holds. No
   // lease table, no worker registry, no leader election (043 §7.2).
-  startOutboxPoller(db, buildConsumerRegistry(), loadOutboxParams(), app.log);
+  // The connector ring is resolved ONCE, by `loadConfig`, which is also where
+  // the fail-closed refusal lives — so no job re-scans `process.env` for a key
+  // this process already holds (the invariant review of `16f17ef`, note 8).
+  startOutboxPoller(
+    db,
+    buildConsumerRegistry({ ...(config.connectorKeys ? { keyring: config.connectorKeys } : {}) }),
+    loadOutboxParams(),
+    app.log
+  );
   await app.listen({ port: config.port, host: "0.0.0.0" });
 }
 

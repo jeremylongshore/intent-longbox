@@ -166,6 +166,55 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
    */
   let credentialVersionCounter = 0;
 
+  /**
+   * The connector recipes (E03-B06, `migrations/026`).
+   *
+   * Same rule as `freshAuthenticator` one helper up: the sealed columns hold
+   * obviously-synthetic bytes rather than a real AEAD envelope, because this
+   * suite tests the TRIGGER and not the cryptography — and 019 T31's fixture
+   * rule is that nothing here may carry anything a real credential could be
+   * confused with. `id` is supplied because the column has no default: it is the
+   * AAD, so the application mints it.
+   */
+  let connectorVersionCounter = 0;
+  let connectorWebhookCounter = 0;
+
+  async function freshInstallState(): Promise<{ id: string }> {
+    const r = await pool.query(
+      `INSERT INTO connector_install_state
+         (shop_id, connector, shop_domain, state_digest, requested_scopes, expires_at)
+       VALUES ($1,'shopify','recipe.myshopify.com',$2,ARRAY['write_products'],now() + interval '15 minutes')
+       RETURNING id`,
+      [shopId, randomUUID().replace(/-/g, "").repeat(2)]
+    );
+    return { id: (r.rows[0] as { id: string }).id };
+  }
+
+  async function freshTokenVersion(): Promise<{ id: string }> {
+    connectorVersionCounter += 1;
+    const r = await pool.query(
+      `INSERT INTO connector_token_version
+         (id, shop_id, connector, shop_domain, granted_scopes, token_ciphertext, token_nonce,
+          key_version, version_no)
+       VALUES (gen_random_uuid(), $1, 'shopify', 'recipe.myshopify.com', ARRAY['write_products'],
+               '\\x00', '\\x00', 1, $2)
+       RETURNING id`,
+      [shopId, connectorVersionCounter]
+    );
+    return { id: (r.rows[0] as { id: string }).id };
+  }
+
+  async function freshWebhookReceipt(): Promise<{ id: string }> {
+    connectorWebhookCounter += 1;
+    const r = await pool.query(
+      `INSERT INTO connector_webhook_receipt
+         (shop_id, connector, topic, webhook_id, shop_domain, payload_digest, payload_bytes)
+       VALUES ($1,'shopify','shop/redact',$2,'recipe.myshopify.com',$3,0) RETURNING id`,
+      [shopId, `recipe-${String(connectorWebhookCounter)}-${randomUUID()}`, "0".repeat(64)]
+    );
+    return { id: (r.rows[0] as { id: string }).id };
+  }
+
   /** A fresh three-letter vertical code, for the `vertical_pack` recipe. */
   let verticalCodeCounter = 0;
   function freshVerticalCode(): string {
@@ -747,6 +796,38 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         const r = await pool.query(
           `INSERT INTO shop_recovery_nomination (shop_id, kind) VALUES ($1,'declined') RETURNING id`,
           [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+
+      // 026 (E03-B06): the connector's authorization lifecycle. Five tables and
+      // no exemption — every one is a thing that HAPPENED, and every guard in
+      // the subsystem is a UNIQUE index rather than a mutable column.
+      case "connector_install_state":
+        return (await freshInstallState()).id;
+      case "connector_token_version":
+        return (await freshTokenVersion()).id;
+      case "connector_install_state_use": {
+        const state = await freshInstallState();
+        const version = await freshTokenVersion();
+        const r = await pool.query(
+          `INSERT INTO connector_install_state_use (shop_id, state_id, connector_token_version_id)
+           VALUES ($1,$2,$3) RETURNING id`,
+          [shopId, state.id, version.id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      case "connector_webhook_receipt":
+        return (await freshWebhookReceipt()).id;
+      case "connector_token_retirement": {
+        // `uninstall` is the reason that must cite its webhook (026's CHECK), so
+        // the recipe uses `revocation` — the one a person may assert — and the
+        // CHECK itself is asserted in `tests/integration/connector-oauth.test.ts`.
+        const version = await freshTokenVersion();
+        const r = await pool.query(
+          `INSERT INTO connector_token_retirement (shop_id, connector_token_version_id, reason_code)
+           VALUES ($1,$2,'revocation') RETURNING id`,
+          [shopId, version.id]
         );
         return (r.rows[0] as { id: string }).id;
       }

@@ -48,6 +48,16 @@ import type { AuthenticatorKeyring } from "../../src/services/auth/aead.js";
 import { enrollAuthenticator, verifyTotp } from "../../src/services/auth/index.js";
 import { base32Encode, stepAt, totpCode } from "../../src/services/auth/totp.js";
 import type { Queryable, Tx } from "../../src/db.js";
+import {
+  CONNECTOR_OFFBOARDING_STEPS,
+  RETIREMENT_MEANING,
+  connectorResidual,
+  introduceTokenVersion,
+  openTokenValue,
+  renderConnectorReceipt,
+  requireConnectorKey,
+  revocationOutcome,
+} from "../../src/services/connectors/shopify/index.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const SHOP = "11111111-1111-1111-1111-111111111111";
@@ -435,6 +445,77 @@ describe("019 T31's five uncovered surfaces, under a planted canary (050 §9 I1)
     expect(errorText).toContain("LONGBOX_AUTHENTICATOR_KEY_V1");
   });
 
+  // -------------------------------------------------------------------------
+  // E03-B06 — the CONNECTOR ACCESS TOKEN, on the same five surfaces.
+  //
+  // 053 §3 rules that this one credential lives as AEAD ciphertext in a column,
+  // on two predicates a BYOK key fails — it is minted by the machine, and it is
+  // revocable at its issuer without a Longbox act. **That ruling makes this
+  // assertion more load-bearing rather than less**: the whole argument for the
+  // column depends on the plaintext never existing anywhere but inside one
+  // function's scope, so the canary is planted in a real token, sealed by the
+  // real function, and everything the subsystem would hand to a database, a log
+  // or an error is searched for it.
+  //
+  // The three columns below are literally what `introduceTokenVersion` binds.
+  // -------------------------------------------------------------------------
+  it("a connector access token's plaintext reaches no column, no error and no receipt", () => {
+    const ring = requireConnectorKey({
+      LONGBOX_CONNECTOR_KEY_V1: Buffer.alloc(32, 0x33).toString("base64"),
+    });
+    const planted = "test-shopify-access-canary-key";
+    const rowId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const sealed = seal(ring, Buffer.from(planted, "utf8"), rowId);
+
+    // Surface 1 — the COLUMNS.
+    expect(Buffer.concat([sealed.ciphertext, sealed.nonce]).toString("binary")).not.toContain(planted);
+
+    // Surfaces 3 and 4 — ERRORS, including the one this module ADDS: an
+    // `AeadOpenError` restated so it names the CONNECTOR variable rather than
+    // the authenticator's. A message that sends an operator to the wrong file at
+    // the wrong hour is worse than no message — and it must still quote nothing.
+    const failures: string[] = [];
+    const attempts: Array<() => unknown> = [
+      () => open(ring, { ...sealed, aad: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }),
+      () => open(ring, { ...sealed, keyVersion: 9, aad: rowId }),
+      () => requireConnectorKey({}),
+      () => requireConnectorKey({ LONGBOX_CONNECTOR_KEY_V1: "c2hvcnQ=" }),
+    ];
+    for (const attempt of attempts) {
+      try {
+        attempt();
+      } catch (err) {
+        failures.push(`${(err as Error).message}\n${(err as Error).stack ?? ""}`);
+      }
+    }
+    expect(failures).toHaveLength(attempts.length);
+    const errorText = failures.join("\n");
+    expect(errorText).not.toContain(planted);
+    expect(errorText).not.toContain(Buffer.alloc(32, 0x33).toString("base64"));
+    expect(errorText).toContain("LONGBOX_CONNECTOR_KEY_V1");
+
+    // Surface 4 again — the RECEIPT, which is the one artifact this subsystem
+    // hands to a person. It names the token as an object and carries no value.
+    const receipt = renderConnectorReceipt({
+      shop_id: SHOP,
+      connector: "shopify",
+      connector_token_version_id: rowId,
+      version_no: 1,
+      shop_domain: "gotham.myshopify.com",
+      granted_scopes: ["write_products", "read_products"],
+      reason_code: "uninstall",
+      retired_at: new Date(0).toISOString(),
+      webhook_receipt_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      provider_revocation: null,
+      meaning: RETIREMENT_MEANING.uninstall,
+      provider_outcome: revocationOutcome(null),
+      steps: CONNECTOR_OFFBOARDING_STEPS,
+      residual: connectorResidual("uninstall"),
+    });
+    expect(receipt).not.toContain(planted);
+    expect(receipt).not.toContain(sealed.ciphertext.toString("base64"));
+  });
+
   // ⚠ THE RECOVERY-CODE HALF OF THE SAME RULE IS ASSERTED IN THE INTEGRATION
   // LANE, DELIBERATELY (`tests/integration/recovery-codes.test.ts`). It needs
   // argon2id at the parameters `secrets.ts` sets, and three of those runs is four
@@ -517,6 +598,102 @@ describe("019 T31's five uncovered surfaces, under a planted canary (050 §9 I1)
     expect(sunk).not.toContain(planted.toString("base64"));
     expect(sunk).not.toContain(base32Encode(planted));
   }, 30_000);
+
+  it("SEALING AND OPENING A CONNECTOR TOKEN WRITE NOTHING to any stream", async () => {
+    // ⚠ THE SAME FINDING, ONE SUBSYSTEM OVER (invariant review of `16f17ef`,
+    // finding 5). The connector canary above covers the COLUMNS, the ERRORS and
+    // the RECEIPT — and a `console.log` planted inside `openTokenValue` passed
+    // one hundred cases and printed the token, because nothing watched a stream
+    // while the real seal and the real open ran.
+    //
+    // 053 §3's whole custody ruling rests on the plaintext existing inside one
+    // function's scope and nowhere else, and **a stream is a "nowhere else"**.
+    // So the two calls that hold it run under the same total capture the
+    // authenticator's do — every `console` method plus
+    // `process.stdout.write` / `process.stderr.write`, which is where a
+    // `console.log` actually lands and where a hand-rolled debug line would go.
+    const ring = requireConnectorKey({
+      LONGBOX_CONNECTOR_KEY_V1: Buffer.alloc(32, 0x33).toString("base64"),
+    });
+    const planted = "test-shopify-stream-canary-key";
+    const captured: string[] = [];
+    const writes: Array<[NodeJS.WriteStream, NodeJS.WriteStream["write"]]> = [];
+    for (const stream of [process.stdout, process.stderr]) {
+      const original = stream.write.bind(stream) as NodeJS.WriteStream["write"];
+      writes.push([stream, original]);
+      stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+        captured.push(typeof chunk === "string" ? chunk : String(chunk));
+        return (original as (...a: unknown[]) => boolean)(chunk, ...rest);
+      }) as NodeJS.WriteStream["write"];
+    }
+    for (const level of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        captured.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+      });
+    }
+
+    // A pool that answers the two statements the real write/read path issues, so
+    // `introduceTokenVersion` and `openTokenValue` run whole rather than being
+    // stood in for.
+    let sealedRow: { id: string; ciphertext: Buffer; nonce: Buffer; keyVersion: number } | undefined;
+    const db = {
+      query: async (text: string, values?: unknown[]) => {
+        if (text.includes("INSERT INTO connector_token_version")) {
+          const v = values as unknown[];
+          sealedRow = {
+            id: v[0] as string,
+            ciphertext: v[6] as Buffer,
+            nonce: v[7] as Buffer,
+            keyVersion: v[8] as number,
+          };
+          return { rows: [] };
+        }
+        if (text.includes("FROM connector_token_version v")) {
+          return {
+            rows: [
+              {
+                id: sealedRow!.id,
+                token_ciphertext: sealedRow!.ciphertext,
+                token_nonce: sealedRow!.nonce,
+                key_version: sealedRow!.keyVersion,
+                retired: false,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+
+    try {
+      const id = await introduceTokenVersion(db, ring, {
+        shopId: SHOP,
+        connector: "shopify",
+        shopDomain: "gotham.myshopify.com",
+        installStateId: null,
+        grantedScopes: ["write_products"],
+        accessToken: planted,
+        versionNo: 1,
+      });
+      expect(await openTokenValue(db, ring, SHOP, id)).toBe(planted);
+
+      // THE SINK REALLY IS WATCHING. Without this the whole test passes when the
+      // capture is broken, which is the failure mode a canary test is most prone
+      // to — and is exactly how the planted `console.log` survived before.
+      console.log("connector-sink-probe");
+      process.stdout.write("");
+    } finally {
+      for (const [stream, original] of writes) stream.write = original;
+      vi.restoreAllMocks();
+    }
+
+    const sunk = captured.join("\n");
+    expect(sunk).toContain("connector-sink-probe");
+    // Every encoding a well-meaning debug line would reach for.
+    expect(sunk).not.toContain(planted);
+    expect(sunk).not.toContain(Buffer.from(planted, "utf8").toString("hex"));
+    expect(sunk).not.toContain(Buffer.from(planted, "utf8").toString("base64"));
+  });
 
   it("the canary is shaped like a fixture credential, so the convention test governs it", () => {
     // E03-D04's rule: a value of this shape may live only under `tests/`. That

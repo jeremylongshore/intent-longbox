@@ -19,29 +19,99 @@ import type pg from "pg";
 import { resolveShopToken } from "../providers/registry.js";
 import { createConsumerRegistry, type ConsumerRegistry } from "../services/outbox.js";
 import { createShopifyClient, createStubShopifyClient, type ShopifyClient } from "../services/shopify.js";
+import {
+  CONNECTOR,
+  ConnectorTokenRefusedError,
+  openTokenValue,
+  requireConnectorKey,
+  resolveTokenVersion,
+  type ConnectorKeyring,
+} from "../services/connectors/shopify/index.js";
 import { DRAFT_REQUESTED } from "../events/catalogue.js";
 import { createDraftRequestedConsumer, type ShopifyClientResolver } from "./draftRequested.js";
 
 /**
- * Per-shop Shopify client, resolved the same way every other credential is:
- * `shop_credentials.key_ref` names an env var, with a global fallback, and a raw
- * key never touches the database (locked decision 2).
+ * Per-shop Shopify client, in THREE outcomes and a fixed precedence (E03-B06,
+ * 000-docs/053 §7.4).
  *
- * Degrades to the stub when creds are absent — the pipeline never blocks on a
- * missing token — and the stub's GID is derived from the copy key rather than
- * the clock, so a retry against it behaves like the upsert it stands in for.
+ *   1. **A live connector token version wins outright.** Its `shop_domain` and
+ *      its sealed token are one fact written by one install, so the store and
+ *      the authority cannot come from two different places.
+ *   2. **Versions exist and none is live → REFUSED.** Never a fall-through to
+ *      the static admin token. This is 050 §4's rule for a BYOK credential
+ *      applied to a connector, and the reason is the same one word for word: a
+ *      shop whose app was uninstalled would otherwise silently resume drafting
+ *      through a token nobody revoked, and the "deletion" would have made the
+ *      system keep working. **The refusal is what makes the ending true**, and
+ *      it lands one layer before the operations half — the ciphertext is still
+ *      in the row when the client already refuses.
+ *   3. **No versions at all** → the legacy static path
+ *      (`shop_credentials.key_ref` → env var, global fallback), which is what
+ *      the pilot's per-store Dev Dashboard app uses today and which still
+ *      degrades to the STUB when the token is absent. 046 G-14's defect is
+ *      closed by giving it a successor, not by breaking the pilot the week the
+ *      successor lands (E16-B02 owns the cutover).
+ *
+ * A raw key still never touches `shop_credentials`; what changed is that a
+ * connector token is sealed ciphertext in `connector_token_version` under a ring
+ * that lives only in the process environment (053 §3).
  */
-export const resolveShopifyClientForShop: ShopifyClientResolver = async (pool: pg.Pool, shopId: string) => {
+export function createShopifyClientResolver(
+  deps: { keyring?: ConnectorKeyring } = {}
+): ShopifyClientResolver {
+  return async (pool: pg.Pool, shopId: string) => resolveShopifyClient(pool, shopId, deps.keyring);
+}
+
+/**
+ * The default resolver, for a caller with no config in scope.
+ *
+ * ⚠ IT READS `process.env` PER JOB, AND THAT IS THE FALLBACK RATHER THAN THE
+ * PATH (the invariant review of `16f17ef`, note 8). `src/server.ts` builds the
+ * registry with `config.connectorKeys` — resolved ONCE at boot by `loadConfig`,
+ * which is also where the fail-closed refusal lives — so the running system does
+ * not re-scan the environment for every draft. This binding exists for the tests
+ * and scripts that have no `AppConfig`, and it is kept rather than removed
+ * because a resolver that could only be built from a config would push callers
+ * into constructing one.
+ */
+export const resolveShopifyClientForShop: ShopifyClientResolver = async (pool: pg.Pool, shopId: string) =>
+  resolveShopifyClient(pool, shopId, undefined);
+
+const resolveShopifyClient: (
+  pool: pg.Pool,
+  shopId: string,
+  keyring: ConnectorKeyring | undefined
+) => Promise<{ client: ShopifyClient; stub: boolean }> = async (pool, shopId, keyring) => {
+  const apiVersion = process.env.SHOPIFY_API_VERSION ?? "2025-07";
+  const outcome = await resolveTokenVersion(pool, shopId, CONNECTOR);
+  if (outcome.outcome === "all_retired") {
+    const newest = outcome.retired[0];
+    throw new ConnectorTokenRefusedError(
+      `shop ${shopId} has ${String(outcome.retired.length)} Shopify connector token version(s) ` +
+        `and every one is retired (newest: version ${String(newest?.versionNo)}, reason ` +
+        `${newest?.retiredReason ?? "unknown"}). Re-install the connector. A retired connector ` +
+        `token is never replaced by the static admin token, because that would let an ` +
+        `uninstalled shop keep drafting through a credential nobody revoked.`
+    );
+  }
+  if (outcome.outcome === "live") {
+    const token = await openTokenValue(pool, keyring ?? requireConnectorKey(), shopId, outcome.chosen.id);
+    return {
+      client: createShopifyClient({
+        storeDomain: outcome.chosen.shopDomain,
+        adminToken: token,
+        apiVersion,
+      }),
+      stub: false,
+    };
+  }
+
   const shopRes = await pool.query(`SELECT shopify_domain FROM shop WHERE id = $1`, [shopId]);
   const shopRow = shopRes.rows[0] as { shopify_domain: string | null } | undefined;
   const adminToken = await resolveShopToken(pool, shopId, "shopify", "SHOPIFY_ADMIN_TOKEN");
   const storeDomain = shopRow?.shopify_domain ?? process.env.SHOPIFY_STORE_DOMAIN;
   if (adminToken && storeDomain) {
-    const client: ShopifyClient = createShopifyClient({
-      storeDomain,
-      adminToken,
-      apiVersion: process.env.SHOPIFY_API_VERSION ?? "2025-07",
-    });
+    const client: ShopifyClient = createShopifyClient({ storeDomain, adminToken, apiVersion });
     return { client, stub: false };
   }
   return { client: createStubShopifyClient(), stub: true };
@@ -55,12 +125,18 @@ export const resolveShopifyClientForShop: ShopifyClientResolver = async (pool: p
  * recording transaction and the real constraint.
  */
 export function buildConsumerRegistry(
-  deps: { resolveClient?: ShopifyClientResolver } = {}
+  deps: { resolveClient?: ShopifyClientResolver; keyring?: ConnectorKeyring } = {}
 ): ConsumerRegistry {
   const registry = createConsumerRegistry();
   registry.register(
     DRAFT_REQUESTED,
-    createDraftRequestedConsumer({ resolveClient: deps.resolveClient ?? resolveShopifyClientForShop })
+    createDraftRequestedConsumer({
+      // The BOOT-resolved ring when the caller has one (`src/server.ts` passes
+      // `config.connectorKeys`), and the environment-reading fallback otherwise.
+      resolveClient:
+        deps.resolveClient ??
+        (deps.keyring ? createShopifyClientResolver({ keyring: deps.keyring }) : resolveShopifyClientForShop),
+    })
   );
   return registry;
 }

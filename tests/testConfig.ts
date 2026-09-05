@@ -12,6 +12,7 @@
 // meaningful is for the test pepper to be something no deployment would ever set.
 import type { AppConfig } from "../src/config.js";
 import { requireAuthenticatorKey, type AuthenticatorKeyring } from "../src/services/auth/index.js";
+import { requireConnectorKey, type ConnectorKeyring } from "../src/services/connectors/shopify/index.js";
 
 /** Long enough to pass `requirePinPepper`'s floor, and unmistakably not a secret. */
 export const TEST_PIN_PEPPER = "test-pepper-not-a-secret-0000000000000000";
@@ -36,6 +37,24 @@ export function testKeyring(): AuthenticatorKeyring {
   return requireAuthenticatorKey({ LONGBOX_AUTHENTICATOR_KEY_V1: TEST_AUTHENTICATOR_KEY_V1 });
 }
 
+/**
+ * The CONNECTOR key ring (E03-B06, 053 §3) — a FIXTURE, not a secret, on the
+ * pepper's and the authenticator key's reasoning.
+ *
+ * Deliberately a DIFFERENT byte pattern from `TEST_AUTHENTICATOR_KEY_V1`: the
+ * two rings are separate in production for a stated reason, and a test fixture
+ * that made them equal would let a bug that used the wrong ring pass every
+ * suite in this repository.
+ */
+export const TEST_CONNECTOR_KEY_V1 = Buffer.alloc(32, 0x33).toString("base64");
+
+/** A second version, so a suite can prove a connector `key_version` rotation. */
+export const TEST_CONNECTOR_KEY_V2 = Buffer.alloc(32, 0x44).toString("base64");
+
+export function testConnectorKeyring(): ConnectorKeyring {
+  return requireConnectorKey({ LONGBOX_CONNECTOR_KEY_V1: TEST_CONNECTOR_KEY_V1 });
+}
+
 export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     port: 0,
@@ -44,6 +63,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     bands: { high: 0.85, medium: 0.5 },
     pinPepper: TEST_PIN_PEPPER,
     authenticatorKeys: testKeyring(),
+    connectorKeys: testConnectorKeyring(),
     publicOrigins: ["http://localhost:3000"],
     ...overrides,
   };

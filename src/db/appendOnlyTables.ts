@@ -473,6 +473,73 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     ordersByObservedAt: false,
     sessionSeq: false,
   },
+  // ---------------------------------------------------------------------------
+  // E03-B06's five (053 §5, `migrations/026`). The connector's authorization
+  // lifecycle: a state was minted, a state was spent, a token was introduced, a
+  // token was ended, a signed message arrived. **No exemption and no mutable row
+  // anywhere in the subsystem** — `025` needed one for 048 R19's replay guard,
+  // and this file needs none because every guard here is a UNIQUE index instead.
+  // ---------------------------------------------------------------------------
+  {
+    table: "connector_install_state",
+    trigger: "connector_install_state_append_only",
+    since: "026_connector_oauth.sql",
+    // An issuance. `state_digest` is `sha256(state)` and `expires_at` is fixed
+    // when the row is written — "expired" is a predicate over it, and nothing
+    // anywhere marks a state expired (041 §2.4).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "connector_install_state_use",
+    trigger: "connector_install_state_use_append_only",
+    since: "026_connector_oauth.sql",
+    // 048 §7.1's rule for the fourth time in this schema: **single use is a
+    // constraint or it is a race.** `UNIQUE (state_id)` is what makes a REPLAYED
+    // OAuth callback a failed INSERT the database decides, rather than a second
+    // token version for one authorization.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "connector_token_version",
+    trigger: "connector_token_version_append_only",
+    since: "026_connector_oauth.sql",
+    // 050 §4's introduction, with the value SEALED rather than named — the one
+    // place in this repository where a credential lives as ciphertext in a
+    // column, ruled in 053 §3 on two predicates a BYOK key fails (the value is
+    // minted by the machine; it is revocable at its issuer without a Longbox
+    // act). Append-only is what makes a rotation a NEW row: `key_version` and
+    // the ciphertext are never rewritten in place.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "connector_token_retirement",
+    trigger: "connector_token_retirement_append_only",
+    since: "026_connector_oauth.sql",
+    // The ending. `UNIQUE (connector_token_version_id)`: at most one per token,
+    // because a replacement is a new version rather than a second ending. Its
+    // CHECK requires an `uninstall` to cite the webhook receipt that caused it,
+    // so "the merchant uninstalled" is never an assertion about somebody else's
+    // system with no evidence attached (018).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "connector_webhook_receipt",
+    trigger: "connector_webhook_receipt_append_only",
+    since: "026_connector_oauth.sql",
+    // 041 §2.5's external observation — Longbox's record of a fact owned by
+    // Shopify. **The flag below is still FALSE, and that is a decision.** §2.5
+    // permits `observed_at` to ORDER a derivation for such a table, and nothing
+    // here derives anything from an order: a receipt is a dedupe key
+    // (`UNIQUE (connector, webhook_id)`) and an evidence reference, and the
+    // retirement it causes is its own fact with its own timestamp. Flagging it
+    // true would claim an ordering property no reader uses.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
   {
     table: "outbox",
     trigger: "outbox_append_only",

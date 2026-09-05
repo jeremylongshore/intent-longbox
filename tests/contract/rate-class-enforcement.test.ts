@@ -185,6 +185,65 @@ const ENFORCEMENT: readonly EnforcementRow[] = [
       "is looked up, and the code is in the body, so this bucket cannot be taken in the hook. Two " +
       "buckets, two questions.",
   },
+  // -------------------------------------------------------------------------
+  // E03-B06's two connector routes. Each takes TWO buckets for the same reason
+  // the two E03-D07 routes do — the shop is not knowable at `onRequest` — and
+  // the second one is taken AFTER the signature verifies, which is the ordering
+  // worth stating: an UNSIGNED flood is refused more cheaply than a signed one,
+  // because it never reaches a shop lookup at all.
+  // -------------------------------------------------------------------------
+  {
+    method: "GET",
+    path: "/api/v1/connectors/shopify/callback",
+    file: "src/services/auth/hook.ts",
+    fn: "registerAuthentication",
+    call: "deps.limiter.takeRoute(url)",
+    guard: 'required === "none" && spec !== undefined && spec.rateClass !== "none"',
+    why:
+      "the OAuth callback is anonymous by construction — a merchant's browser at the end of " +
+      "Shopify's redirect holds no Longbox session — so the hook can key on nothing but the route " +
+      "itself. The shop is unknown until the single-use install state is resolved, and 042 §8.1 " +
+      "forbids keying on an IP.",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/connectors/shopify/callback",
+    file: "src/services/connectors/shopify/api.ts",
+    fn: "completeInstall",
+    call: "deps.limiter.takeOrdinary(row.shop_id)",
+    reachedFrom: "src/routes/connectors.ts",
+    why:
+      "048 R14's second half: the bucket keyed on the shop the STATE names. It is taken in the " +
+      "service because the state is in the query and the hook cannot resolve it, and AFTER the " +
+      "HMAC check so a forged callback is refused without a database round trip — the same " +
+      "ordering `receiveWebhook` uses one route over.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/connectors/shopify/webhooks",
+    file: "src/services/auth/hook.ts",
+    fn: "registerAuthentication",
+    call: "deps.limiter.takeRoute(url)",
+    guard: 'required === "none" && spec !== undefined && spec.rateClass !== "none"',
+    why:
+      "Shopify's servers post here with no session and no cookie, so the hook's per-route bucket " +
+      "is what bounds the aggregate. The second bucket cannot be taken here: the store is in a " +
+      "header this hook could read, but trusting it before the HMAC verifies would let an " +
+      "unauthenticated caller choose which shop's budget to exhaust.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/connectors/shopify/webhooks",
+    file: "src/services/connectors/shopify/api.ts",
+    fn: "receiveWebhook",
+    call: "deps.limiter.takeOrdinary(shopId)",
+    reachedFrom: "src/routes/connectors.ts",
+    why:
+      "the bucket keyed on the shop the SIGNED domain resolves to, taken only after the HMAC has " +
+      "verified — so the key is a fact Shopify authenticated rather than a header a caller chose. " +
+      "This is the row that made the ordering explicit: an unsigned flood costs one HMAC and " +
+      "reaches no shop's counter at all.",
+  },
 ];
 
 const read = (path: string): string => readFileSync(path, "utf8");

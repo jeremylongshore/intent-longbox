@@ -93,7 +93,15 @@ describe("(b) the Idempotency-Key check runs BEFORE the body is read (048 R10)",
 
   it("requires the header on every mutating route and on no read", async () => {
     for (const route of ROUTES) {
-      expect(route.mutating, `${route.method} ${route.path}`).toBe(route.method === "POST");
+      if (route.method === "POST") {
+        expect(route.mutating, `${route.method} ${route.path}`).toBe(true);
+        continue;
+      }
+      // A GET may mutate ONLY as a provider callback — see (d) below, where the
+      // amendment and its ground are argued rather than asserted.
+      if (route.mutating) {
+        expect(route.idempotency?.exemptionClass, route.path).toBe("provider-callback");
+      }
     }
     expect(MUTATING_ROUTES.length).toBeGreaterThan(0);
   });
@@ -240,10 +248,67 @@ function sourceFiles(): string[] {
   return out;
 }
 
-describe("(d) no GET mutates", () => {
-  it("declares every read non-mutating in the route table", () => {
+// ---------------------------------------------------------------------------
+// (d) — AMENDED AT 048 v1.5.2 BY E03-B06, AND THE AMENDMENT IS TO THE WORDING OF
+// THE INVARIANT RATHER THAN TO THE PROPERTY IT PROTECTS.
+//
+// 048 I6(d) read "no `GET` route mutates", flatly, and §5.3's own sentence gives
+// the ground: *"A GET can still be cross-site-issued."* That is a statement about
+// AMBIENT AUTHORITY — the browser attaches the cookie to a cross-site
+// `<img src>` or `<link>` and the server acts on it — and it is why the other
+// three mechanisms (`SameSite`, the custom header, the absent CORS policy) all
+// live on the credential rather than on the method.
+//
+// An OAuth callback is a GET that writes, universally, and it is the one shape
+// where that ground does not reach: the route reads NO cookie, it is
+// `principal: "none"` on the auth allowlist, and its write is gated on an HMAC
+// the caller cannot forge and a single-use state the server minted. A cross-site
+// navigation to it carries no authority to spend, because there is none to
+// attach.
+//
+// **So the property becomes "no GET mutates ON THE STRENGTH OF AN AMBIENT
+// CREDENTIAL", and the carve-out is a DECLARED KIND rather than a route name.**
+// The alternative was declaring `mutating: false` on a route that writes two
+// rows, which would have kept the test green by putting a lie in the route
+// table — and 042 §3.3 property 3 refuses fictions in the generated artifact for
+// exactly this reason.
+// ---------------------------------------------------------------------------
+describe("(d) no GET mutates on the strength of an ambient credential (048 I6(d), v1.5.2)", () => {
+  it("lets a GET mutate only as a declared provider callback that reads no cookie", () => {
     for (const route of ROUTES.filter((r) => r.method === "GET")) {
-      expect(route.mutating, route.path).toBe(false);
+      if (!route.mutating) continue;
+      const row = AUTH_ALLOWLIST_ACTIVE.find((r) => r.path === route.path && r.method === "GET");
+      // Three conditions, each independently necessary: the route table declares
+      // the exemption class, the AUTH allowlist agrees it is a provider callback,
+      // and the principal is `none` — which is what "reads no cookie" means in
+      // this codebase, because the hook returns before the session read.
+      expect(route.idempotency?.exemptionClass, route.path).toBe("provider-callback");
+      expect(row?.kind, route.path).toBe("provider-callback");
+      expect(row?.principal, route.path).toBe("none");
+    }
+  });
+
+  it("keeps the carve-out narrow: every OTHER GET is still non-mutating", () => {
+    const mutatingGets = ROUTES.filter((r) => r.method === "GET" && r.mutating).map((r) => r.path);
+    const callbacks = AUTH_ALLOWLIST_ACTIVE.filter(
+      (r) => r.kind === "provider-callback" && r.method === "GET"
+    ).map((r) => r.path);
+    // Set equality in BOTH directions. A one-way check would let a second
+    // mutating GET in under a `provider-callback` row somebody added for another
+    // reason, and would let a `provider-callback` row go stale after its route
+    // stopped writing.
+    expect([...mutatingGets].sort()).toEqual([...callbacks].sort());
+  });
+
+  it("refuses a provider callback that is not anonymous", () => {
+    // The kind licenses skipping BOTH CSRF mechanisms, and that is only safe
+    // while the route has no ambient authority to protect. A `provider-callback`
+    // row with a real principal would be a route that reads a cookie AND skips
+    // the cross-site check, which is the CSRF vulnerability this whole file is
+    // about, introduced by the fix for it.
+    for (const row of AUTH_ALLOWLIST_ACTIVE.filter((r) => r.kind === "provider-callback")) {
+      expect(row.principal, row.path).toBe("none");
+      expect(row.reason.length, `${row.path} has no argument`).toBeGreaterThan(80);
     }
   });
 });

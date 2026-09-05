@@ -74,6 +74,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
       "023_cost_log_spend_owner.sql",
       "024_invitations_and_device_enrollment.sql",
       "025_authenticator_recovery_and_nomination.sql",
+      "026_connector_oauth.sql",
     ]);
 
     const tables = await pool.query(
@@ -155,7 +156,7 @@ describe.skipIf(!dbUp)("migration runner", () => {
     expect(secondRun).toContain("skip  019_identity_core.sql");
     expect(secondRun).toContain("skip  020_sessions_pin_and_auth_attempt.sql");
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(25);
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(26);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

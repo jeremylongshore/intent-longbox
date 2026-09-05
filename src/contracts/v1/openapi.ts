@@ -140,7 +140,24 @@ function parametersFor(route: RouteSpec): JsonSchema[] {
       schema: { type: "string", format: "uuid" },
     });
   }
-  if (route.mutating) {
+  // The QUERY, for a route whose input arrives in one (E03-B06). Emitted from
+  // the same Zod object the handler validates against, so the artifact cannot
+  // describe a parameter set the server does not enforce.
+  if (route.query) {
+    const schema = toJsonSchema(route.query);
+    const properties = (schema["properties"] ?? {}) as Record<string, JsonSchema>;
+    const required = new Set((schema["required"] ?? []) as string[]);
+    for (const [name, propertySchema] of Object.entries(properties)) {
+      params.push({ name, in: "query", required: required.has(name), schema: propertySchema });
+    }
+  }
+  // 042 §5.1 CLASS TWO (v1.4.3): a provider callback takes no `Idempotency-Key`,
+  // so the document must not declare one as required. Emitting it anyway would
+  // describe a header Shopify cannot send and this server does not demand —
+  // §3.3 property 3's fiction, in the one place a partner would build against
+  // it. The exemption is a declared field on the route, never an inference from
+  // the method.
+  if (route.mutating && route.idempotency === undefined) {
     params.push({
       name: "Idempotency-Key",
       in: "header",

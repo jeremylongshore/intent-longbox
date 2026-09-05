@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   if (!vertical) {
     console.error(
       `usage: pnpm register-pack --vertical <name> [--dry-run]\n` +
-        `manifests shipped in this build: ${Object.keys(MANIFESTS).join(", ")}\n\n` +
+        `manifests shipped in this build: ${[...MANIFESTS.keys()].join(", ")}\n\n` +
         `There is deliberately no default. Registering a vertical other than "comic" is gated by\n` +
         `E19-B06 on reuse, rights, accuracy, economics and demand evidence — "architectural\n` +
         `possibility is not market permission" (030 §5.4).`
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   if (manifest === undefined) {
     console.error(
       `no manifest ships for vertical ${JSON.stringify(vertical)}. ` +
-        `This build ships: ${Object.keys(MANIFESTS).join(", ")}.`
+        `This build ships: ${[...MANIFESTS.keys()].join(", ")}.`
     );
     process.exit(1);
   }

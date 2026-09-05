@@ -187,8 +187,11 @@ Measured: `src/catalog` went **70.68% → 98.76% lines** (1085/1535 → 1516/153
 The whole floored set is **90.14% lines**, against the 80 floor. Nothing was
 excluded, no threshold moved, and no ignore pragma was added.
 
-⚠ TWO OBSERVATIONS RECORDED RATHER THAN FIXED, because a coverage bead does not
-edit shipped modules:
+⚠ TWO OBSERVATIONS WERE RECORDED RATHER THAN FIXED, because a coverage bead does
+not edit shipped modules. **BOTH ARE NOW DISCHARGED (PR #83).** The observations
+are kept as written — they are what E04-D06 saw, and a discharge is a discharge
+kept, not an observation to overwrite — each followed by the clause that closed
+it:
 
 1. `projection.ts`'s `if (survivor === loser) continue` guard is UNREACHABLE. A
    self-pointing merge edge is a one-node cycle, so the bounded walk exhausts
@@ -197,6 +200,14 @@ edit shipped modules:
    survivor guessed), and `migrations/017`'s `lcid_merge_not_self` CHECK refuses
    the edge at write time anyway. Asserted as it behaves; filed as **E04-D08**
    (`longbox-e5b.4.20`).
+   **DISCHARGED by E04-D08 (PR #83): the guard is DELETED** — 047 A2's "a
+   database that took writes outside the triggers" argues for deleting it, since
+   in exactly that database a silent `continue` would DROP the self-edge while
+   the anomaly branch NAMES it — and the anomaly branch now carries the
+   unreachability proof plus the two write-time constraints that are the real
+   defence. The file's last uncovered branch (the in-loop memo hit) gained a
+   converging-chain case, taking `projection.ts` to 100% statements, branches,
+   functions and lines and `src/catalog` to **98.89% lines**.
 2. `manifestFor("toString")` returns `Object.prototype.toString` — a bare index
    into an object literal, from a signature promising
    `VerticalPackManifest | undefined`. The only caller,
@@ -205,6 +216,15 @@ edit shipped modules:
    error message and not a bad row. The test says so, and says that fixing the
    lookup with `Object.hasOwn` should delete the case — filed as **E04-D07**
    (`longbox-e5b.4.19`).
+   **DISCHARGED by E04-D07 (PR #83), and by a `Map` rather than the
+   `Object.hasOwn` that case named** — `MANIFESTS` is EXPORTED, so a guard inside
+   `manifestFor` would leave every future `MANIFESTS[x]` site holding the trap;
+   `PACKS` took the same fix because `packFor("toString")` was the worse half,
+   failing with a `TypeError` where 030 §6 rule 3 requires
+   `UnregisteredVerticalError` at the boundary. **The pinning case is deleted as
+   it instructed**, replaced by `it.each` over eight inherited names at both
+   entry points asserting `undefined` from one and the refusal CLASS from the
+   other.
 
 `.harness-hash` was re-pinned with `pnpm exec audit-harness init` AFTER this
 edit, per the L0 rule that the manifest follows a reviewed policy change and is

@@ -72,7 +72,7 @@ describe.skipIf(!dbUp)("the three packs register as data and resolve through the
   });
 
   it("registers the comic pack and both card packs", async () => {
-    for (const vertical of Object.keys(MANIFESTS)) {
+    for (const vertical of MANIFESTS.keys()) {
       const out = await registerPack(vertical);
       expect(out).toMatch(/pack registered/);
     }

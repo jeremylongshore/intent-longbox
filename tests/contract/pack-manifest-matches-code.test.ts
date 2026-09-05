@@ -23,11 +23,11 @@ describe("the pack registry and the manifest set are one set", () => {
     // A pack with no manifest could never be registered as a row; a manifest with
     // no pack would name functions that do not exist. Either half alone is a
     // vertical that half-works, which is worse than one that does not exist.
-    expect(Object.keys(MANIFESTS).sort()).toEqual([...REGISTERED_VERTICALS].sort());
+    expect([...MANIFESTS.keys()].sort()).toEqual([...REGISTERED_VERTICALS].sort());
   });
 
   it("certifies every shipped manifest", () => {
-    for (const [vertical, manifest] of Object.entries(MANIFESTS)) {
+    for (const [vertical, manifest] of MANIFESTS) {
       expect({ vertical, findings: certify(manifest) }).toEqual({ vertical, findings: [] });
     }
   });
@@ -36,7 +36,7 @@ describe("the pack registry and the manifest set are one set", () => {
     // 047 §3.1 puts the code inside every LCID minted in the vertical, and
     // `vertical_pack.vertical_code` is UNIQUE — two packs sharing a code would be
     // two verticals whose identifiers are indistinguishable forever.
-    const assigned = Object.values(MANIFESTS).map((m) => m.verticalCode);
+    const assigned = [...MANIFESTS.values()].map((m) => m.verticalCode);
     expect(new Set(assigned).size).toBe(assigned.length);
     for (const code of assigned) expect(code).toMatch(/^[a-z]{3}$/);
   });
@@ -56,7 +56,7 @@ describe("the pack registry and the manifest set are one set", () => {
     // if it is missing — "a registered pack whose signature function has been
     // deleted must stop the process, not silently mis-dedupe". The registration
     // script checks this before writing a row; this checks it before a release.
-    for (const manifest of Object.values(MANIFESTS)) {
+    for (const manifest of MANIFESTS.values()) {
       expect(existsSync(join(REPO_ROOT, manifest.signatureFnRef))).toBe(true);
     }
   });

@@ -107,12 +107,30 @@ export async function rebuildSurvivorProjection(tx: Tx): Promise<RebuildResult> 
   for (const loser of next.keys()) {
     const survivor = rootOf(loser);
     if (survivor === null) {
+      // ⚠ A SELF-EDGE LANDS HERE, AND THERE IS NO SECOND GUARD BELOW (E04-D08).
+      // v1 of this loop carried `if (survivor === loser) continue` beneath this
+      // branch, described as a belt-and-braces skip against
+      // `lcid_current_survivor_not_self`. It could never run, and the proof is
+      // short enough to keep: `rootOf` only ever returns a node with NO outgoing
+      // edge (a walk terminates on `next.get(cursor) === undefined`, or on a memo
+      // whose value is by induction such a node), while every `loser` here is BY
+      // CONSTRUCTION a key of `next`. So `survivor === loser` is unsatisfiable,
+      // and a self-edge — the one input the guard was written for — exhausts
+      // `READ_CHAIN_BOUND` as the one-node cycle it is and arrives at THIS
+      // branch instead.
+      //
+      // It was deleted rather than kept, because the outcome here is strictly
+      // better than the one it promised: 047 A2's whole reason for this function
+      // is "a database that took writes outside the triggers", and in exactly
+      // that database a silent `continue` would have DROPPED the row while this
+      // branch NAMES it in `anomalies` and warns. Dead code that documents a
+      // false belief about which guard is load-bearing is worse than no code.
+      // The write-time refusals stand and are the real defence:
+      // `lcid_merge_not_self` (migrations/017) refuses the edge, and
+      // `lcid_current_survivor_not_self` refuses the row.
       anomalies.push(loser);
       continue;
     }
-    // The CHECK on the table forbids a self-pointing row; the merge triggers make
-    // one impossible, so this is a belt-and-braces skip rather than a repair.
-    if (survivor === loser) continue;
     await tx.query(`INSERT INTO lcid_current_survivor (lcid, survivor_lcid) VALUES ($1, $2)`, [
       loser,
       survivor,

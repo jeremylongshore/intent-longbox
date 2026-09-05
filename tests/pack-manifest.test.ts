@@ -40,7 +40,7 @@ describe("the three shipped manifests certify", () => {
   });
 
   it("ships one manifest per registered vertical and no others", () => {
-    expect(Object.keys(MANIFESTS).sort()).toEqual(["comic", "sports-card", "tcg-card"]);
+    expect([...MANIFESTS.keys()].sort()).toEqual(["comic", "sports-card", "tcg-card"]);
   });
 });
 

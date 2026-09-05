@@ -130,49 +130,80 @@ export interface VerticalPack {
  * TCG condition vocabulary must be able to move without bumping a sports pack
  * that has no use for it. The rejected alternative — one `card` pack with a
  * `sport`-or-`game` either/or — is recorded in 049 §4.
+ *
+ * ⚠ A `Map` AND NOT AN OBJECT LITERAL, AND HERE THAT IS 030 §6 RULE 3 ITSELF
+ * (E04-D07; PR #80 review). `PACKS[vertical]` on a plain object resolves
+ * INHERITED keys, so `packFor("toString")` found `Object.prototype.toString`,
+ * passed the `=== undefined` guard, and failed later with a `TypeError` from
+ * whichever of the six functions was called first — **never with
+ * `UnregisteredVerticalError`**. Rule 3 requires that an unregistered vertical be
+ * "rejected at the boundary"; a boundary that answers a crash instead of its own
+ * named refusal has been bypassed, not enforced, and the message a caller sees is
+ * the difference between "that vertical is not registered" and "cannot read
+ * properties of undefined".
+ *
+ * A `Map` has no inherited keys, so the refusal belongs to the data structure
+ * rather than to a guard beside it — the E04-D04 precedent and its recorded
+ * rejection of `Object.hasOwn` (`src/services/confirmationOutcome.ts`).
  */
-const PACKS: Record<string, VerticalPack> = {
-  [COMIC_VERTICAL]: {
-    schemas: { definition: comicDefinitionAttributes, edition: comicEditionAttributes },
-    parseAttributes: (level, attributes) => parseComicAttributes(level, attributes),
-    definitionSignature: (attributes) => comicDefinitionSignature(attributes),
-    signatureInput: (definitionAttributes, editionAttributes) =>
-      comicSignatureInput(definitionAttributes, editionAttributes),
-    signatureClaim: (claim) => comicSignatureClaim(claim),
-    editionSignature: (fields) => comicEditionSignature(fields as ComicEditionFields),
-    claimIsUsable: (fields) => comicClaimIsUsable(fields),
-  },
-  [SPORTS_CARD_VERTICAL]: {
-    schemas: { definition: sportsCardDefinitionAttributes, edition: cardEditionAttributes },
-    parseAttributes: (level, attributes) => parseCardAttributes(SPORTS_CARD_VERTICAL, level, attributes),
-    definitionSignature: (attributes) => cardDefinitionSignature(SPORTS_CARD_VERTICAL, attributes),
-    signatureInput: (definitionAttributes, editionAttributes) =>
-      cardSignatureInput(definitionAttributes, editionAttributes),
-    signatureClaim: (claim) => cardSignatureClaim(claim),
-    editionSignature: (fields) => cardEditionSignature(fields as CardEditionFields),
-    claimIsUsable: (fields) => cardClaimIsUsable(fields),
-  },
-  [TCG_CARD_VERTICAL]: {
-    schemas: { definition: tcgCardDefinitionAttributes, edition: cardEditionAttributes },
-    parseAttributes: (level, attributes) => parseCardAttributes(TCG_CARD_VERTICAL, level, attributes),
-    definitionSignature: (attributes) => cardDefinitionSignature(TCG_CARD_VERTICAL, attributes),
-    signatureInput: (definitionAttributes, editionAttributes) =>
-      cardSignatureInput(definitionAttributes, editionAttributes),
-    signatureClaim: (claim) => cardSignatureClaim(claim),
-    editionSignature: (fields) => cardEditionSignature(fields as CardEditionFields),
-    claimIsUsable: (fields) => cardClaimIsUsable(fields),
-  },
-};
+const PACKS: ReadonlyMap<string, VerticalPack> = new Map<string, VerticalPack>([
+  [
+    COMIC_VERTICAL,
+    {
+      schemas: { definition: comicDefinitionAttributes, edition: comicEditionAttributes },
+      parseAttributes: (level, attributes) => parseComicAttributes(level, attributes),
+      definitionSignature: (attributes) => comicDefinitionSignature(attributes),
+      signatureInput: (definitionAttributes, editionAttributes) =>
+        comicSignatureInput(definitionAttributes, editionAttributes),
+      signatureClaim: (claim) => comicSignatureClaim(claim),
+      editionSignature: (fields) => comicEditionSignature(fields as ComicEditionFields),
+      claimIsUsable: (fields) => comicClaimIsUsable(fields),
+    },
+  ],
+  [
+    SPORTS_CARD_VERTICAL,
+    {
+      schemas: { definition: sportsCardDefinitionAttributes, edition: cardEditionAttributes },
+      parseAttributes: (level, attributes) => parseCardAttributes(SPORTS_CARD_VERTICAL, level, attributes),
+      definitionSignature: (attributes) => cardDefinitionSignature(SPORTS_CARD_VERTICAL, attributes),
+      signatureInput: (definitionAttributes, editionAttributes) =>
+        cardSignatureInput(definitionAttributes, editionAttributes),
+      signatureClaim: (claim) => cardSignatureClaim(claim),
+      editionSignature: (fields) => cardEditionSignature(fields as CardEditionFields),
+      claimIsUsable: (fields) => cardClaimIsUsable(fields),
+    },
+  ],
+  [
+    TCG_CARD_VERTICAL,
+    {
+      schemas: { definition: tcgCardDefinitionAttributes, edition: cardEditionAttributes },
+      parseAttributes: (level, attributes) => parseCardAttributes(TCG_CARD_VERTICAL, level, attributes),
+      definitionSignature: (attributes) => cardDefinitionSignature(TCG_CARD_VERTICAL, attributes),
+      signatureInput: (definitionAttributes, editionAttributes) =>
+        cardSignatureInput(definitionAttributes, editionAttributes),
+      signatureClaim: (claim) => cardSignatureClaim(claim),
+      editionSignature: (fields) => cardEditionSignature(fields as CardEditionFields),
+      claimIsUsable: (fields) => cardClaimIsUsable(fields),
+    },
+  ],
+]);
 
-/** The verticals this build can resolve, for tests and for a reader. */
-export const REGISTERED_VERTICALS: readonly string[] = Object.keys(PACKS);
+/**
+ * The verticals this build can resolve, for tests and for a reader.
+ *
+ * Unchanged in value and in ORDER by the move to a `Map`: a `Map` iterates in
+ * insertion order exactly as an object literal iterates its string keys, so this
+ * is still `["comic", "sports-card", "tcg-card"]` — which `tests/card-identity.test.ts`
+ * asserts positionally.
+ */
+export const REGISTERED_VERTICALS: readonly string[] = [...PACKS.keys()];
 
 /**
  * Resolve a vertical to its pack. FAILS CLOSED (030 §6 rule 3): an unregistered
  * vertical is refused at the boundary, never defaulted to `"comic"`.
  */
 export function packFor(vertical: string): VerticalPack {
-  const pack = PACKS[vertical];
+  const pack = PACKS.get(vertical);
   if (pack === undefined) throw new UnregisteredVerticalError(vertical);
   return pack;
 }

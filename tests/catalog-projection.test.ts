@@ -144,19 +144,21 @@ describe("rebuildSurvivorProjection — an anomalous chain is REPORTED, never gu
   });
 
   it("reports a SELF-POINTING merge edge as an anomaly, and writes no row for it", async () => {
-    // ⚠ OBSERVED, AND IT IS NOT WHAT THE `survivor === loser` GUARD READS LIKE.
-    // Filed as E04-D08 (`longbox-e5b.4.20`), which decides whether that guard
-    // stays as belt-and-braces or goes; this case moves with that decision.
-    // A self-edge is a one-node cycle, so the walk exhausts `READ_CHAIN_BOUND`
-    // and `rootOf` returns null BEFORE the guard is consulted — the loser lands
-    // in `anomalies` rather than being quietly skipped. The outcome is the same
-    // where it matters (no row is written, no survivor is guessed) and it is
-    // arguably the better one, because a self-edge in `lcid_merge` is exactly the
+    // E04-D08 SETTLED THIS ONE, AND THE ANSWER WAS TO DELETE THE OTHER PATH.
+    // v1 of the rebuild carried a second guard, `if (survivor === loser) continue`,
+    // described in a comment as belt-and-braces against
+    // `lcid_current_survivor_not_self`. It was UNREACHABLE — `rootOf` only ever
+    // returns a node with no outgoing edge, and every candidate here is a key of
+    // the edge map — so a self-edge is a one-node cycle that exhausts
+    // `READ_CHAIN_BOUND` and lands in `anomalies` instead, which is the LOUDER
+    // outcome and the right one: a self-edge in `lcid_merge` is precisely the
     // "this database took writes that did not go through the trigger" condition
-    // the anomaly list exists to surface. Asserted as it BEHAVES rather than as
-    // the comment describes it: `lcid_merge_not_self` (migrations/017) refuses the row
-    // at write time, so neither path can be reached by a database whose writes
-    // all went through it.
+    // (047 A2) the anomaly list exists to surface, and the deleted guard would
+    // have dropped it silently. `lcid_merge_not_self` (migrations/017) refuses the
+    // edge at write time and `lcid_current_survivor_not_self` refuses the row, so
+    // neither is reachable at all in a database whose writes went through them.
+    // This case is what keeps the surviving behaviour asserted rather than
+    // assumed.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const w = withEdges([["a", "a"]]);
     const result = await rebuildSurvivorProjection(w.tx);
@@ -164,5 +166,31 @@ describe("rebuildSurvivorProjection — an anomalous chain is REPORTED, never gu
     expect(result.anomalies).toEqual(["a"]);
     expect(w.matching("INSERT INTO lcid_current_survivor")).toHaveLength(0);
     warn.mockRestore();
+  });
+});
+
+describe("rebuildSurvivorProjection — the memo is what keeps it ONE pass", () => {
+  it("compresses a CONVERGING chain by reusing a memo mid-walk, not by re-walking", async () => {
+    // 047 A2 obligation 1 makes "one pass over `lcid_merge`" a REQUIREMENT rather
+    // than an optimisation, and the memo hit inside the walk is the half of the
+    // path compression that delivers it. The entry memo (checked before the loop)
+    // only helps a node that has already been resolved in full; this case is the
+    // other one — a node whose walk MEETS an already-compressed chain partway.
+    //
+    // `d -> a -> b -> c`, with `a -> b -> c` resolved first because `a` is the
+    // first key. Walking `d` steps to `a`, finds `a`'s memo (`c`) on the next
+    // iteration and stops there, so the rebuild never re-walks `a -> b -> c`.
+    // Without the in-loop memo the answer would still be `c`, at the cost of
+    // re-walking the shared tail once per branch — which on a wide forest is the
+    // N+1 this construction exists to avoid.
+    const w = withEdges([
+      ["a", "b"],
+      ["b", "c"],
+      ["d", "a"],
+    ]);
+    const result = await rebuildSurvivorProjection(w.tx);
+    // Every loser names the ROOT, including the one that joined partway.
+    expect(written(w)).toEqual({ a: "c", b: "c", d: "c" });
+    expect(result).toEqual({ rows: 3, merges: 3, anomalies: [] });
   });
 });

@@ -10,7 +10,20 @@
 // once against a fixture that violates it — for the same reason. A rule that has
 // never failed is indistinguishable from a rule that cannot.
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -44,21 +57,125 @@ import { REGISTERED_VERTICALS } from "../../src/catalog/index.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const CONFIG = ".dependency-cruiser.cjs";
 
-/** depcruise on the real tree; resolves with the exit code rather than throwing. */
+/** depcruise on the real tree, through the exact command `pnpm depcruise` runs. */
 async function depcruise(): Promise<{ code: number; out: string }> {
   try {
-    const { stdout } = await execFileAsync(
-      "pnpm",
-      ["exec", "depcruise", "src", "--config", ".dependency-cruiser.cjs"],
-      { cwd: repoRoot }
-    );
+    const { stdout } = await execFileAsync("pnpm", ["exec", "depcruise", "src", "--config", CONFIG], {
+      cwd: repoRoot,
+    });
     return { code: 0, out: stdout };
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string };
     return { code: e.code ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
 }
+
+// ---------------------------------------------------------------------------
+// THE NEGATIVE FIXTURES RUN OUTSIDE THE REPOSITORY (E02-D15).
+//
+// Proving a graph rule can fail means putting a violating file exactly where the
+// rule looks: `routes-do-not-touch-the-database` is scoped to `^src/routes/`, so
+// a fixture that violates it has to sit at that path. Until this bead it sat at
+// that path IN THE REAL TREE — written, cruised, deleted in a `finally`. Vitest
+// runs test FILES in parallel workers, so for the width of that `try` every
+// other suite was reading a `src/` with one extra file in it. E02-D14 is the
+// instance it cost: a `readdirSync` of `src/routes` in
+// `outbox-declarations.test.ts` saw two entries on some runs and three on
+// others, `it.each` sized itself accordingly, and `pnpm test` reported 1049 or
+// 1050 cases on a byte-identical tree while staying green throughout. Two
+// suites still read the live tree through `collectSources`
+// (`catalog-surface.test.ts`, `server-emits-no-operator-copy.test.ts`); neither
+// trips on a phantom today, and after this bead neither has to depend on that.
+//
+// So `src/` is COPIED into a scratch cwd under `os.tmpdir()` and the fixture is
+// written into the COPY. `.dependency-cruiser.cjs` is the one thing that must
+// never be copied: a negative test run against a duplicated config proves the
+// duplicate can fail, which is worth nothing. It — and everything else the
+// cruise resolves relative to its cwd — is SYMLINKED, and the first test below
+// asserts BOTH that the link's realpath is the repository's file AND that the
+// bytes read through the scratch path hash to the same sha-256. Convert that
+// symlink to a `cpSync` and this file fails rather than quietly proving a copy.
+//
+// `scripts/architectureRules.ts` needs no such treatment: the non-graph rules
+// below are pure functions over in-memory `SourceFile` records, so this file
+// imports the real module and never has a copy of it to drift from.
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything `.dependency-cruiser.cjs` resolves relative to the cwd, REFERENCED
+ * rather than copied:
+ *   - the config itself, since `--config` is a cwd-relative path in `pnpm depcruise`;
+ *   - `tsconfig.json`, named by `options.tsConfig.fileName`;
+ *   - `package.json`, which is how dependency-cruiser classifies a resolved module
+ *     as `dependencyTypes: ["npm"]` — the discriminator
+ *     `routes-do-not-touch-the-database` is written against;
+ *   - `node_modules`, without which `pg` does not resolve to a path that rule's
+ *     `(^|/)node_modules/pg/` can match and the negative fixture proves nothing.
+ *
+ * LINUX (AND macOS) ONLY, DELIBERATELY UNGUARDED. `symlinkSync` throws `EPERM` on
+ * a stock Windows runner without Developer Mode, and it throws inside
+ * `makeScratchTree` before any assertion runs — so this whole file goes red
+ * rather than quietly cruising a COPY of the config, which is the failure this
+ * bead exists to prevent. CI is `ubuntu-latest` and the estate develops on Linux,
+ * so nothing is skipped and nothing is branched on `process.platform`: a
+ * platform gate here would be a way to make the gate stop proving anything on the
+ * platform that could not run it.
+ *
+ * ONE CONSEQUENCE FOR ANYONE WRITING A RULE THIS HARNESS MUST PROVE: the rule has
+ * to be SHAPE-TOLERANT about resolved dependency paths. A cruise from the scratch
+ * cwd reaches an npm module through the symlink, so dependency-cruiser reports it
+ * relative to that cwd and the path comes back as
+ * `../../home/…/node_modules/.pnpm/pg@8.23.0/node_modules/pg/esm/index.mjs`,
+ * where the same cruise in the repository reports
+ * `node_modules/.pnpm/pg@8.23.0/…`. A rule anchored with `^node_modules/` would
+ * be green here and red there — which is why the shipped rule is anchored
+ * `(^|/)node_modules/pg/` and why the census test below compares COUNTS
+ * (`90 modules, 286 dependencies`) rather than the module NAMES: the set is the
+ * same, the strings that address it are not.
+ */
+const REFERENCED = [CONFIG, "tsconfig.json", "package.json", "node_modules"] as const;
+
+/** The cruiser binary, addressed absolutely so a scratch cwd needs no package manager. */
+const DEPCRUISE_BIN = join(repoRoot, "node_modules", ".bin", "depcruise");
+
+const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+
+/** A cwd depcruise can run in: `src/` copied, everything else symlinked back here. */
+function makeScratchTree(): string {
+  const scratch = mkdtempSync(join(tmpdir(), "longbox-arch-gate-"));
+  cpSync(join(repoRoot, "src"), join(scratch, "src"), { recursive: true });
+  for (const name of REFERENCED) symlinkSync(join(repoRoot, name), join(scratch, name));
+  return scratch;
+}
+
+/** The same cruise, in a scratch cwd, against the SAME config file. */
+async function depcruiseIn(cwd: string): Promise<{ code: number; out: string }> {
+  try {
+    const { stdout } = await execFileAsync(DEPCRUISE_BIN, ["src", "--config", CONFIG], { cwd });
+    return { code: 0, out: stdout };
+  } catch (err) {
+    const e = err as { code?: number; stdout?: string; stderr?: string };
+    return { code: e.code ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+}
+
+/** `(90 modules, 286 dependencies cruised)` -> `"90/286"`; throws rather than guessing. */
+function cruiseCensus(out: string): string {
+  const m = /\((\d+) modules, (\d+) dependencies cruised\)/.exec(out);
+  if (m === null) throw new Error(`no module census in depcruise output:\n${out}`);
+  return `${m[1]}/${m[2]}`;
+}
+
+// NO `inScratchTree(async (scratch) => …)` HELPER, DELIBERATELY. The DRY version
+// existed and was deleted: `no-test-writes-into-src.test.ts` resolves a write
+// destination by expanding same-file constants, and behind a lambda the constant
+// it lands on is the one inside the helper — so the sweep only saw a `mkdtemp`
+// while the callback parameter happened to share that name. A rename would have
+// blinded the rule on the very file it polices, and the guard against that was a
+// COMMENT. Each test below makes its own scratch tree and removes it in a
+// `finally`: three more lines, and nothing for the rule to see through.
 
 describe("dependency-cruiser (the import-graph half)", () => {
   it("exits 0 on the tree as it stands", async () => {
@@ -67,69 +184,81 @@ describe("dependency-cruiser (the import-graph half)", () => {
     expect(code).toBe(0);
   }, 60_000);
 
-  // 029 §5 move 8: "a deliberately-added forbidden import exits non-zero".
-  //
-  // THIS TEST WRITES INTO THE REAL `src/` TREE, and it has to: depcruise's
-  // `routes-do-not-touch-the-database` rule is scoped to `src/routes/**`, so a
-  // fixture proving the rule can fail cannot live anywhere else. Vitest runs
-  // test FILES in parallel workers, so for the width of this `try` the tree
-  // another suite is reading has one extra file in it. That is not a bug here;
-  // it is a standing hazard for every OTHER suite. The rule that follows from it
-  // (E02-D14): no test file may enumerate a live directory under `src/` and turn
-  // the result into cases — enumerate from `git ls-files`, which reads the index
-  // and cannot see this fixture. `tests/contract/outbox-declarations.test.ts`
-  // learned it the expensive way, reporting 18 or 19 cases on an identical tree.
-  //
-  // The same applies to the `src/modules/__arch_fixture__/` pair written by the
-  // sibling-import test below. Nothing enumerates `src/modules` today; the rule
-  // is the same the day something does.
-  it("exits non-zero on a deliberately violating file", async () => {
-    const fixture = join(repoRoot, "src/routes/__arch_fixture_violation__.ts");
-    writeFileSync(
-      fixture,
-      "// TEMPORARY negative fixture, written and deleted by architecture-gate.test.ts.\n" +
-        "// It violates `routes-do-not-touch-the-database` by importing pg at the edge.\n" +
-        'import pg from "pg";\nexport const pool = new pg.Pool();\n'
-    );
+  // THE INVARIANT THAT MAKES EVERY NEGATIVE BELOW MEAN SOMETHING. If the config
+  // at the scratch cwd is a COPY, the fixtures prove that a copy can fail and the
+  // repository's own gate stays untested. Realpath identity is the assertion; the
+  // sha-256 equality is the one that still fires if a future author replaces the
+  // symlink with a copy — on a platform without symlinks, say — and lets it drift.
+  it("runs its fixtures against a scratch cwd whose config IS the repository's file", () => {
+    const scratch = makeScratchTree();
     try {
-      const { code, out } = await depcruise();
+      const linked = join(scratch, CONFIG);
+      expect(lstatSync(linked).isSymbolicLink()).toBe(true);
+      expect(realpathSync(linked)).toBe(realpathSync(join(repoRoot, CONFIG)));
+      expect(sha256(readFileSync(linked))).toBe(sha256(readFileSync(join(repoRoot, CONFIG))));
+      // …and the tree the fixtures are written into is NOT a link back: it is a
+      // copy, which is the whole point of the move.
+      expect(lstatSync(join(scratch, "src")).isSymbolicLink()).toBe(false);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  // A copy that cruises to different numbers is not the tree under test. This is
+  // the assertion that fails the day `makeScratchTree` stops copying something the
+  // cruise needs: an untested fixture harness is worth exactly what an untested
+  // gate is worth.
+  it("cruises the scratch copy to the same census as the real tree", async () => {
+    const real = await depcruise();
+    const scratch = makeScratchTree();
+    try {
+      const copied = await depcruiseIn(scratch);
+      expect(copied.out).toContain("no dependency violations found");
+      expect(copied.code).toBe(0);
+      expect(cruiseCensus(copied.out)).toBe(cruiseCensus(real.out));
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  // 029 §5 move 8: "a deliberately-added forbidden import exits non-zero".
+  it("exits non-zero on a deliberately violating file", async () => {
+    const scratch = makeScratchTree();
+    try {
+      writeFileSync(
+        join(scratch, "src", "routes", "__arch_fixture_violation__.ts"),
+        "// TEMPORARY negative fixture, written into a scratch COPY of src/ (E02-D15).\n" +
+          "// It violates `routes-do-not-touch-the-database` by importing pg at the edge.\n" +
+          'import pg from "pg";\nexport const pool = new pg.Pool();\n'
+      );
+      const { code, out } = await depcruiseIn(scratch);
       expect(out).toContain("routes-do-not-touch-the-database");
       expect(code).not.toBe(0);
     } finally {
-      rmSync(fixture, { force: true });
+      rmSync(scratch, { recursive: true, force: true });
     }
   }, 60_000);
 
   // 029 §5 move 8: "a sibling import inside one module keeps it green (proves N1
   // fixed)". Without the `$1` backreference in `module-public-surface-only`, this
   // exact shape is forbidden and the rule is unsatisfiable.
+  //
+  // The old version wrote `src/modules/__arch_fixture__/` into the real tree and
+  // needed a paragraph of care not to delete a colleague's module barrels on the
+  // day E02-B03 move 1 lands. In a scratch tree there is nothing to be careful
+  // about: the directory it creates is one nobody else can see.
   it("stays green when one module file imports a sibling (N1 fixed)", async () => {
-    // NEVER `rmSync(src/modules)`. E02-B03 move 1 creates the real barrels there,
-    // and a test that deleted the directory it merely happened to create would
-    // delete a colleague's module tree on the day that lands. The fixture gets its
-    // own clearly-named subdirectory and only THAT is removed; a stale one from a
-    // killed run makes this refuse rather than clobber.
-    const fixtureDir = join(repoRoot, "src/modules/__arch_fixture__");
-    if (existsSync(fixtureDir)) {
-      throw new Error(`${fixtureDir} already exists — remove it by hand; this test will not clobber it`);
-    }
-    mkdirSync(fixtureDir, { recursive: true });
-    writeFileSync(join(fixtureDir, "sibling.ts"), "export const answer = 42;\n");
-    writeFileSync(join(fixtureDir, "index.ts"), 'export { answer } from "./sibling.js";\n');
+    const scratch = makeScratchTree();
     try {
-      const { code, out } = await depcruise();
+      const fixtureDir = join(scratch, "src", "modules", "__arch_fixture__");
+      mkdirSync(fixtureDir, { recursive: true });
+      writeFileSync(join(fixtureDir, "sibling.ts"), "export const answer = 42;\n");
+      writeFileSync(join(fixtureDir, "index.ts"), 'export { answer } from "./sibling.js";\n');
+      const { code, out } = await depcruiseIn(scratch);
       expect(out).toContain("no dependency violations found");
       expect(code).toBe(0);
     } finally {
-      rmSync(fixtureDir, { recursive: true, force: true });
-      // Remove `src/modules` ONLY if this test created it and it is now empty.
-      try {
-        if (readdirSync(join(repoRoot, "src/modules")).length === 0) {
-          rmSync(join(repoRoot, "src/modules"), { recursive: true, force: true });
-        }
-      } catch {
-        /* never there, or someone else owns it now; either way, leave it alone */
-      }
+      rmSync(scratch, { recursive: true, force: true });
     }
   }, 60_000);
 });

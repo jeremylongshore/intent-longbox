@@ -88,6 +88,8 @@ second is `src/modules/__arch_fixture__/{index,sibling}.ts`, written to prove th
 `module-public-surface-only` rule stays green on a sibling import. Nothing sizes
 cases off `src/modules` today, so it has never bitten — but it is the same
 window, and the next suite to enumerate that directory inherits the same bug.
+(Written as of E02-D14. **E02-D15 has since moved both fixtures out of the tree
+entirely** — see the next note; the paragraph stays as the record of why.)
 
 Nothing failed, which is the point: **a case count that moves on its own turns a
 green suite into a claim it cannot support** — it says some case ran somewhere,
@@ -115,12 +117,84 @@ remember to update is not a guard; it is a comment that runs.
 So today: a new test, a new file under `src/routes`, or a re-broken enumeration
 all fail one named assertion with a message saying which case you are in.
 
-Still enumerating a live `src/` tree at module scope, and worth converting if
-either ever flakes: `tests/contract/catalog-surface.test.ts` and
+**The conversion list this note used to carry is CLOSED (E02-D15, below).** It
+named `tests/contract/catalog-surface.test.ts`,
 `tests/contract/server-emits-no-operator-copy.test.ts` (both via
-`collectSources`), and `tests/contract/consumer-write-shape.test.ts` (a
-`readdirSync` of `src/consumers`, into which no suite currently writes). None
-size an `it.each` off a directory a test mutates today.
+`collectSources`) and `tests/contract/consumer-write-shape.test.ts` (a
+`readdirSync` of `src/consumers`) as suites worth converting if they ever flaked.
+They still read the live tree, and that is now safe rather than lucky: no test
+writes into `src/` at all, and a contract test fails if one starts.
+
+### No test writes into `src/` any more (E02-D15, 2026-09-04)
+
+E02-D14 fixed the READER. This fixes the WRITER, which is the half that made the
+reader's problem possible.
+
+`tests/contract/architecture-gate.test.ts` now runs both negative fixtures
+against a SCRATCH COPY: `src/` is copied into a `mkdtemp` directory under
+`os.tmpdir()`, the violating route file and the `__arch_fixture__` module pair
+are written into the copy, and depcruise runs with that directory as its cwd.
+The repository's tree is never touched, so the parallel-worker window that made
+`pnpm test` report 1049 or 1050 cases no longer exists.
+
+**The config is REFERENCED, never duplicated, and that is asserted.** A negative
+fixture run against a copied `.dependency-cruiser.cjs` proves the copy can fail
+and says nothing about the gate. So `.dependency-cruiser.cjs`, `tsconfig.json`,
+`package.json` and `node_modules` are SYMLINKED into the scratch cwd, and a named
+test asserts the link is a link, that its realpath is the repository's file, and
+that the bytes read through it hash to the same sha-256. A further test asserts
+the scratch copy cruises to the same `(modules, dependencies)` census as the real
+tree — an untested fixture harness is worth what an untested gate is worth.
+(`scripts/architectureRules.ts` needs none of this: the non-graph rules are pure
+functions over in-memory records, so the test imports the real module.)
+
+**The rule is now enforced, not written down.**
+`tests/contract/no-test-writes-into-src.test.ts` sweeps every tracked `.ts` file
+under `tests/` (from `git ls-files`, for the reason above) and checks **two
+families** of call site, expanding local `const`s, exported constants, same-file
+helper bodies and rename bindings:
+
+- **a filesystem mutator** — its subject is the DESTINATION argument, argument 2
+  for `cpSync`/`renameSync`/`symlinkSync`/`linkSync`/`copyFileSync` and argument 1
+  for the rest, which is exactly what keeps `cpSync(<repo src>, <scratch src>)`
+  legal;
+- **a process spawn** — `execSync`, `spawnSync`, `execFile`, a promisified alias
+  of one — where the subject is the WHOLE argument list, because
+  `execSync("touch src/x.ts")` hides the path in a command string and there is no
+  destination position to read.
+
+Either way the subject must not name a `src` path segment unless it is rooted at
+a `mkdtemp` scratch, or — for a spawn only — the command is a **named read-only
+tool** (`git ls-files`, `git show`/`cat-file`/`rev-parse`, `depcruise` without
+`--output-to`). That escape is a list of TOOLS, not of files: an unknown command
+naming a `src` path fails closed, and clearing it means naming a command in a
+diff a reviewer can see.
+
+Reading `src/` stays free. Comments and string literals are blanked before call
+detection, which is why the sweep can include the file that quotes violating
+fixtures rather than exempt it. **Twenty-four fixtures** pin the rule — fifteen
+that must fail and nine that must not, because a rule that fires on the honest
+fix is an exemption waiting to be written — including the exact
+`const fixture = join(repoRoot, "src/routes/…")` shape E02-D15 deleted.
+
+The `src`-segment test uses a PATH boundary (quote, slash, bracket, comma,
+whitespace) rather than "any non-identifier character", which would have matched
+a hyphen and read `user-src-token.json` as a write into the source tree. And the
+gate test has **no `inScratchTree(async (scratch) => …)` helper**: behind a lambda
+the sweep resolved the scratch root only because the callback parameter happened
+to share a name with the constant inside the helper, so a rename would have
+blinded the rule on the file it polices, guarded by nothing but a comment. Each
+case makes its own scratch tree and removes it in a `finally`.
+
+**Three misses were closed rather than documented**, from the invariant review of
+PR #84: `execSync("touch src/x.ts")` (the spawn family above), `createWriteStream`
+and `openSync` (a descriptor writes as well as `writeFileSync` does), and
+`import { writeFileSync as wfs }` (rename bindings, which inherit the original's
+destination index). Four limits remain and are stated in the file: a path built
+in one `tests/` module and mutated in another is caught only when the constant is
+exported; string arithmetic is invisible; a spawn that mutates `src/` without
+naming it (`execSync("make")`) is invisible for the same reason; and an
+unlisted read-only tool produces a loud false positive rather than a hole.
 
 ### The coverage include gained `src/consumers/**` (E02-D07, 2026-09-04)
 

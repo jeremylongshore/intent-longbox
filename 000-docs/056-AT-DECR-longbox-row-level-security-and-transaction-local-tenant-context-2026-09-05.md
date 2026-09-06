@@ -1,7 +1,7 @@
 # Decision Record — Row-Level Security: the Transaction-Local Tenant Context, the Service Scopes, and What the Boundary Does Not Defend
 
-**Version:** 1.1.2
-**Status:** **RATIFIED at v1.1.2** (2026-09-05, signed by the acting head under the 2026-09-03 delegation at close of E03-B04 — PR #90 squash-merged to `main` as `a451de8`, the bead closed against that SHA, after the invariant re-verification PASS-WITH-NOTES and the gate re-audit whose six fact repairs landed at v1.1.1). The text that follows is the PROPOSED-era status, kept verbatim as history: **PROPOSED at v1.1.1.** The two-lens cannon **WAS DISPATCHED by the parent session** against PR #90 at `564f6eb`: `security-auditor` **ACCEPT-WITH-CHANGES** (F1–F10) and `martin-kleppmann-reviewer` **ACCEPT-WITH-CHANGES** (K6 blocking, K3–K5, K8–K9). §2 now carries **both lenses' verbatim position statements** and the builder's in-band drafts are SUPERSEDED rather than kept beside them (054 §0's precedent). The code half additionally carries a `longbox-invariant-reviewer` verdict of **BLOCK** on `564f6eb` — one finding, overlapping F2 — and a `longbox-gate-auditor` verdict of **NEEDS-OWNER-DECISION**, whose one ruling (the T24 audit query is built in THIS bead) is applied in §12 and §11 R4. **All of it is folded here**, and the gate audit's RE-AUDIT of v1.1.0 (**NOT-READY on six FACT repairs, no decision wrong; §2's verbatim reproduction PASS; B1–B5 and N1–N7, N9 CLOSED**) is folded at v1.1.1 as patches. The acting head signs at CLOSE; a record that pre-announced its own ratification would be the artifact deciding its own review.
+**Version:** 1.2.1
+**Status:** **RATIFIED, amended by row at v1.2.0** (2026-09-05, E03-D19 `longbox-e5b.3.29` — `migrations/034` discharges §11 R7's anchor half and a narrower **R11** takes its place; the signature below stands, no decision in this record moved, and every original sentence is kept verbatim with the amendment written beside it). Signed at **v1.1.2** (2026-09-05, by the acting head under the 2026-09-03 delegation at close of E03-B04 — PR #90 squash-merged to `main` as `a451de8`, the bead closed against that SHA, after the invariant re-verification PASS-WITH-NOTES and the gate re-audit whose six fact repairs landed at v1.1.1). The text that follows is the PROPOSED-era status, kept verbatim as history: **PROPOSED at v1.1.1.** The two-lens cannon **WAS DISPATCHED by the parent session** against PR #90 at `564f6eb`: `security-auditor` **ACCEPT-WITH-CHANGES** (F1–F10) and `martin-kleppmann-reviewer` **ACCEPT-WITH-CHANGES** (K6 blocking, K3–K5, K8–K9). §2 now carries **both lenses' verbatim position statements** and the builder's in-band drafts are SUPERSEDED rather than kept beside them (054 §0's precedent). The code half additionally carries a `longbox-invariant-reviewer` verdict of **BLOCK** on `564f6eb` — one finding, overlapping F2 — and a `longbox-gate-auditor` verdict of **NEEDS-OWNER-DECISION**, whose one ruling (the T24 audit query is built in THIS bead) is applied in §12 and §11 R4. **All of it is folded here**, and the gate audit's RE-AUDIT of v1.1.0 (**NOT-READY on six FACT repairs, no decision wrong; §2's verbatim reproduction PASS; B1–B5 and N1–N7, N9 CLOSED**) is folded at v1.1.1 as patches. The acting head signs at CLOSE; a record that pre-announced its own ratification would be the artifact deciding its own review.
 **Bead:** E03-B04 `longbox-e5b.3.4` (epic LBOX-E03 `longbox-e5b.3`, gate **G2**, evidence class TEST, owner-role security, risk critical, phase P1-foundation) — 014 §8 row E03-B04
 **Drafted:** 2026-09-05 by `longbox-security-tenancy-builder` · **Audit:** `longbox-invariant-reviewer` (code) and `longbox-gate-auditor` (this record) before close · **Decision owner:** Jeremy Longshore (acting head of board under the 2026-09-03 delegation)
 **Sensitivity:** Restricted internal (014 §10). It names no shop, no person and no credential; it does name every table that carries a tenant, which is a map of the schema and not of anybody's data.
@@ -14,6 +14,8 @@
 
 | Version | Date | What changed | Authority |
 |---|---|---|---|
+| **1.2.1** | **2026-09-05** | **PATCH — R11's list was SIX and is SEVEN. A count repaired; no decision moved, and the amendment rows of v1.2.0 stand verbatim beside it.** The E03-D19 re-verification at `a4d5563` reproduced a seventh single-column edge into a session-scoped parent — **`outbox_attempt.outbox_id → outbox`**, the same shape as `shopify_draft.outbox_id` and `cost_log.outbox_id` and with no composite companion. As `longbox_app` under shop B's context an `outbox_attempt` naming shop A's `outbox` row answers **`INSERT 0 1`**, and `pnpm audit:cross-tenant` catches it: *"CROSS-TENANT: 1 row(s) — outbox_attempt → outbox (outbox_attempt_outbox_id_fkey)"*, over **59** tenant edges. **Why the first list was wrong is the part worth keeping**: it was assembled by READING the schema instead of querying the catalog, which is exactly the failure `034`'s own loop refuses one layer down — that loop CHECKS its ten children against `pg_constraint` before it will run. R11's seven are now derived by query, and the query's shape is stated in R11 itself. Two further facts are added rather than corrected: the three `*_supersedes_*` self-edges are **correctly absent**, because `008` gave each a composite companion over `(supersedes_id, shop_id, scan_session_id)`; and the **wider set is 42** single-column foreign keys between two shop-scoped tables at this head, inside the audit's **59** edges, which is DETECTION-covered and deliberately outside E03-D27's scope — R11 scopes itself to session-scoped parents because that is the population `034` closed and 016 C46 reproduced. Also: §11's evidence line said the lane file gained *"six"* new cases; it gained **five, plus one rewritten in place**. E03-D27's title is being restated from six edges to seven by the acting head, so this record names the bead rather than quoting a title mid-edit. | E03-D19 re-verification → `longbox-security-tenancy-builder` |
+| **1.2.0** | **2026-09-05** | **MINOR — §11 R7's ANCHOR half is DISCHARGED, and a narrower residual replaces it. Amend-by-row: every original sentence stays verbatim and the amendment is written beside it.** `migrations/034` (E03-D19 `longbox-e5b.3.29`) adds `UNIQUE (id, shop_id)` on `scan_session` and re-points all **ten** child foreign keys at `(scan_session_id, shop_id) REFERENCES scan_session (id, shop_id)`, dropping the ten single-column edges the composite ones subsume. **016 C46 probe 1 no longer succeeds** — as `longbox_app` under shop B's context, a `scan_photo` naming shop A's session is refused `23503` on `scan_photo_session_same_shop` — and **probe 1 and probe 2 are now the same error, field for field**: same SQLSTATE, same message, same `DETAIL` (*"Key is not present in table \\"scan_session\\"."*, with no key values, because `029`'s policy means the app role cannot read the referenced table), same schema, table and constraint name. So the existence oracle is closed as well as the attachment. **Probe 3 is unchanged and asserted so** — a row whose own `shop_id` is another tenant's is still refused `42501` by the policy, because the constraint is never reached. **What replaces R7 is R11**: the anchor edge is closed and the SIBLING edges are not — `llm_rerank.candidate_set_id`, `media_deletion.scan_photo_id`, `shopify_draft.outbox_id`, `cost_log.outbox_id`, **`outbox_attempt.outbox_id`**, `listing_status_observation.shopify_draft_id` and `identity_resolution.human_confirmation_id` — **seven**, not the six this row first said — are still single-column foreign keys and R7's mechanism applies to every one of them unchanged, covered by DETECTION only and owned by **E03-D27** `longbox-e5b.3.37`. The pinned lane case moved with it: `tests/integration/cross-tenant-audit.test.ts` now plants an `llm_rerank` on the sibling edge to prove the audit still fires, and the case that used to plant a `scan_photo` asserts the refusal instead. **§6.3's `shop_shopify_domain_is_one_store` is NOT discharged by this** and is not this bead's — it is a unique index rather than a foreign key, it is still latent for the reason §6.3 gives (no route writes the column), and the change that fixes it is R10's, owned by **E03-D22** `longbox-e5b.3.32`. No decision in this record changed; §13's alternative 10 stands verbatim as the record of the ruling that deferred the work. | E03-D19 `longbox-e5b.3.29` → `longbox-security-tenancy-builder` |
 | **1.1.2** | **2026-09-05** | **A PATCH — the signature.** Status → RATIFIED; §15 records the signing, the two re-verification verdicts it waited on, and the merge SHA `a451de8` the bead is closed against; §1's `4a3871c` pins gain "(landed as `a451de8`)"; R10's bead is filed as E03-D22 `longbox-e5b.3.32` (015 row 279). No ruling, invariant, residual or dissent changed. | Acting head, at close of E03-B04 |
 | **1.1.1** | **2026-09-05** | **PATCH — six facts repaired, no decision moved.** The gate audit's re-audit of v1.1.0 returned NOT-READY on facts alone and CLOSED every decision item. **(1)** §0's per-file counts: `rls-plan.test.ts` is **21** cases, not 18, and this bead's unit total is **37**, not 34 (12 + 21 + 4). **(2)** E03-D19, E03-D20 and E03-D21 are **REAL BEADS**, filed by the session — `longbox-e5b.3.29`, `longbox-e5b.3.30` and `longbox-e5b.3.31`, all OPEN and blocked on E03-B04, at 015 rows 276–278 — so every "proposed, not yet created" is replaced by the id. **(3)** §12's *"the bead's own note is corrected accordingly"* was FALSE when written and is now true by a different route: the session wrote the `bd-sync` note on `longbox-e5b.13.4.1` on 2026-09-05, and §12 now says who wrote it, when, and that the bead's ACCEPTANCE text does not yet carry the schedule clause. **(4)** R9 has an owner, **E03-D21**, and a §12 row. **(5)** 006's citation of 034 is split: the three-layers quote is at **034:449**, the K1 trigger at **034:445–447**. **(6)** 016 C45's status no longer out-ranks its evidence (split VERIFIED / REPORTED), and C46 and §11 R7 now say that the hand probes used `candidate_set` while the PINNED lane case is `cross-tenant-audit.test.ts:99–136` over `scan_photo → scan_session`. Also: §10 I12's fixture list named an "altered service policy" fixture that does not exist, and §14 now carries the consistency lens's K8 sentence **verbatim** beside the ruling that declined it. **The invariant re-verification at the same head (PASS-WITH-NOTES, every cannon item CLOSED) adds three more, all facts:** §6.3's claim that *"there is nothing to repair"* was **false by one** — `shop_shopify_domain_is_one_store` is a `UNIQUE` over a client-choosable value on the now-policied `shop`, reproduced as a one-bit oracle and latent only because no route writes the column; **R10** names the time-of-check-to-time-of-use window in the F8 domain-claim check, with both available fixes argued and declined; and two comment counts in `src/db/rowLevelSecurity.ts` (fourteen → fifteen, seventeen → eighteen) that had survived the fold. | Gate audit re-audit + invariant re-verification at `ff55d6a` → `longbox-security-tenancy-builder` |
 | **1.1.0** | **2026-09-05** | **MINOR — three findings change WHAT THE BOUNDARY IS, and one of them reverses a ruling this record made at v1.0.0.** **(F1, minor)** the second policy was `FOR ALL` over a scope-agnostic boolean, so ANY scope was a cross-tenant read **and write** grant on every service-scoped table — the lens inserted an owner membership at another shop from inside `my-shops`. It is now a `FOR SELECT` policy keyed on the scopes each table declares, plus a separate `FOR INSERT` policy on three tables whose check names the row. **This reverses v1.0.0's §13 item 6**, which rejected a scope-keyed predicate as "a second authorization system living in SQL"; §13 now records what was shipped, what the cannon found, and what this version does. **(F2 + the invariant review's BLOCK, minor)** the boot assertion is rebuilt as a SET comparison — every policy that exists against every policy this design emits, by name, command and predicate — because the per-table version was blind to a permissive policy ADDED beside the declared one, to `tenant_isolation` RESHAPED to `FOR INSERT WITH CHECK (true)`, and to the second policy entirely. **(F3, minor)** the enumeration covers `relkind IN ('r','p')` and REFUSES `'m'`/`'f'` loudly, because the grant plan already hands the app role `SELECT` on a materialized view and RLS never applies to one. **(WARN 3, minor)** `shop` moves out of the exemption list and is policied on its own `id` — the invariant review found v1.0.0's first reason for exempting it had been falsified by this bead's own `my-shops` scope — which makes creating a shop a schema-owner act enforced by the database. **(F4/K6, minor)** `migrations/029`'s hardcoded table list is DELETED: it had already drifted from the module's, and a hand-applied migration left `membership_revocation` unscoped and §6.1's fail-open `my-shops` alive. **(the gate audit's ruling, minor)** 019 T24's daily cross-tenant audit QUERY is built here rather than deferred; only its schedule and heartbeat stay with E13-B04.1. **Riding along as PATCHES** (facts repaired, no decision moved): the evidence base re-pinned from a wip commit to `main` (B1), 56 joins → 42 (B2), §5's box gains `WITH CHECK` (B3), R4's overclaim reworded against R1 (B5), the 034 quote's elision marked (N3), "three weeks later" → one day (N4), the skipped case named (N5), plus F5–F9's residuals and the two `pnpm arch` widenings. | Two-lens cannon + invariant review + gate audit → `longbox-security-tenancy-builder` |
@@ -295,6 +297,19 @@ checked with row-level security off. A `UNIQUE (shopify_domain)` that a caller
 could reach needs to become a constraint the tenant participates in, exactly as
 `scan_session`'s children need `(id, shop_id)`.
 
+> **AMENDMENT (v1.2.0, 2026-09-05, E03-D19 `longbox-e5b.3.29`). The half of this
+> section that names `scan_session`'s children is DONE; the half that names
+> `shop_shopify_domain_is_one_store` is NOT, and it did not move to this bead.**
+> `migrations/034` keys all ten children on `(id, shop_id)` (§11 R7's amendment).
+> The unique index is a different repair with a different shape — a foreign key
+> gains a column, a unique index over a client-choosable value needs the value to
+> stop being client-choosable at that scope — and the change that makes it is
+> R10's: the install CLAIMS the store's domain on `shop`, which serialises two
+> concurrent installs and removes the oracle in the same statement. **E03-D22**
+> (`longbox-e5b.3.32`) owns it. Until it lands this section's own reason stands
+> unchanged: it is latent because no route writes the column, and it stops being
+> latent the day one does.
+
 ---
 
 ## 7. Tables with no tenant are DECLARED, with a reason each
@@ -402,6 +417,107 @@ value a caller could choose answers *"taken"* for a tenant the caller cannot
 read. It is latent because no route writes `shopify_domain` — both writers are
 schema-owner CLIs — and it stops being latent the day one does.
 
+> **AMENDMENT (v1.2.0, 2026-09-05, E03-D19 `longbox-e5b.3.29`). R7's ANCHOR half
+> is DISCHARGED. Everything above is kept verbatim as the record of what was true
+> until `migrations/034` landed.**
+>
+> `034` adds `UNIQUE (id, shop_id)` on `scan_session` and re-points all ten child
+> foreign keys at `(scan_session_id, shop_id) REFERENCES scan_session (id,
+> shop_id)`, dropping the single-column edges the composite ones subsume. The
+> tenant is now part of referential integrity rather than a column beside it,
+> which is the change this residual asked for in its own last sentence.
+>
+> **Both halves of the defect are closed, and the second is worth stating
+> separately because it was the smaller and is the subtler.**
+>
+> - **The ATTACHMENT.** Probe 1 is now refused: as `longbox_app` under shop B's
+>   context, `INSERT INTO scan_photo (scan_session_id, shop_id, …) VALUES (<shop
+>   A's session>, <shop B>, …)` raises `23503` on `scan_photo_session_same_shop`.
+>   The row's own `shop_id` is still B, so the policy still passes — **it is the
+>   CONSTRAINT that refuses, not the policy** — and the distinction is asserted
+>   rather than assumed, because a change that collapsed probe 3 into `23503`
+>   would mean the `WITH CHECK` had stopped running.
+> - **The EXISTENCE ORACLE.** Probe 1 and probe 2 are now **the same error, field
+>   for field** — same SQLSTATE, same message, same `DETAIL`, same schema, table
+>   and constraint name. The composite key is what makes both OUTCOMES a refusal:
+>   a foreign session id paired with the caller's own `shop_id` is absent from
+>   `scan_session` for exactly the reason a uuid that exists nowhere is. `029`'s
+>   policy on `scan_session` is a second, independent layer — the app role cannot
+>   read the referenced table, so PostgreSQL emits the generic *"Key is not
+>   present in table"* detail instead of echoing the key — and it is belt and
+>   braces rather than load-bearing, since the echoing form would only have
+>   repeated values the caller itself supplied.
+> - **Probe 3 is UNCHANGED**: a row whose own `shop_id` names another tenant is
+>   still refused `42501` by the policy, before the constraint is reached.
+>
+> Evidence: `tests/integration/cross-tenant-audit.test.ts` (twelve cases — seven
+> at E03-B04, five new and one rewritten in place) and `tests/integration/prior-snapshot-upgrade.test.ts`, which proves
+> the ten constraints VALIDATE against a fixture that already holds rows rather
+> than only against an empty database. **What is NOT discharged is R11**, below;
+> and §6.3's `shop_shopify_domain_is_one_store` is not discharged either — it is
+> a unique index rather than a foreign key, it stays latent for the reason §6.3
+> gives, and the change that fixes it is R10's, owned by **E03-D22**
+> (`longbox-e5b.3.32`).
+
+**R11. The anchor edge is closed; the SIBLING edges are not, and they are the same
+mechanism.** _(Added at v1.2.0 by E03-D19, as the remainder of R7 rather than as a
+new finding.)_ `034` covers every foreign key from a session-scoped table **into
+`scan_session`**. It covers no other edge, and **seven** single-column foreign
+keys into a session-scoped parent remain: `llm_rerank.candidate_set_id`,
+`media_deletion.scan_photo_id`, `shopify_draft.outbox_id`, `cost_log.outbox_id`,
+`outbox_attempt.outbox_id`, `listing_status_observation.shopify_draft_id` and
+`identity_resolution.human_confirmation_id`.
+
+> **CORRECTION (2026-09-05, the E03-D19 re-verification at `a4d5563`). This list
+> said SIX and the seventh is `outbox_attempt.outbox_id`.** The reviewer
+> reproduced it: as `longbox_app` under shop B's context, an `outbox_attempt`
+> naming shop A's `outbox` row answers **`INSERT 0 1`**, and
+> `pnpm audit:cross-tenant` catches it — *"CROSS-TENANT: 1 row(s) —
+> outbox_attempt → outbox (outbox_attempt_outbox_id_fkey)"*, over **59** tenant
+> edges. It is the same shape as `shopify_draft.outbox_id` and
+> `cost_log.outbox_id`, with no composite companion.
+>
+> **The three `*_supersedes_*` self-edges are correctly ABSENT** and the reason
+> is worth stating rather than assumed: `condition_assessment`,
+> `human_confirmation` and `pricing_snapshot` each carry a single-column
+> `supersedes_fk` AND a composite `supersedes_same_scope` over
+> `(supersedes_id, shop_id, scan_session_id)` from `008`, so the tenant already
+> participates in referential integrity on that edge.
+>
+> **Why the first list was wrong is the useful part**: it was assembled by
+> reading the schema rather than by querying the catalog — which is precisely
+> the failure `034`'s own loop refuses one layer down, where the ten children it
+> names are CHECKED against `pg_constraint` before it will run. The seven above
+> are derived by query, and the query is in this record's own §11 rather than in
+> somebody's head.
+
+**The wider set is larger still, and it is DETECTION-covered rather than
+in scope.** At this head there are **42** single-column foreign keys between two
+shop-scoped tables, and `pnpm audit:cross-tenant` enumerates **59** tenant edges
+in total. R11 and E03-D27 scope themselves to the seven above — the edges into a
+SESSION-scoped parent, where a cross-tenant attachment corrupts the record of one
+scan — because that is the population `034` was closing and the one 016 C46
+reproduced. The remaining single-column edges (identity and connector tables,
+which have their own records) are covered by the audit exactly as these are, and
+narrowing that gap is neither this record's claim nor E03-D27's promise. On each
+of the seven R7's sentence is
+still exactly true — a foreign-key check runs with row-level security off — so the
+application role can write a row that is legitimate on its anchor and crosses
+tenants on its sibling. **It is narrower than R7 was, in the way that matters**:
+the value the caller must already possess is no longer a session id a URL handed
+it but the id of a row it never saw, and the anchor it must also name has to be
+its own. **It is covered by DETECTION and not by prevention** —
+`pnpm audit:cross-tenant` derives these edges from the catalog like any other and
+counts a disagreement, and the lane case that used to plant a `scan_photo` on the
+anchor now plants an `llm_rerank` on the sibling for exactly this reason. Closing
+it is the same change one parent at a time (each needs its own
+`UNIQUE (id, shop_id)`), and **it has an owner: E03-D27
+(`longbox-e5b.3.37`)**, filed by the session on 2026-09-05, OPEN and blocked on
+E03-D19, at 015 row 283. **Its title and description are being restated from six
+edges to seven by the acting head**, so this record names the bead and not a
+quotation of a title that is mid-edit; 015 row 283 follows the bead. E03-D19 declined to widen its own bead to cover them, and that is
+a scope judgement rather than a deferral of the finding.
+
 **R10. Two concurrent installs of ONE store have a window in which both pass the
 one-shop check.** `receiveCallback` refuses a domain another shop already holds
 (F8) with a `SELECT` in the `connector-inbound` scope, and then introduces the
@@ -443,10 +559,12 @@ E03 and this record asks for one rather than filing it.**
 | **E03-D11** `longbox-e5b.3.21` | The privileged session. The three MFA CLIs already declare the `second-factor` scope, so the routes inherit a correct context rather than needing one added. |
 | **E03-D17** | The audited accessor module that gates who may run the owner-role CLIs (R2). |
 | **E03-B10** | The independent security review closing G2. This record and its 43 lane cases in the two RLS files are its evidence for the third tenancy layer; **R1 and R4 are the two sentences it must not let anybody soften** — the boundary is not a defence against a compromised process, and the audit query is not proof that no tenant crossing occurred. |
-| **E03-D19** `longbox-e5b.3.29` | R7's schema change: `UNIQUE (id, shop_id)` on `scan_session` and the ten child foreign keys re-pointed at `(scan_session_id, shop_id)` — closing not merely the existence oracle the lens named, but the cross-tenant ATTACHMENT re-probing found (016 C46 probe 1). |
+| **E03-D19** `longbox-e5b.3.29` — **DISCHARGED 2026-09-05** | R7's schema change: `UNIQUE (id, shop_id)` on `scan_session` and the ten child foreign keys re-pointed at `(scan_session_id, shop_id)` — closing not merely the existence oracle the lens named, but the cross-tenant ATTACHMENT re-probing found (016 C46 probe 1). **Shipped as `migrations/034`**, with the ten constraints `ADD … NOT VALID` then `VALIDATE`d, the ten single-column edges they subsume dropped, and both halves asserted in `tests/integration/cross-tenant-audit.test.ts` — including that probe 1 and probe 2 now answer identically, field for field. §11 R7 carries the amendment; **R11 is the remainder it does not close** (the sibling edges), owned by **E03-D27** `longbox-e5b.3.37`. |
 | **E03-D20** `longbox-e5b.3.30` | An amend-by-row to 000-docs/044 making `ENABLE ROW LEVEL SECURITY` a contracting shape the migration lint recognises, and recording the non-`CONCURRENTLY` index rule §9 states (K8/N2). |
 | **E03-D21** `longbox-e5b.3.31` | R9: the person-scoped tables — `app_user`, `user_authenticator` and its retirement, `recovery_code` and its use — behind a database policy, either an EXISTS-membership predicate or a service scope, with the same-transaction admission problem §7 describes as the thing it has to solve rather than work around. |
-| **A bead this record ASKS FOR and does not file** | **R10**: the time-of-check-to-time-of-use window in the F8 domain-claim check, closed by making the install claim the store's domain on `shop` — the same change §6.3's unique index needs, and the same class as E03-D19. It is connector authority (053) rather than tenancy, so it belongs under E03 beside E03-D13 rather than inside this record's own follow-ups. |
+| **E03-D22** `longbox-e5b.3.32` | **R10, and with it §6.3's `shop_shopify_domain_is_one_store` oracle.** *(Row added at v1.2.0. The line below asked for this bead; it exists, and this row names it so that a reader of §6.3 or §11 R10 lands on an id rather than on a request.)* The install claims the store's domain on `shop` inside the transaction that introduces the token version, which turns two concurrent callbacks into one winner and one `23505` and removes the one-bit oracle in the same statement. **It is NOT discharged by E03-D19**: a unique index over a client-choosable value is a different repair from a foreign key gaining a column. |
+| **A bead this record ASKS FOR and does not file** *(v1.2.0: the R10 half is now **E03-D22** above; the sentence stays verbatim as the record of the ask)* | **R10**: the time-of-check-to-time-of-use window in the F8 domain-claim check, closed by making the install claim the store's domain on `shop` — the same change §6.3's unique index needs, and the same class as E03-D19. It is connector authority (053) rather than tenancy, so it belongs under E03 beside E03-D13 rather than inside this record's own follow-ups. |
+| **E03-D27** `longbox-e5b.3.37` *(row added at v1.2.0 by E03-D19; the bead was filed by the session the same day, so this row names an id rather than a request — as E03-D22's row does for R10)* | **R11**: the **seven** SIBLING foreign keys into a session-scoped parent that are still single-column — `llm_rerank.candidate_set_id`, `media_deletion.scan_photo_id`, `shopify_draft.outbox_id`, `cost_log.outbox_id`, **`outbox_attempt.outbox_id`**, `listing_status_observation.shopify_draft_id`, `identity_resolution.human_confirmation_id`. (Six at v1.2.0; the seventh was reproduced by the re-verification at `a4d5563` and the list is now derived by query rather than by reading.) Each parent needs its own `UNIQUE (id, shop_id)` and each child its own composite edge; the work is `034` repeated per parent, and whether it is one migration or six is the scope judgement E03-D19 declined to make inside its own bead. Detection covers them meanwhile (`pnpm audit:cross-tenant` enumerates every one of them from the catalog), and the lane case that plants an `llm_rerank` is the pinned reproduction. The bead's own acceptance names the same shape `034` used: `UNIQUE (id, shop_id)` on each parent, `ADD NOT VALID` → `VALIDATE` → drop the old edge by shape, the planted probes flipped to refusing, and **R11 restated to discharged**. |
 | **E15** (offboarding) | R8: what happens to a deleted shop's undrained outbox rows, decided before anything deletes a shop. |
 | **E14-B03** `longbox-e5b.14.3` | The DB migration, RLS, concurrency and rollback test suites — the lane cases here are its starting point, not its completion. |
 

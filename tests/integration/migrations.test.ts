@@ -100,6 +100,13 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // rewritten a migration CI had already applied. A second file is the
       // honest shape — and it is what a deployed database will actually see.
       "033_origin_designation_time_integrity.sql",
+      // `034` and NOT `031`: E03-D19 was cut while E03-D11 still held `031` on
+      // this same base, and the rule is the one `030` states — a number moves
+      // freely before a merge and never after one, so the branch that has not
+      // shipped keeps its number and the one that ships takes the next free one.
+      // `031` merged FIRST and slotted in above without renumbering anything
+      // here, which is the property this ORDERED list exists to demonstrate.
+      "034_scan_session_composite_tenant_keys.sql",
     ]);
 
     const tables = await pool.query(
@@ -183,11 +190,11 @@ describe.skipIf(!dbUp)("migration runner", () => {
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
     // (E03-B06 reserved `027` and never wrote it), plus E02-D11's `030`,
-    // E03-D11's `031` and E03-D14's `032`/`033`, is 32 — while the highest
-    // number is 033. ONE gap, not two: `031` landed and closed the second one.
-    // The runner reads no contiguity, and this is the assertion that keeps
-    // saying so.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(32);
+    // E03-D11's `031`, E03-D14's `032`/`033` and E03-D19's `034`, is 33 — while
+    // the highest number is 034. ONE gap, not two: `031` landed and closed the
+    // second one, and `034` was taken while it was still in flight. The runner
+    // reads no contiguity, and this is the assertion that keeps saying so.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(33);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

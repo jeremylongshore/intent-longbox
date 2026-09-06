@@ -158,6 +158,24 @@ const SNAPSHOTS = [
   // E03-B06 and never written, so the twenty-nine files up to and including
   // `030` are what a database at that schema has applied.
   { name: "030", file: "tests/fixtures/schema/after-030.sql", applied: 29 },
+  // E03-D19 shipped `034` and added this one. `033` is the newest RELEASED schema
+  // at the moment this fixture was cut, and it is the one that matters most for
+  // this particular migration: `034` does not add a column, it adds a CONSTRAINT
+  // and then VALIDATEs it, and a validation is only interesting against a
+  // database that already holds rows. The fixture's seed hangs a `scan_photo`, two
+  // `candidate_set` rows, a `human_confirmation`, a `condition_assessment` and a
+  // `cost_log` off one session — six rows across five of the ten children — so the
+  // upgrade path proves the composite foreign keys validate on existing data
+  // rather than only on an empty table.
+  //
+  // `applied: 32` and not 33: the ledger counts FILES, and `027` is absent —
+  // reserved by E03-B06 and never written. `031` IS present: E03-D11 merged
+  // ahead of this branch, and the fixture was RE-CUT afterwards for exactly that
+  // reason, because `031` sorts before `033` and a fixture cut without it would
+  // have described a schema nobody ships while `readMigrations().slice(0, 32)`
+  // said otherwise. Thirty-two files up to and including `033` are what a
+  // database at that schema has applied.
+  { name: "033", file: "tests/fixtures/schema/after-033.sql", applied: 32 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -238,6 +256,39 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
         // And the boundary is REAL on the upgraded database, not merely declared:
         // the fixture's own seeded rows are invisible without a context.
         await expect(app.query(`SELECT id FROM scan_session`)).resolves.toMatchObject({ rows: [] });
+
+        // (2c) `034`'s COMPOSITE TENANT KEYS, VALIDATED ON ROWS THAT WERE ALREADY
+        // THERE (E03-D19). This is the half an empty database cannot prove: `034`
+        // adds no column, it adds ten foreign keys and then runs
+        // `VALIDATE CONSTRAINT` over the child tables, and a validation is only
+        // interesting against rows written before the constraint existed. The
+        // fixture seeds a `scan_photo`, two `candidate_set` rows, a
+        // `human_confirmation`, a `condition_assessment` and a `cost_log` off one
+        // session, so five of the ten children carry real rows on this path.
+        //
+        // `convalidated` is the assertion and not merely `conname`: a constraint
+        // left NOT VALID refuses new rows and vouches for none of the existing
+        // ones, which is a weaker guarantee wearing the same name.
+        const anchors = await pool.query(
+          `SELECT c.relname::text AS child, k.convalidated AS validated
+             FROM pg_constraint k
+             JOIN pg_class c ON c.oid = k.conrelid
+             JOIN pg_class cf ON cf.oid = k.confrelid
+            WHERE k.contype = 'f' AND cf.relname = 'scan_session'
+            ORDER BY 1`
+        );
+        expect(anchors.rows).toHaveLength(10);
+        expect(anchors.rows.every((r) => (r as { validated: boolean }).validated)).toBe(true);
+        // And the single-column edge it supersedes is gone, on the upgrade path as
+        // much as on a fresh database.
+        const singles = await pool.query(
+          `SELECT count(*)::int AS n
+             FROM pg_constraint k
+             JOIN pg_class cf ON cf.oid = k.confrelid
+            WHERE k.contype = 'f' AND cf.relname = 'scan_session'
+              AND array_length(k.conkey, 1) = 1`
+        );
+        expect((singles.rows[0] as { n: number }).n).toBe(0);
 
         // A second run is a clean skip: no adoption, no re-apply, no drift.
         const second = await runMigrations(url);
@@ -401,8 +452,12 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // leave the set exactly at the limit; E03-B04 shipped `029` and added `028`;
     // E02-D11 shipped `030` and added NONE, because `028` still sits two behind
     // head; E03-D14 shipped `032` and added `030`, again rather than leave the
-    // set one migration from the limit while E03-D11's `031` was in flight. The
-    // next bead to push head past `034` adds the next one.
+    // set one migration from the limit while E03-D11's `031` was in flight; and
+    // E03-D19 shipped `034` and added `033` — not because the limit forced it
+    // either, but because `034`'s whole content is a constraint VALIDATED over
+    // existing rows, and the snapshot immediately before it is the only fixture
+    // that tests that on the shape an operator actually upgrades from. The next
+    // bead to push head past `034` adds the next one.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

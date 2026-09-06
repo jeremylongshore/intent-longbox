@@ -48,17 +48,24 @@ describe("planAppRoleGrants", () => {
     });
   });
 
-  it("names the three no-grant tables today, across BOTH declaration lists", () => {
+  it("names the four no-grant tables today, across BOTH declaration lists", () => {
     // E03-D14 widened the class: `appGrant: "none"` may now sit on an
     // APPEND-ONLY row as well as on an exemption, and the two lists are read
     // together. `schema_migrations` is exempt-and-ungranted; the two origin
     // tables are append-only-and-ungranted, because an appended RETIREMENT is
     // the one write that narrows 019 T35(c)'s audited population and the
     // application must not be able to make it (000-docs/058 §3(c)).
+    //
+    // **E03-D24 adds the fourth on the same reasoning** (063 §3.8):
+    // `user_credential_clearance` records a break-glass intervention in somebody
+    // else's credential, written by a SCHEMA-OWNER CLI. A table that records an
+    // intervention must not be writable — or readable — by the process the
+    // intervention is about.
     expect(NO_APP_GRANT_TABLE_NAMES).toEqual([
       "app_user_origin",
       "app_user_origin_retirement",
       "schema_migrations",
+      "user_credential_clearance",
     ]);
   });
 
@@ -115,7 +122,13 @@ describe("planAppRoleGrants", () => {
     expect(plan.appendOnly).toHaveLength(
       APPEND_ONLY_TABLE_NAMES.length - plan.noGrant.length - plan.insertOnly.length
     );
-    expect(plan.noGrant).toEqual(["app_user_origin", "app_user_origin_retirement"]);
+    // E03-D24 adds a third append-only no-grant table, for the origin tables'
+    // own reason one subsystem over (063 §3.8).
+    expect(plan.noGrant).toEqual([
+      "app_user_origin",
+      "app_user_origin_retirement",
+      "user_credential_clearance",
+    ]);
     expect(plan.insertOnly).toEqual(["identity_access"]);
   });
 

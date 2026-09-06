@@ -136,16 +136,25 @@ export type {
 // one for the same reason: `verifyPassword` is correct ONLY inside a transaction
 // that holds its anchor lock AND that commits whatever the verdict, and
 // `personWait` is the ONE budget three factors share (048 §4.3, 057 §4.5).
+// E03-D24: `setPassword` is GONE and is TWO functions, because the row count is
+// what enforces provision-versus-replace (the data-model lens's H4, 063 §3.3).
 export {
   MIN_PASSWORD_LENGTH,
+  clearPassword,
   lockCredential,
   personIdForEmail,
   personWait,
+  provisionPassword,
   readCredential,
-  setPassword,
+  replacePassword,
   verifyPassword,
 } from "./credentials.js";
-export type { PasswordRefusal, PasswordVerdict, UserCredentialRow } from "./credentials.js";
+export type {
+  CredentialClearanceReason,
+  PasswordRefusal,
+  PasswordVerdict,
+  UserCredentialRow,
+} from "./credentials.js";
 
 // E03-D17: `readPerson` is GONE and `Person` moved. Turning a key into a person
 // is `src/identity/`'s, behind its own barrel and its own audit fact (034 §3.3,

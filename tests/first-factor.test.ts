@@ -23,7 +23,8 @@ import {
   personIdForEmail,
   personWait,
   readCredential,
-  setPassword,
+  provisionPassword,
+  replacePassword,
   upsertPerson,
   verifyPassword,
   type SessionRow,
@@ -62,8 +63,15 @@ function credentialRow(hash: string): Record<string, unknown> {
   return { id: "credential-1", app_user_id: PERSON, password_hash: hash, pepper_version: 1 };
 }
 
-describe("setPassword (048 §10.1)", () => {
-  it("UPSERTS on the person, because the row IS the anchor and there is one per person", async () => {
+describe("provisionPassword / replacePassword (048 §10.1; 063 §3.3's H4 split)", () => {
+  it("PROVISIONS with `DO NOTHING`, so the ROW COUNT is what refuses an existing credential", async () => {
+    // ⚠ **THIS CASE ASSERTED AN UPSERT AND E03-D24 CHANGED THE DECISION IT
+    // GUARDS** (the data-model lens's H4). `setPassword` was one
+    // `ON CONFLICT … DO UPDATE` willing to overwrite, shared by the route that
+    // may only CREATE and the route that may only REPLACE, and told apart by an
+    // `if` in one of them — so 063 §3.3's central claim was a fact about which
+    // call site an author remembered. It is now two statements whose row count
+    // is the enforcement, which is 048 R19's idiom one factor down.
     let insert: Call | undefined;
     const { db } = fakeDb((text, values) => {
       if (text.includes("INSERT INTO user_credential")) {
@@ -72,12 +80,44 @@ describe("setPassword (048 §10.1)", () => {
       }
       return [];
     });
-    const out = await setPassword(db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+    const out = await provisionPassword(db, {
+      appUserId: PERSON,
+      password: PASSWORD,
+      pepper: TEST_PIN_PEPPER,
+    });
     expect(out).toEqual({ ok: true, credentialId: "credential-1" });
     // One row per person is what makes 048 §9.1's anchor exist at all: there has
-    // to be exactly one thing to lock.
-    expect(insert?.text).toContain("ON CONFLICT (app_user_id)");
-    expect(insert?.text).toContain("DO UPDATE SET password_hash = EXCLUDED.password_hash");
+    // to be exactly one thing to lock — and `DO NOTHING` is what makes a second
+    // provisioning a refusal rather than an overwrite.
+    expect(insert?.text).toContain("ON CONFLICT (app_user_id) DO NOTHING");
+    expect(insert?.text).not.toContain("DO UPDATE");
+  });
+
+  it("refuses `already_set` when the INSERT returns no row, without a SELECT first", async () => {
+    const { db, calls } = fakeDb(() => []);
+    const out = await provisionPassword(db, {
+      appUserId: PERSON,
+      password: PASSWORD,
+      pepper: TEST_PIN_PEPPER,
+    });
+    expect(out).toEqual({ ok: false, refusal: "already_set" });
+    // No existence check: the database decided, which is the whole of H4.
+    expect(calls.filter((c) => c.text.includes("SELECT")).length).toBe(0);
+  });
+
+  it("REPLACES with an UPDATE that can never create, and refuses when it matches nothing", async () => {
+    let update: Call | undefined;
+    const { db } = fakeDb((text, values) => {
+      if (text.includes("UPDATE user_credential")) {
+        update = { text, values };
+        return [];
+      }
+      return [];
+    });
+    const out = await replacePassword(db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+    expect(out).toEqual({ ok: false, refusal: "no_credential" });
+    expect(update?.text).toContain("WHERE app_user_id = $1");
+    expect(update?.text).toContain("RETURNING id");
   });
 
   it("stores an argon2id digest that is not the password and not reproducible without the pepper", async () => {
@@ -89,7 +129,7 @@ describe("setPassword (048 §10.1)", () => {
       }
       return [];
     });
-    await setPassword(db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+    await provisionPassword(db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
     expect(stored).toMatch(/^\$argon2id\$/);
     expect(stored).not.toContain(PASSWORD);
     // 048 §9.2 / I9: the digest is over `password ‖ pepper`, so a `pg_dump` alone
@@ -104,7 +144,7 @@ describe("setPassword (048 §10.1)", () => {
       }
       return [];
     });
-    await setPassword(second.db, {
+    await provisionPassword(second.db, {
       appUserId: PERSON,
       password: PASSWORD,
       pepper: `${TEST_PIN_PEPPER}-different`,
@@ -114,7 +154,11 @@ describe("setPassword (048 §10.1)", () => {
 
   it("refuses a password below the floor BEFORE it writes anything", async () => {
     const { db, calls } = fakeDb();
-    const out = await setPassword(db, { appUserId: PERSON, password: "short", pepper: TEST_PIN_PEPPER });
+    const out = await provisionPassword(db, {
+      appUserId: PERSON,
+      password: "short",
+      pepper: TEST_PIN_PEPPER,
+    });
     expect(out).toEqual({ ok: false, refusal: "too_short" });
     expect(calls).toHaveLength(0);
     expect(MIN_PASSWORD_LENGTH).toBeGreaterThan(8);
@@ -209,7 +253,7 @@ describe("verifyPassword (048 §9.1, §9.3)", () => {
       }
       return [];
     });
-    await setPassword(setter.db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+    await provisionPassword(setter.db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
 
     const { db, calls } = fakeDb((text) => {
       if (text.includes("FROM app_user u")) return [{ id: PERSON }];
@@ -236,7 +280,7 @@ describe("verifyPassword (048 §9.1, §9.3)", () => {
       }
       return [];
     });
-    await setPassword(setter.db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+    await provisionPassword(setter.db, { appUserId: PERSON, password: PASSWORD, pepper: TEST_PIN_PEPPER });
 
     const { db, calls } = fakeDb((text) => {
       if (text.includes("FROM app_user u")) return [{ id: PERSON }];

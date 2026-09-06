@@ -161,6 +161,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -249,6 +252,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -337,6 +343,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -490,6 +499,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -578,6 +590,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -666,6 +681,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -754,6 +772,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -915,6 +936,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1003,6 +1027,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1091,6 +1118,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1256,6 +1286,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1344,6 +1377,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1432,6 +1468,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1520,6 +1559,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1715,6 +1757,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1803,6 +1848,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1891,6 +1939,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -1979,6 +2030,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2160,6 +2214,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2248,6 +2305,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2336,6 +2396,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2424,6 +2487,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2596,6 +2662,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2684,6 +2753,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2772,6 +2844,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2860,6 +2935,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -2948,6 +3026,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3036,6 +3117,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3124,6 +3208,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3212,6 +3299,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3413,6 +3503,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3501,6 +3594,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3589,6 +3685,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3677,6 +3776,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3765,6 +3867,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3853,6 +3958,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -3941,6 +4049,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4029,6 +4140,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4198,6 +4312,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4286,6 +4403,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4374,6 +4494,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4462,6 +4585,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4499,6 +4625,2770 @@
                 "type": "object",
                 "properties": {},
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials": {
+      "post": {
+        "summary": "Set a first password for the person this operator session names.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credential_set": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "credential_set"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, CREDENTIAL_REFUSED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "SESSION_REQUIRED, OPERATOR_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "PERMISSION_DENIED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CREDENTIAL_ALREADY_SET",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/rotations": {
+      "post": {
+        "summary": "Replace this person's password, with a fresh second-factor code.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credential_set": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "credential_set"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, CREDENTIAL_REFUSED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "PRIVILEGED_SESSION_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "MFA_REENROLLMENT_REQUIRED, FRESH_SECOND_FACTOR_REQUIRED, PERMISSION_DENIED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SHOP_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "totp_code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "password",
+                  "totp_code"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/authenticators/offers": {
+      "post": {
+        "summary": "Mint a second-factor secret to scan; it is shown once and stored nowhere.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "otpauth_uri": {
+                      "type": "string"
+                    },
+                    "enrollment_ticket": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "otpauth_uri",
+                    "enrollment_ticket",
+                    "expires_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, AUTHENTICATOR_ENROLLMENT_REFUSED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "PRIVILEGED_SESSION_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "PERMISSION_DENIED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SHOP_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/authenticators": {
+      "post": {
+        "summary": "Confirm an enrolment offer; the recovery set is shown once.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Minted when the operator acts, replayed unchanged. Scoped per shop.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "x-correlation-id",
+            "in": "header",
+            "required": false,
+            "description": "Joins this request to a caller's own trace. Generated when absent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticator": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "enrolled_at": {
+                          "type": "string"
+                        },
+                        "recovery_codes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "enrolled_at"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "authenticator"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED, AUTHENTICATOR_ENROLLMENT_REFUSED, IDEMPOTENCY_KEY_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "PRIVILEGED_SESSION_REQUIRED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FRESH_SECOND_FACTOR_REQUIRED, PERMISSION_DENIED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SHOP_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IDEMPOTENCY_KEY_REUSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message",
+                        "details",
+                        "correlation_id",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_FAILED",
+                            "IDEMPOTENCY_KEY_REQUIRED",
+                            "PHOTO_FIELD_REQUIRED",
+                            "SHOP_NOT_FOUND",
+                            "SESSION_NOT_FOUND",
+                            "PHOTO_NOT_FOUND",
+                            "ROUTE_NOT_FOUND",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "PHOTO_TOO_LARGE",
+                            "UNSUPPORTED_IMAGE_TYPE",
+                            "MALFORMED_IMAGE",
+                            "IMAGE_DIMENSIONS_TOO_LARGE",
+                            "PHOTO_QUOTA_EXCEEDED",
+                            "SHOP_HAS_NO_PRICING_POLICY",
+                            "SESSION_HAS_NO_CONFIRMATION",
+                            "SESSION_HAS_NO_PRICING",
+                            "SESSION_HAS_NO_CONDITION",
+                            "CONTRADICTION_BLOCKS_ONE_TAP",
+                            "ONE_TAP_NOT_CORROBORATED",
+                            "STALE_WORLD_VIEW",
+                            "SESSION_IS_TERMINAL",
+                            "BLOCKED_BY_RETENTION_HOLD",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "IDENTIFY_FAILED",
+                            "IDENTIFY_PROVIDER_UNAVAILABLE",
+                            "SESSION_REQUIRED",
+                            "OPERATOR_REQUIRED",
+                            "INVITATION_REFUSED",
+                            "ENROLLMENT_CODE_REFUSED",
+                            "PRIVILEGED_SESSION_REQUIRED",
+                            "FRESH_SECOND_FACTOR_REQUIRED",
+                            "MFA_REENROLLMENT_REQUIRED",
+                            "PERMISSION_DENIED",
+                            "PIN_INVALID",
+                            "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
+                            "INVITATION_INVALID",
+                            "ENROLLMENT_CODE_INVALID",
+                            "CONNECTOR_CALLBACK_REFUSED",
+                            "WEBHOOK_SIGNATURE_INVALID",
+                            "RATE_LIMITED",
+                            "WRITE_CONFLICT_RETRY_EXHAUSTED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enrollment_ticket": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  },
+                  "fresh_totp_code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "enrollment_ticket",
+                  "code"
+                ]
               }
             }
           }
@@ -4639,6 +7529,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4727,6 +7620,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4815,6 +7711,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4903,6 +7802,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -4991,6 +7893,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5171,6 +8076,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5259,6 +8167,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5347,6 +8258,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5435,6 +8349,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5649,6 +8566,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5737,6 +8657,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5825,6 +8748,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -5949,6 +8875,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6037,6 +8966,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6125,6 +9057,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6287,6 +9222,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6375,6 +9313,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6463,6 +9404,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6551,6 +9495,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6639,6 +9586,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6727,6 +9677,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6815,6 +9768,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -6903,6 +9859,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7464,6 +10423,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7552,6 +10514,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7640,6 +10605,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7728,6 +10696,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7816,6 +10787,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7904,6 +10878,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -7992,6 +10969,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8163,6 +11143,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8251,6 +11234,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8339,6 +11325,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8427,6 +11416,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8515,6 +11507,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8603,6 +11598,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8691,6 +11689,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8779,6 +11780,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8867,6 +11871,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -8955,6 +11962,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9099,6 +12109,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9187,6 +12200,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9275,6 +12291,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9363,6 +12382,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9451,6 +12473,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9539,6 +12564,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9627,6 +12655,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9826,6 +12857,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -9914,6 +12948,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10002,6 +13039,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10090,6 +13130,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10178,6 +13221,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10266,6 +13312,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10354,6 +13403,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10442,6 +13494,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10530,6 +13585,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10618,6 +13676,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10829,6 +13890,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -10917,6 +13981,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11005,6 +14072,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11093,6 +14163,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11181,6 +14254,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11269,6 +14345,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11357,6 +14436,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11445,6 +14527,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11692,6 +14777,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11780,6 +14868,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11868,6 +14959,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -11956,6 +15050,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12044,6 +15141,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12132,6 +15232,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12220,6 +15323,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12308,6 +15414,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12604,6 +15713,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12692,6 +15804,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12780,6 +15895,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12868,6 +15986,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -12956,6 +16077,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13044,6 +16168,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13132,6 +16259,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13220,6 +16350,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13453,6 +16586,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13541,6 +16677,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13629,6 +16768,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13717,6 +16859,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13805,6 +16950,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13893,6 +17041,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -13981,6 +17132,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -14069,6 +17223,9 @@
                             "PERMISSION_DENIED",
                             "PIN_INVALID",
                             "PIN_REFUSED",
+                            "CREDENTIAL_REFUSED",
+                            "CREDENTIAL_ALREADY_SET",
+                            "AUTHENTICATOR_ENROLLMENT_REFUSED",
                             "INVITATION_INVALID",
                             "ENROLLMENT_CODE_INVALID",
                             "CONNECTOR_CALLBACK_REFUSED",
@@ -14197,6 +17354,9 @@
                   "PERMISSION_DENIED",
                   "PIN_INVALID",
                   "PIN_REFUSED",
+                  "CREDENTIAL_REFUSED",
+                  "CREDENTIAL_ALREADY_SET",
+                  "AUTHENTICATOR_ENROLLMENT_REFUSED",
                   "INVITATION_INVALID",
                   "ENROLLMENT_CODE_INVALID",
                   "CONNECTOR_CALLBACK_REFUSED",
@@ -14435,6 +17595,24 @@
       "operator_renderable": true,
       "copy_row": "021 — E05 owes the registered string"
     },
+    "CREDENTIAL_REFUSED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "CREDENTIAL_ALREADY_SET": {
+      "status": 409,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
+    "AUTHENTICATOR_ENROLLMENT_REFUSED": {
+      "status": 400,
+      "retryable": false,
+      "operator_renderable": true,
+      "copy_row": "021 — E05 owes the registered string"
+    },
     "INVITATION_INVALID": {
       "status": 401,
       "retryable": false,
@@ -14561,6 +17739,34 @@
       "path": "/api/v1/device-enrollment-codes",
       "kind": "exemption",
       "reason": "an owner or manager equips a phone (048 §7.3). Same reason as the row above: the shop is the session's, and the LOCATION is a body field checked against that shop rather than a second path segment.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/credentials",
+      "kind": "exemption",
+      "reason": "a person sets their FIRST password, inside the operator session they just opened with their own PIN (000-docs/063 §3.3; 057 §9 R2a). The PERSON is the session's and the credential is theirs across every shop they work at, so there is no shop whose prefix would be true — and the shop the operator session names is used for the audit row and the idempotency row rather than to scope the credential.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/credentials/rotations",
+      "kind": "exemption",
+      "reason": "the same row, replaced from a privileged session with a fresh second-factor code (063 §3.3). Same reason: one password, several possible shops, no true prefix.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/authenticators/offers",
+      "kind": "exemption",
+      "reason": "a person asks for a second-factor secret to scan (063 §3.4). `user_authenticator` is person-scoped for 034 §2.6's reason and is a declared row-level-security exemption for it (057 §9 R7), so a tenant prefix would be a tenancy claim about a row that has none.",
+      "closing_bead": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/authenticators",
+      "kind": "exemption",
+      "reason": "the confirmation of that offer, which writes the person's authenticator and their recovery set (063 §3.4). Same reason as the row above.",
       "closing_bead": null
     },
     {

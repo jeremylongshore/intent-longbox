@@ -199,9 +199,18 @@ describe("the registered route table (042 §3.4, 019 T35(b))", () => {
     // authenticated read outside the tenant plugin, so the ordinary bucket —
     // which lives INSIDE that plugin — never sees it and the device class is the
     // only correct one.
+    //
+    // The SIXTH is `POST /api/v1/credentials` (E03-D24). It runs on a
+    // device+operator session outside the tenant plugin, which is exactly the
+    // shape the PIN route and the operator switch have — the plugin's ordinary
+    // hook never sees it, so the hook's device bucket is the only class it can
+    // be given. A SECOND bucket, keyed on the session CHAIN, is taken in the
+    // service (063 §3.6); the route table names the class the hook enforces,
+    // which is what this list is about.
     const deviceClass = ROUTES.filter((r) => r.rateClass === "device").map((r) => r.path);
     expect(deviceClass.sort()).toEqual(
       [
+        "/api/v1/credentials",
         "/api/v1/device-sessions",
         "/api/v1/operator-sessions",
         "/api/v1/operator-sessions/end",

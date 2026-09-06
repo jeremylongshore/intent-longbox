@@ -118,6 +118,38 @@ export const PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET = 150;
  */
 export const PROVISIONAL_SIGN_IN_RATE_PER_IDENTIFIER = 5;
 
+/**
+ * **The credential surface's own budget, per SESSION CHAIN per minute**
+ * (E03-D24, 000-docs/063 §3.6).
+ *
+ * ⚠ **ITS OWN NUMBER AND ITS OWN MAP, FOR THE REASON THE SIGN-IN'S IS**
+ * (057 §4.5a, the security lens's F2/F3). Inheriting `ordinaryPerMinute` would
+ * mean two things this bead refuses. A shop's 120/min is sized for a phone
+ * working through a box of books, and setting a password is not counter work at
+ * that rate — nobody sets twelve passwords a minute. And a shared map is a
+ * shared exhaustion: a loop against the credential routes would spend the
+ * budget the counter needs to keep scanning, which is precisely the coupling
+ * F2 found between the sign-in and the shop.
+ *
+ * **KEYED ON THE SESSION CHAIN, and that is deliberate rather than convenient.**
+ * 048 R14 rules that a bucket is never keyed on a PERSON, and its ground is
+ * *"a stranger must not be able to exhaust a named person's budget"* — a rule
+ * about routes a stranger can reach. Every route this bucket covers requires a
+ * live session, so the only caller who can spend it is somebody already holding
+ * that session; keying on the chain bounds what one held session can do without
+ * ever creating a counter about a named person. It is not the per-operator
+ * surface 019 T35 forbids: the key is a session, the count is never rendered,
+ * never grouped, never exported and never joined to anybody.
+ *
+ * **PROVISIONAL 5/min per chain** (042 A3), derivation stated and no measurement
+ * behind it: an honest sequence is one password, or one offer and one
+ * confirmation, plus a retype or two. Five is above that and two orders of
+ * magnitude below a loop. A floor may be RAISED freely; lowering it after seeing
+ * a result it would change needs a 006 row (018 C3), and **no artifact quotes it
+ * as a security property** (021 B16).
+ */
+export const PROVISIONAL_CREDENTIAL_WRITE_RATE_PER_SESSION = 5;
+
 export type SpendOwner = "shop" | "longbox";
 
 const MINUTE_MS = 60_000;
@@ -138,6 +170,8 @@ export interface RateLimiterOptions {
   ordinaryPerMinute?: number;
   /** The privileged sign-in's per-identifier budget (E03-D11). */
   signInPerMinute?: number;
+  /** The credential surface's per-session-chain budget (E03-D24). */
+  credentialWritePerMinute?: number;
   /** The `shop`-owned metered budget: a shop spending its own money. */
   meteredPerDay?: number;
   /** The `longbox`-owned metered budget: a shop on the service account. */
@@ -157,10 +191,13 @@ export class ShopRateLimiter {
   private readonly ordinary = new Map<string, Bucket>();
   /** E03-D11: its own map, so the two adversaries cannot exhaust each other. */
   private readonly signIn = new Map<string, Bucket>();
+  /** E03-D24: the same reasoning again, for the credential surface. */
+  private readonly credentialWrite = new Map<string, Bucket>();
   private readonly metered = new Map<string, Bucket>();
   private readonly now: () => number;
   readonly ordinaryPerMinute: number;
   readonly signInPerMinute: number;
+  readonly credentialWritePerMinute: number;
   readonly meteredPerDay: number;
   readonly serviceAccountPerDay: number;
 
@@ -175,6 +212,8 @@ export class ShopRateLimiter {
   constructor(opts: RateLimiterOptions = {}) {
     this.ordinaryPerMinute = opts.ordinaryPerMinute ?? PROVISIONAL_SHOP_ORDINARY_RATE;
     this.signInPerMinute = opts.signInPerMinute ?? PROVISIONAL_SIGN_IN_RATE_PER_IDENTIFIER;
+    this.credentialWritePerMinute =
+      opts.credentialWritePerMinute ?? PROVISIONAL_CREDENTIAL_WRITE_RATE_PER_SESSION;
     this.meteredPerDay = opts.meteredPerDay ?? PROVISIONAL_SHOP_METERED_BUDGET;
     this.serviceAccountPerDay = opts.serviceAccountPerDay ?? PROVISIONAL_SERVICE_ACCOUNT_METERED_BUDGET;
     this.now = opts.now ?? (() => Date.now());
@@ -277,6 +316,30 @@ export class ShopRateLimiter {
    */
   takeSignIn(identifierDigest: string): RateDecision {
     const decision = this.take(this.signIn, `sign-in:${identifierDigest}`, this.signInPerMinute, MINUTE_MS);
+    if (!decision.allowed) this.events.ordinaryThrottled += 1;
+    return decision;
+  }
+
+  /**
+   * **The credential surface** (E03-D24): setting a password, replacing one, and
+   * the two halves of an enrolment.
+   *
+   * Keyed on the SESSION CHAIN the caller holds — see
+   * `PROVISIONAL_CREDENTIAL_WRITE_RATE_PER_SESSION` for why that is neither 048
+   * R14's forbidden per-person key nor 019 T35's forbidden per-operator surface.
+   * It is a SECOND bucket: the route's declared class is still taken by the hook
+   * (the device bucket for the operator-session route, the shop's ordinary
+   * bucket for the three privileged ones), and this one answers the question
+   * those cannot — how much of THIS session's credential-changing this process
+   * has just done.
+   */
+  takeCredentialWrite(chainId: string): RateDecision {
+    const decision = this.take(
+      this.credentialWrite,
+      `credential:${chainId}`,
+      this.credentialWritePerMinute,
+      MINUTE_MS
+    );
     if (!decision.allowed) this.events.ordinaryThrottled += 1;
     return decision;
   }

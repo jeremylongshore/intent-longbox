@@ -37,6 +37,7 @@ import { describe, expect, it } from "vitest";
 import {
   PERMISSION_NAMES,
   ROLE_NAMES,
+  isSelfService,
   ROLE_RANK,
   type RoleName,
 } from "../../src/contracts/v1/permissions.js";
@@ -124,22 +125,37 @@ describe("every shop-scoped route declares a permission (054 §3.2)", () => {
       const auth = AUTH_ALLOWLIST.find((r) => r.path === route.path);
       expect(auth, `${route.path} has no auth-allowlist row`).toBeDefined();
       if (auth!.principal === "privileged") {
-        // A privileged route names a permission, or declares itself self-service
-        // — the hook refuses anything else, which is the fail-closed default the
-        // tenant branch has had since E03-B03.
-        if (auth!.selfService === true) {
-          expect(
-            route.requires,
-            `${route.path} declares itself self-service AND names a permission — pick one`
-          ).toBeNull();
-        } else {
-          expect(
-            route.requires,
-            `${route.method} ${route.path} runs on a resolved role and names no permission, so the ` +
-              `hook refuses it — declare one, or declare the row self-service`
-          ).not.toBeNull();
-          expect(PERMISSION_NAMES).toContain(route.requires!);
-        }
+        // A privileged route names a permission, or names the SELF-SERVICE
+        // MARKER — the hook refuses anything else, which is the fail-closed
+        // default the tenant branch has had since E03-B03.
+        //
+        // ⚠ **THE DECLARATION MOVED IN E03-D24 AND THIS ASSERTION MOVED WITH
+        // IT** (063 §3.2). It used to read `AUTH_ALLOWLIST.selfService`, so a
+        // privileged route's authority lived in two tables and a reviewer had to
+        // read both. It is now one value in the column every route already
+        // fills in, and the check is a check on that value.
+        expect(
+          route.requires,
+          `${route.method} ${route.path} runs on a resolved role and declares no authority, so ` +
+            `the hook refuses it — name a permission, or name the self-service marker`
+        ).not.toBeNull();
+        if (!isSelfService(route.requires)) expect(PERMISSION_NAMES).toContain(route.requires!);
+        continue;
+      }
+      // ⚠ **A NON-PRIVILEGED ROUTE OUTSIDE THE PREFIX MAY CARRY THE MARKER, AND
+      // MAY NOT CARRY A PERMISSION** (E03-D24, 063 §3.3). The rule this test
+      // states is *"no role has been resolved, so nothing evaluates a
+      // permission"* — which is exactly why a PERMISSION here is a defect and
+      // why the MARKER is not: the marker is the declaration that no role needs
+      // resolving, because the caller's own identity is the authority. `POST
+      // /api/v1/credentials` is the member: it runs on an operator session,
+      // reads no membership, and writes the caller's own credential.
+      if (isSelfService(route.requires)) {
+        expect(
+          auth!.principal,
+          `${route.path} is self-service and anonymous — the marker names the CALLER, and an ` +
+            `anonymous route has no caller to name`
+        ).not.toBe("none");
         continue;
       }
       expect(
@@ -156,7 +172,13 @@ describe("every shop-scoped route declares a permission (054 §3.2)", () => {
     // whose routes are PENDING, which name themselves on the auth allowlist so
     // E03-D11 inherits the answer instead of choosing one.
     const required = new Set<string>();
-    for (const route of ROUTES) if (route.requires) required.add(route.requires);
+    // E03-D24: the marker is not a permission and is deliberately absent from
+    // `PERMISSIONS`, so it is excluded here rather than added there — adding it
+    // would put a value in the matrix that no role can hold and every route
+    // could ask for, which is the opposite of what the closed list is for.
+    for (const route of ROUTES) {
+      if (route.requires && !isSelfService(route.requires)) required.add(route.requires);
+    }
     for (const row of AUTH_ALLOWLIST) if (row.requires) required.add(row.requires);
     expect([...required].sort()).toEqual([...PERMISSION_NAMES].sort());
   });
@@ -278,10 +300,33 @@ describe("the declaration is ENFORCED, at a site this file names", () => {
     // auth row declares itself self-service. Without it, a privileged route added
     // next year would inherit "any privileged session at any shop".
     const body = functionBody(hook, "enforcePrivileged")!;
-    expect(body).toMatch(/selfService !== true\) throw new LongboxError\("PERMISSION_DENIED"\)/);
-    // Exactly one row may use the escape hatch today, and it is the sign-out.
-    const selfService = AUTH_ALLOWLIST.filter((r) => r.selfService === true).map((r) => r.path);
-    expect(selfService).toEqual(["/api/v1/privileged-sessions/end"]);
+    // The literal shape of the fail-closed default, asserted rather than
+    // inferred: an authority of `null` on a privileged route is REFUSED.
+    expect(body).toMatch(/authority === null\) \{/);
+    expect(body).toContain('throw new LongboxError("PERMISSION_DENIED")');
+    // ⚠ **AND THE CLASS IS ENUMERATED HERE, BECAUSE A CLASS NOBODY COUNTS IS A
+    // CLASS THAT GROWS** (063 §3.1). Every member is a route whose every row is
+    // keyed on the CALLER'S OWN `app_user_id`; a route that touches another
+    // person, a membership, a device or a shop's configuration is not in it
+    // however it is spelled. Four members, listed, so adding a fifth is an edit
+    // to this expectation with a reviewer attached.
+    const selfService = ROUTES.filter((r) => isSelfService(r.requires)).map((r) => r.path);
+    expect(selfService.sort()).toEqual(
+      [
+        "/api/v1/authenticators",
+        "/api/v1/authenticators/offers",
+        "/api/v1/credentials",
+        "/api/v1/credentials/rotations",
+        "/api/v1/privileged-sessions/end",
+      ].sort()
+    );
+    // …and the marker never appears on a tenant-prefixed route: the hook refuses
+    // one, and a route table that carried one would be declaring a shop's things
+    // to be a person's own (063 §3.2).
+    for (const route of ROUTES) {
+      if (!route.path.startsWith(TENANT_PREFIX)) continue;
+      expect(isSelfService(route.requires), `${route.path} is tenant-scoped and self-service`).toBe(false);
+    }
   });
 
   it("puts that call INSIDE the tenant branch, proved by offset and not by reading", () => {
@@ -315,9 +360,22 @@ describe("the declaration is ENFORCED, at a site this file names", () => {
     // behaviour it guards has no route today: a shop-scoped route added later
     // with no `requires` must be REFUSED, not permitted.
     const body = functionBody(hook, "enforcePermission")!;
-    expect(body).toContain("const permission = ctx.spec?.requires ?? null;");
+    expect(body).toContain("const authority = ctx.spec?.requires ?? null;");
+    // E03-D24: TWO values refuse here, not one. `null` is the original
+    // fail-closed default — a shop-scoped route added later with no `requires`
+    // is REFUSED — and the SELF-SERVICE MARKER refuses for a different reason
+    // that matters as much: this function is only ever reached for a route with
+    // a resolved role at a shop, so a marker on one is a claim that a shop's
+    // things belong to the caller's own person. Asserted as a literal because
+    // neither branch has a route today (063 §3.2).
     expect(body).toMatch(
-      /if \(permission === null\) \{[\s\S]{0,400}?throw new LongboxError\("PERMISSION_DENIED"\)/
+      /if \(authority === null \|\| isSelfService\(authority\)\) \{[\s\S]{0,900}?throw new LongboxError\("PERMISSION_DENIED"\)/
+    );
+    // …and the privileged branch's own fail-closed default, which is the one a
+    // route added next year actually meets first.
+    const privileged = functionBody(hook, "enforcePrivileged")!;
+    expect(privileged).toMatch(
+      /\} else if \(authority === null\) \{[\s\S]{0,600}?throw new LongboxError\("PERMISSION_DENIED"\)/
     );
   });
 

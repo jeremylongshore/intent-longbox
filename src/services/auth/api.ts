@@ -21,14 +21,21 @@
 // rule is kept, §5.3's storage is skipped, and the two are separable.
 import type pg from "pg";
 import { LongboxError } from "../../contracts/v1/errors.js";
-import { serviceDb, tenantDb, withTransaction, type Queryable } from "../../db.js";
+import { serviceDb, tenantDb, withTransaction, type Queryable, type Tx } from "../../db.js";
 import type { AppConfig } from "../../config.js";
 import { API_PREFIX } from "../../contracts/v1/schemas.js";
 import { replayIfSettled, runIdempotent, type IdempotentRequest } from "../idempotency.js";
 import type { AuthenticatorKeyring } from "./aead.js";
-import { MFA_REQUIRED_ROLES, mfaState, verifyTotp } from "./authenticator.js";
+import { MFA_REQUIRED_ROLES, enrollAuthenticator, mfaState, verifyTotp } from "./authenticator.js";
+import {
+  EnrollmentOfferAlreadySpent,
+  mintEnrollmentOffer,
+  openEnrollmentOffer,
+  spendEnrollmentOffer,
+} from "./enrollmentOffer.js";
+import { otpauthUri } from "./totp.js";
 import { digestOf } from "./codes.js";
-import { verifyPassword } from "./credentials.js";
+import { lockCredential, provisionPassword, replacePassword, verifyPassword } from "./credentials.js";
 import { resolveDeviceCredential } from "./devices.js";
 import {
   EnrollmentCodeAlreadySpent,
@@ -53,6 +60,7 @@ import { mayIssueInvitation } from "./invitations.js";
 import {
   httpAccessor,
   resolvePersonByKey,
+  resolvePersonForAuthenticatorEnrollment,
   resolveShopRoster,
   type ObservedRoute,
   type Person,
@@ -1249,5 +1257,427 @@ export async function redeemEnrollmentCode(deps: AuthDeps, input: { code: string
       },
     },
     cookies: [setCookie(DEVICE_COOKIE, issued.token, issued.row.absolute_expires_at)],
+  };
+}
+
+/**
+ * An `IdempotentRequest` carrying the hook's session lock, built OUTSIDE the
+ * handler that uses it.
+ *
+ * ⚠ **THE SEPARATE FUNCTION IS THE POINT, AND IT IS `sessionApi.ts`'s
+ * `idempotentRequest` for the same reason.** `pnpm arch`'s lock-order rule reads
+ * a handler's TEXT and recognises the session lock through its name, so a
+ * handler that spells `{ sessionLock: … }` while building its request literal
+ * reads as one that TAKES the session lock at that point — before its
+ * `request_idempotency` INSERT, which is 042 §5.3(b)'s order backwards. The lock
+ * is of course taken by `runIdempotent`, in the right place, after the INSERT;
+ * moving the spelling out here makes the lint see what actually happens instead
+ * of teaching the next reader to distrust it.
+ */
+function withSessionLock(
+  base: IdempotentRequest,
+  sessionLock: ((tx: Tx) => Promise<void>) | undefined
+): IdempotentRequest {
+  return { ...base, ...(sessionLock ? { sessionLock } : {}) };
+}
+
+// ===========================================================================
+// E03-D24 — the credential self-service surface (000-docs/063; 057 §9 R2/R2a)
+// ===========================================================================
+//
+// ⚠ **WHAT THESE FOUR FUNCTIONS HAVE IN COMMON IS THE SUBJECT, AND IT IS THE
+// WHOLE OF THEIR AUTHORITY.** Every row any of them reads or writes is keyed on
+// the caller's OWN `app_user_id`, taken from the session and never from a body
+// (048 §6.3, I8). No membership is consulted, because a password and a second
+// factor are person-scoped and cross shops (034 §2.6) — `user_credential` and
+// `user_authenticator` carry no `shop_id` at all.
+//
+// ⚠ **WHERE EACH ONE IS ACTUALLY DECIDED, because an earlier version of this
+// header said "the hook enforces it at the same one site every other route is
+// decided at" and that is FALSE for the first of the four** (the invariant
+// review's delta 6):
+//
+//   * **`POST /api/v1/credentials`** — its ENFORCED authority is
+//     `principal: "device+operator"` on the auth allowlist, checked in
+//     `registerAuthentication`. `requires: SELF_SERVICE` on that route is a
+//     DECLARATION, bounded by `tests/contract/permission-enforcement.test.ts`
+//     (which refuses a permission on a route with no resolved role, and requires
+//     an anonymous route never to carry the marker) — and, since the security
+//     lens's F1, it is what makes the hook write the route's
+//     `authorization_decision` row from the operator branch.
+//   * **the other three** — `principal: "privileged"`, and the marker IS the
+//     enforced authority: `enforcePrivileged` refuses a privileged route that
+//     declares neither a permission nor the marker, which is the fail-closed
+//     default 054 §3 built one principal down.
+//
+// The distinction matters because the two are different guarantees: one is a
+// property of which COOKIE the hook consults, the other of which VALUE the route
+// table carries (063 §3.1, §3.2).
+
+/**
+ * **Set a FIRST password, from the operator session on the counter phone.**
+ *
+ * This is the function 057 §9 R2a is about: `setPassword` reached production
+ * through the module's door with no caller at all, so a deployed system had no
+ * way to give anybody a password and `POST /api/v1/privileged-sessions` could
+ * not succeed for any real person.
+ *
+ * ⚠ **IT PROVISIONS AND NEVER REPLACES, AND THE REASON IS WHO CAN REACH IT.**
+ * 048 §3.5 states plainly that an operator session is an attribution of record
+ * and is NOT non-repudiable — a coworker who watches a PIN can act as that
+ * person on that phone. A route that could overwrite a live password would hand
+ * that coworker a way to lock an owner out of the privileged surface. So an
+ * existing credential is refused with `CREDENTIAL_ALREADY_SET`, and replacing
+ * one is `rotateOwnPassword` below, behind the privileged session and a fresh
+ * code.
+ *
+ * **What the password this route sets is worth on its own: nothing.** A
+ * privileged session needs a password AND a second factor, and this route mints
+ * no factor — so the coworker above ends up holding half of a credential pair
+ * for a session they still cannot open (063 §3.3).
+ *
+ * The order is 042 §5.3(b)'s, positions one, two and three: the idempotency row,
+ * the session lock the hook handed us, then `user_credential FOR UPDATE` — taken
+ * through `lockCredential`, which exists for exactly this ("the re-enrollment
+ * and sign-out paths do not test a password and must still not race a concurrent
+ * sign-in for the same person").
+ */
+export async function setOwnPassword(
+  deps: AuthDeps,
+  operator: SessionRow,
+  input: { password: string; idempotencyKey: string; sessionLock?: (tx: Tx) => Promise<void> }
+): Promise<AuthResult> {
+  const appUserId = operator.app_user_id;
+  // Unreachable: the allowlist requires `device+operator`, and an operator row
+  // names a person. Here for `requireDevice`'s reason — a guarantee read through
+  // a nullable column is one somebody has to remember.
+  if (appUserId === null) throw new LongboxError("OPERATOR_REQUIRED");
+
+  // The SECOND bucket (063 §3.6). The route's declared `device` class is taken
+  // by the hook; this one bounds what ONE session can do to a credential, and it
+  // is taken BEFORE any hashing so a throttled request spends no argon2id.
+  const budget = deps.limiter.takeCredentialWrite(operator.chain_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  const req = withSessionLock(
+    {
+      shopId: operator.shop_id,
+      idempotencyKey: input.idempotencyKey,
+      route: `${API_PREFIX}/credentials`,
+      method: "POST",
+      params: {},
+      // **THE PASSWORD IS NOT WHAT IS HASHED INTO `request_hash`**, on
+      // `redeemInvitation`'s reasoning one credential over: that column is stored,
+      // and a stored SHA-256 of a password is an offline verifier for anybody
+      // holding a dump. What separates two different requests under one key is
+      // that a password was supplied at all, which is as much as this route's
+      // shape can differ by.
+      body: { password_supplied: true },
+    },
+    input.sessionLock
+  );
+
+  const outcome = await runIdempotent(deps.pool, req, async (tx) => {
+    // The anchor, taken for 057 §4.5's reason rather than for this refusal's:
+    // the shared per-person lockout budget has two anchors, and a write that
+    // took neither would not serialise against a concurrent sign-in.
+    await lockCredential(tx, appUserId);
+    // ⚠ **THE REFUSAL IS THE DATABASE'S ROW COUNT AND NOT AN `if` ABOVE IT**
+    // (the data-model lens's H4, 063 §3.3). This read `if (existing) throw`
+    // against one shared upsert that was willing to overwrite — so the claim
+    // *provisions and never replaces* was a fact about which of two call sites
+    // an author remembered, and a break-glass path already on this epic's
+    // roadmap was exactly the third site that would inherit the gap.
+    // `provisionPassword` is `ON CONFLICT DO NOTHING RETURNING id`: an existing
+    // credential returns no row, which is 048 R19's idiom one factor down — and
+    // since v1.1.1 it falls back to a revival `UPDATE … WHERE password_hash IS
+    // NULL` when that happens, so a row a clearance emptied is ABSENT here
+    // (063 §3.8 property 2) while a LIVE hash still matches neither statement.
+    const set = await provisionPassword(tx, {
+      appUserId,
+      password: input.password,
+      pepper: deps.config.pinPepper,
+    });
+    if (!set.ok) {
+      throw new LongboxError(set.refusal === "already_set" ? "CREDENTIAL_ALREADY_SET" : "CREDENTIAL_REFUSED");
+    }
+    return { status: 201, body: { credential_set: true } };
+  });
+
+  return { status: outcome.status, body: outcome.body, cookies: [] };
+}
+
+/**
+ * **Replace a password from a privileged session, with a fresh code.**
+ *
+ * The freshness gate is 057 §4.4b's, generalised by this bead and recorded in
+ * 063 §3.3: an act re-presents the second factor when its damage OUTLIVES the
+ * session it was done from, because 048 §4.1's window (which 057 §4.3 makes the
+ * chain's own absolute expiry) bounds sessions and not acts. A replaced password
+ * outlives every session in the system — the person it locks out cannot sign in
+ * again at all, and no expiry undoes that.
+ *
+ * **The order below is `createInvitation`'s and it is structural.**
+ * `replayIfSettled` runs FIRST, so a genuine retry replays instead of being
+ * asked for a second fresh code it cannot produce (048 R19 spends a step exactly
+ * once). Then `requireFreshSecondFactor`, in its OWN transaction that COMMITS
+ * whatever the verdict, because the `auth_attempt` row is what 048 §9.1's delay
+ * is derived from. Only then the idempotent transaction — so no transaction ever
+ * holds the authenticator lock and the credential lock at once on THIS path, and
+ * 042 §5.3(b)'s order is not in question for it.
+ */
+export async function rotateOwnPassword(
+  deps: AuthDeps,
+  session: SessionRow,
+  input: {
+    password: string;
+    totpCode: string;
+    idempotencyKey: string;
+    sessionLock?: (tx: Tx) => Promise<void>;
+  }
+): Promise<AuthResult> {
+  const appUserId = session.app_user_id;
+  if (appUserId === null) throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+
+  const budget = deps.limiter.takeCredentialWrite(session.chain_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  const req = withSessionLock(
+    {
+      shopId: session.shop_id,
+      idempotencyKey: input.idempotencyKey,
+      route: `${API_PREFIX}/credentials/rotations`,
+      method: "POST",
+      params: {},
+      body: { password_supplied: true },
+    },
+    input.sessionLock
+  );
+
+  const settled = await replayIfSettled(tenantDb(deps.pool, session.shop_id), req);
+  if (settled) return { status: settled.status, body: settled.body, cookies: [] };
+  await requireFreshSecondFactor(deps, appUserId, input.totpCode);
+
+  const outcome = await runIdempotent(deps.pool, req, async (tx) => {
+    // The anchor is taken even though nothing is verified under it: a rotation
+    // and a concurrent sign-in for the same person must serialise, or the
+    // sign-in can verify a digest the rotation is halfway through replacing.
+    await lockCredential(tx, appUserId);
+    // `replacePassword` is an `UPDATE … WHERE app_user_id` whose row count is
+    // the enforcement (H4): it can never CREATE a credential, so this route
+    // cannot become a second way to provision one. A person with none — which
+    // this route's own gate makes unreachable, since a privileged session needs
+    // the password — is refused rather than quietly given one.
+    const set = await replacePassword(tx, {
+      appUserId,
+      password: input.password,
+      pepper: deps.config.pinPepper,
+    });
+    if (!set.ok) throw new LongboxError("CREDENTIAL_REFUSED");
+    return { status: 200, body: { credential_set: true } };
+  });
+
+  return { status: outcome.status, body: outcome.body, cookies: [] };
+}
+
+/**
+ * **Step one of an enrolment: mint a secret, seal it, show it once.**
+ *
+ * It writes NO durable row — no authenticator, no recovery code, no membership,
+ * nothing a duplicate of which would be a second effect — which is why it takes
+ * the `Idempotency-Key` header (the hook's, 048 §5.2's CSRF half) and NOT a
+ * `request_idempotency` row (042 §5.1 class one, disjunct (b3), added by this
+ * bead). Storing a response here would put a live secret in a jsonb column on
+ * the one route whose whole custody story is *"shown once, stored nowhere"* —
+ * which is 057 §4.8's ruling for the invitation code, arriving one credential up.
+ *
+ * The label is the person's login identifier, resolved through the identity
+ * accessor with `authenticator_enrollment`'s purpose — the SAME purpose
+ * `pnpm enroll-authenticator` cites, because it is the same read for the same
+ * reason (048 §4.3: an authenticator app showing `Longbox: 7f3a…` is one nobody
+ * can tell apart from the other one on the same phone). 060's accessor writes
+ * the fact; this route is a declared accessor pair.
+ */
+export async function offerAuthenticator(
+  deps: AuthDeps,
+  session: SessionRow,
+  observed: ObservedRoute
+): Promise<AuthResult> {
+  const appUserId = session.app_user_id;
+  if (appUserId === null) throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+
+  const budget = deps.limiter.takeCredentialWrite(session.chain_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  const person = await resolvePersonForAuthenticatorEnrollment(
+    tenantDb(deps.pool, session.shop_id),
+    httpAccessor(observed, "authenticator_enrollment", session.shop_id),
+    appUserId
+  );
+  // A privileged session names a person who exists, so this is unreachable; it
+  // refuses rather than labelling a URI `undefined` if that ever stops being true.
+  if (!person) throw new LongboxError("AUTHENTICATOR_ENROLLMENT_REFUSED");
+
+  const offer = mintEnrollmentOffer({
+    keyring: requireKeyring(deps),
+    appUserId,
+    now: new Date(),
+  });
+
+  return {
+    status: 200,
+    body: {
+      otpauth_uri: otpauthUri({ secret: offer.secret, label: person.email, issuer: "Longbox" }),
+      enrollment_ticket: offer.ticket,
+      expires_at: offer.expiresAt.toISOString(),
+    },
+    cookies: [],
+  };
+}
+
+/**
+ * **Step two: confirm the offer, and supersede whatever was there.**
+ *
+ * ⚠ **A PERSON WHO STILL HOLDS A LIVE FACTOR MUST PRESENT A FRESH CODE FROM
+ * IT**, and a person in 048 §8.1's re-enrolment state must not — because they
+ * have none, and the recovery code they signed in with was that presentation.
+ * The branch is on the state and not on a field the caller supplies, so a caller
+ * cannot choose which rule applies to them (063 §3.4).
+ *
+ * **The lock order is the three anchors, in one transaction**: the idempotency
+ * row, then `user_credential FOR UPDATE` (`lockCredential`), then
+ * `user_authenticator FOR UPDATE` (inside `enrollAuthenticator`). The credential
+ * anchor is taken even though no password is tested here, for 057 §4.5's own
+ * reason — the per-person lockout budget is SHARED across all three factors and
+ * has two anchors, so a path that touches one of them without the other does not
+ * serialise against a concurrent sign-in. **This route holds both, which is what
+ * 057 §9 R8 says would close its residual for a routed recovery flow.**
+ */
+export async function enrolOwnAuthenticator(
+  deps: AuthDeps,
+  session: SessionRow,
+  input: {
+    ticket: string;
+    code: string;
+    freshCode?: string;
+    idempotencyKey: string;
+    sessionLock?: (tx: Tx) => Promise<void>;
+  }
+): Promise<AuthResult> {
+  const appUserId = session.app_user_id;
+  if (appUserId === null) throw new LongboxError("PRIVILEGED_SESSION_REQUIRED");
+
+  const budget = deps.limiter.takeCredentialWrite(session.chain_id);
+  if (!budget.allowed) {
+    throw new LongboxError("RATE_LIMITED", { retry_after_seconds: budget.retryAfterSeconds });
+  }
+
+  const req = withSessionLock(
+    {
+      shopId: session.shop_id,
+      idempotencyKey: input.idempotencyKey,
+      route: `${API_PREFIX}/authenticators`,
+      method: "POST",
+      params: {},
+      // ⚠ **THE BODY HASH IS THE TICKET'S DIGEST AND NOT THE CODE, AND CI
+      // CAUGHT THE VERSION THAT WAS.** 042 §5.4 hashes the body so a reused key
+      // with different content is a 422 — which means the hashed value must
+      // identify the ACT and nothing else. The confirming CODE does not: it is a
+      // TOTP code, so it changes every thirty seconds for the same logical
+      // enrolment, and a client retrying a lost response half a minute later
+      // sent a different body and was refused `IDEMPOTENCY_KEY_REUSED`. That is
+      // precisely the failure 042 §5.1 describes as turning a lost response into
+      // a dead enrolment, and 048 R19 makes it unavoidable rather than unlucky:
+      // the step is SPENT, so a genuine retry cannot resend the first code.
+      //
+      // The TICKET identifies the act — one sealed offer, one enrolment — and it
+      // is hashed rather than carried for `redeemInvitation`'s reason one
+      // credential over: `request_hash` is STORED. A digest of AEAD ciphertext
+      // inverts to nothing, unlike the digest of a six-digit code.
+      body: { ticket_digest: digestOf(input.ticket) },
+    },
+    input.sessionLock
+  );
+
+  const settled = await replayIfSettled(tenantDb(deps.pool, session.shop_id), req);
+  if (settled) return { status: settled.status, body: settled.body, cookies: [] };
+
+  // The freshness branch, decided on the person's STATE and never on the body.
+  // `enrolled` means a live factor exists, so it must be presented; the other
+  // two states have nothing to present, and `unenrolled` is unreachable behind a
+  // privileged session (there is no way to open one without a second factor) —
+  // it takes the same branch as `must_reenroll` so that if it ever becomes
+  // reachable it is not an unhandled case.
+  const state = await mfaState(tenantDb(deps.pool, session.shop_id), appUserId);
+  if (state === "enrolled") await requireFreshSecondFactor(deps, appUserId, input.freshCode);
+
+  const opened = openEnrollmentOffer({
+    keyring: requireKeyring(deps),
+    appUserId,
+    ticket: input.ticket,
+    now: new Date(),
+  });
+  if (!opened.ok) throw new LongboxError("AUTHENTICATOR_ENROLLMENT_REFUSED");
+
+  let recoveryCodes: readonly string[] | undefined;
+  const outcome = await runIdempotent(deps.pool, req, async (tx) => {
+    await lockCredential(tx, appUserId);
+    // ⚠ **THE TICKET IS SPENT BY THE DATABASE, IN THIS TRANSACTION** (048 R15;
+    // the security lens's F2, 063 §3.4). Without it a ticket replayed under a
+    // NEW key forty seconds later minted a second authenticator and a second
+    // recovery set, silently retiring the codes the person had just written
+    // down. `authenticator_offer_use.ticket_digest` is the primary key, so the
+    // second attempt is a failed INSERT rather than a check somebody has to
+    // remember — and a genuine retry never reaches here, because
+    // `replayIfSettled` answered it above.
+    await spendEnrollmentOffer(tx, { ticketDigest: digestOf(input.ticket), appUserId });
+    const enrolled = await enrollAuthenticator(tx, {
+      appUserId,
+      secret: opened.secret,
+      confirmationCode: input.code,
+      keyring: requireKeyring(deps),
+      pepper: deps.config.pinPepper,
+      now: new Date(),
+      enrolledBy: appUserId,
+    });
+    if (!enrolled.ok) throw new LongboxError("AUTHENTICATOR_ENROLLMENT_REFUSED");
+    recoveryCodes = enrolled.enrolled.recoveryCodes;
+    return {
+      status: 201,
+      body: {
+        authenticator: {
+          id: enrolled.enrolled.authenticatorId,
+          enrolled_at: new Date().toISOString(),
+        },
+      },
+    };
+  }).catch((err: unknown) => {
+    // The loser of a re-submitted ticket: the PRIMARY KEY refused the use row
+    // and the transaction rolled back with it, so there is no second
+    // authenticator and no second recovery set. It answers the route's ONE
+    // refusal, on `redeemInvitation`'s reasoning one credential over — a caller
+    // holding a ticket must not learn which half of it the server disliked.
+    if (err instanceof EnrollmentOfferAlreadySpent) {
+      throw new LongboxError("AUTHENTICATOR_ENROLLMENT_REFUSED");
+    }
+    throw err;
+  });
+
+  const body = outcome.body as { authenticator: Record<string, unknown> };
+  return {
+    status: outcome.status,
+    // Spliced onto the RESPONSE and never onto the stored body — 057 §4.8's
+    // construction, verbatim. A replay returns the id and no codes.
+    body:
+      recoveryCodes !== undefined
+        ? { authenticator: { ...body.authenticator, recovery_codes: recoveryCodes } }
+        : body,
+    cookies: [],
   };
 }

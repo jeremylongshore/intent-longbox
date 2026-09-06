@@ -1,7 +1,7 @@
 # Decision Record — The Identity Accessor: One Door Between a Key and a Person, and the Fact It Leaves Behind
 
-**Version:** 1.1.3
-**Status:** **RATIFIED at v1.1.2, amended by a row at v1.1.3** (2026-09-06, signed by the acting head under the 2026-09-03 delegation at close of E03-D17 — PR #97 squash-merged to `main` as `43d8ba8`, the bead closed against that SHA, after the invariant re-verification at `594f74e` (code half PASS: every probe closed, the contact-name read gone, the insert-only boot assertion fires, the accessor pair observed from the request) and the gate re-audit whose fact repairs are v1.1.1). The text that follows is the PROPOSED-era status, kept verbatim as history: **PROPOSED — UNSIGNED.** The two-lens cannon **was convened by the session** on 2026-09-06 against PR #97 head `e74a47f`: `security-auditor` **ACCEPT-WITH-CHANGES** and `rich-hickey-reviewer` **ACCEPT-WITH-CHANGES**. §2 now carries the dispatched lenses' **verbatim** statements; v1.0.0's labelled builder drafts are superseded rather than kept beside them, and §12 records how badly they anticipated. A `longbox-gate-auditor` **NOT-READY** is folded in the same pass. **Every finding is folded and none is declined**; two positions are adopted in a form the lens did not ask for and are preserved in §12. The acting head signs at CLOSE, after the `longbox-invariant-reviewer` PASS — a record that announced its own ratification in the commit that wrote it would be the artifact deciding its own review (053's rule, unchanged).
+**Version:** 1.1.4
+**Status:** **RATIFIED at v1.1.2, amended by a row at v1.1.3 and again at v1.1.4** (2026-09-06, signed by the acting head under the 2026-09-03 delegation at close of E03-D17 — PR #97 squash-merged to `main` as `43d8ba8`, the bead closed against that SHA, after the invariant re-verification at `594f74e` (code half PASS: every probe closed, the contact-name read gone, the insert-only boot assertion fires, the accessor pair observed from the request) and the gate re-audit whose fact repairs are v1.1.1). The text that follows is the PROPOSED-era status, kept verbatim as history: **PROPOSED — UNSIGNED.** The two-lens cannon **was convened by the session** on 2026-09-06 against PR #97 head `e74a47f`: `security-auditor` **ACCEPT-WITH-CHANGES** and `rich-hickey-reviewer` **ACCEPT-WITH-CHANGES**. §2 now carries the dispatched lenses' **verbatim** statements; v1.0.0's labelled builder drafts are superseded rather than kept beside them, and §12 records how badly they anticipated. A `longbox-gate-auditor` **NOT-READY** is folded in the same pass. **Every finding is folded and none is declined**; two positions are adopted in a form the lens did not ask for and are preserved in §12. The acting head signs at CLOSE, after the `longbox-invariant-reviewer` PASS — a record that announced its own ratification in the commit that wrote it would be the artifact deciding its own review (053's rule, unchanged).
 **Bead:** E03-D17 `longbox-e5b.3.27` — *Build the identity accessor module so every path that joins a row to a person is gated and audited* (epic LBOX-E03 `longbox-e5b.3`, gate G2, P1) — discovered 2026-09-04 by E03-B03 / 054 §8, because **019 T35(b) is non-waivable and had no owner at all**
 **Filed:** 2026-09-05 · **Author:** `longbox-security-tenancy-builder` · **Owner:** parent session (acting head of board)
 **Sensitivity:** Restricted internal (014 §10). It names tables, columns, functions and commands; it contains no person's name, no identifier of any live person, and no secret value of any kind.
@@ -15,6 +15,7 @@
 
 | Version | Date | What changed | Who |
 |---|---|---|---|
+| **1.1.4** | **2026-09-06** | **Patch — E03-D24 `longbox-e5b.3.34`: the `authenticator_enrollment` purpose gains its SECOND caller and its prose stops saying CLI-only.** `POST /api/v1/authenticators/offers` resolves the same login identifier for the same reason 048 §4.3 gives the CLI — an authenticator app showing `Longbox: 7f3a…` is one nobody can tell from the other one on the same phone — and the person it resolves is the CALLER, taken from their own privileged session. The two shapes differ only in the tenant: the CLI's fact carries a NULL `shop_id` (tied by `migrations/035`'s CHECK to `accessor_method = 'CLI'`), the route's carries the session's shop. A `DECLARED_ACCESSORS` row lands in the same commit as the read, per §3.3's own rule, and §4.4's remainder is unchanged — the purpose is still a literal and cannot be observed. No accessor, no privilege class and no rule moves. | E03-D24 → `longbox-security-tenancy-builder` |
 | **1.1.3** | **2026-09-06** | **A PATCH, and a ROW ONLY — one residual's OWNER cell changes and no sentence of this record is edited.** §11 **R5** (*"`app_user` still carries no tenant policy"*) is DISCHARGED: `migrations/036` (E03-D21 `longbox-e5b.3.31`, 000-docs/062) policies the person table on a live membership one join away, and 056 takes v1.3.0 by row for the same landing. **Nothing in this bead's design moved and nothing needed to** — the accessor's four reads already ran under an ordinary tenant context for a person holding a live grant at that shop, so `tests/integration/identity-access.test.ts` passes untouched, and no accessor acquired a service scope. **A patch and not a minor**: no ruling, invariant or threshold here changes; a residual this record filed against a named bead became false when that bead landed, which is a statement of fact becoming true. | E03-D21 → acting head |
 | **1.1.2** | **2026-09-06** | **A PATCH — the signature.** Status → RATIFIED; §13 records the signing, the re-verification verdicts it waited on, and the merge SHA `43d8ba8` the bead is closed against. No ruling, invariant, residual or dissent changed. | Acting head, at close of E03-D17 |
 | **1.1.1** | **2026-09-06** | **Patch — three statements of fact repaired and five clarified; no decision changes.** The gate audit's re-audit found the FOLD had introduced its own defects. **B1** — 019 §9.5 A10's *"exact sentence added"* cell quoted the RETIRED reason for the break-glass clause while the T35 row above carried the corrected one; the cell is now byte-identical to the applied sentence (019 → v1.6.1). **B2** — the 006 decision-log row said *v1.0.0*, *034 → v1.4.0*, *four accessors* and repeated F4's struck clause; all four corrected, and **006 keeps its 1.81.0** because a correction to an unlanded row is not a bump. **B3** — 048's addendum and §8 said the rule *"forbids the three attribution names"*; it gates **seven** `PERSON_PROJECTION_COLUMNS` from **any** table, which is the whole point of security F1, and both now say so (048's v1.6.1 row is unmerged, so the repair FOLDS into it rather than taking a v1.6.2). Plus: §10.1 renumbered **§11.1** (it sat under §11); *gate F8* labelled as the TWO-part finding it is; the finding arithmetic stated so *F7* and *Hickey 5* are not read as a ninth and tenth; §2's `e74a47f` marked as the pre-rebase head; and 016 §1 gains its 060 row. | gate re-audit → acting head |
@@ -371,3 +372,27 @@ The lens's condition — *name it for what it is* — is met in §9 A8, which ar
 **The acting head signs at CLOSE**, after the `longbox-invariant-reviewer` verdict on the code half and the merge SHA.
 
 **What ratification will NOT authenticate when it comes.** It will not close 019 T35(b), which needs E11-B09's gate and E13-B04-D1's heartbeat (§4.3). It will not make §11's residuals smaller by having been signed — in particular R6, which says audit completeness here is asserted and not proven. And it will not settle whether the subject-keyed question in §5.1 should ever be answerable, which is E11-B09's to decide with the notice attached.
+
+
+---
+
+## Amendment — E03-D24 `longbox-e5b.3.34` (2026-09-06), 060 → v1.1.4
+
+A PATCH: no accessor, no privilege class and no rule moves. One PURPOSE gains its second caller and its prose
+is corrected to say so.
+
+**`authenticator_enrollment` is no longer CLI-only.** Its prose said *"resolved by a schema-owner CLI to label
+the otpauth URI it prints once"*, which was true when written. `POST /api/v1/authenticators/offers` (000-docs/063
+§3.4) resolves the same login identifier for the same reason — an authenticator app showing `Longbox: 7f3a…` is
+one nobody can tell from the other one on the same phone — and the person it resolves is the CALLER, taken from
+their own privileged session.
+
+**Two shapes of the same purpose, and the difference is the tenant.** The CLI's fact carries a NULL `shop_id`,
+which `migrations/035`'s CHECK ties to `accessor_method = 'CLI'`. The route's carries the session's shop,
+because a route has one and the running server's tenant policy requires it. Both write through the same
+accessor and neither reads `app_user` directly.
+
+**A `DECLARED_ACCESSORS` row lands with the read**, in the same commit, per §3.3's own rule — and the triple is
+checked at `httpAccessor` before the read happens, so a route citing a purpose it was not declared for FAILS
+rather than writing a plausible row. §4.4's remainder is unchanged: the purpose is still a literal and cannot
+be observed.

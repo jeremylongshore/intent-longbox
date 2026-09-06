@@ -1,6 +1,6 @@
 # Decision Record — The Versioned API, Its Resource Shape, the Error Contract, Idempotency, Optimistic Concurrency and the Outbound Event Contract
 
-**Version:** 1.6.1
+**Version:** 1.6.2
 **Status:** **RATIFIED 2026-09-04** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`martin-kleppmann-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §14. Amendments A1–A11 absorbed in full, none declined; **one draft decision was STRUCK on the cannon's finding** (§7's generated event catalogue, A2); four dissents preserved in §14.
 **Bead:** E02-B08 `longbox-e5b.2.8` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class CODE, owner-role eng, risk critical) — see 000-docs/014 §8 row E02-B08
 **Drafted:** 2026-09-04 by `longbox-domain-builder` · **Cannon:** `martin-kleppmann-reviewer` + `martin-fowler-reviewer`, 2026-09-04 — **both reproduced every §1 claim they sampled** (identify has no `RETURNING`; `confidence`/`provider`/`model`/`costUsd` on the wire; three envelopes; `GET /api/shops` unscoped; the two `SELECT *`s; `withTransaction` absent). **No §1 finding is disputed.** · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
@@ -14,6 +14,7 @@
 
 | Version | Date | What changed | Authority |
 |---|---|---|---|
+| **1.6.2** | **2026-09-06** | **Patch — E03-D24 `longbox-e5b.3.34` adds a THIRD disjunct to §5.1 class ONE and four rows to the route table; §5.3(b)'s order is UNCHANGED.** **(b3)**: a route that creates no durable state a duplicate of which would be a second effect — its only rows are AUDIT facts, whose N:1 relationship to requests 059 v1.1.1 ruled CORRECT. One member, `POST /api/v1/authenticators/offers`, which mints a second-factor secret, seals it, answers and forgets: there is no duplicate to prevent, and storing the response would put a LIVE SECRET in a jsonb column on a route whose custody story is *'shown once, stored nowhere'* (v1.5.0's own reasoning for an invitation code). The `Idempotency-Key` HEADER is still required, by the hook, because 048 §5.2's second CSRF mechanism is a custom header. The other three new routes take the header AND the row, and `POST /api/v1/authenticators` carries v1.5.0's amend-by-a-row for its shown-once recovery set. **This bead is the first to hold THREE of §5.3(b)'s positions in one transaction** (idempotency → `user_credential` → `user_authenticator`), which is what 057 §4.5 says makes the shared budget serialised; `pnpm arch` can see the third only because `enrollAuthenticator` joined the lock pattern. | E03-D24 → `longbox-security-tenancy-builder` |
 | **1.6.1** | **2026-09-06** | **Patch — one count repaired, by a ROW and NOT in place, and no decision moves.** The v1.6.0 block below says the new position is registered *"with one positive and two negative fixtures"*. It carries **FOUR — one positive and THREE negative** — and the third negative is the one that matters most: it asserts the lint takes the position from a `SELECT … FROM shop … FOR [NO KEY] UPDATE` as well as from the `UPDATE`, so the plausible wrong refactor ("optimise" the claim into an explicit row lock, which would remove the guarantee, since the btree unique is what serialises two shops) cannot take the position INVISIBLY. The count was written before that fixture existed and was true when written. **The v1.6.0 row and §5.3(b)'s text are left VERBATIM**, on this record's own amend-by-a-row discipline. | E03-D22 re-audit (000-docs/061 v1.1.2) |
 | **1.6.0** | **2026-09-06** | **Minor — §5.3(b)'s lock order gains a SIXTH position, and nothing else in this record moves. Amend-by-a-row from E03-D22 (000-docs/061).** The order becomes `request_idempotency` INSERT → `app_session` → `user_credential` → `user_authenticator` → **`shop`** (the connector store claim) → `scan_session` anchor, and I22's lint polices all **six** over every PAIR. **The new position is a WRITE and not a `FOR UPDATE`, which is the whole reason it is a position at all**: `claimStoreDomain` writes `shop.shopify_domain` inside the connector install callback's transaction, which takes a row lock on the shop's own row and — the half that carries the guarantee — waits on `shop_shopify_domain_is_one_store` while a concurrent claimant is uncommitted, so two installs of one store become one winner and one `23505` (056 §11 R10, discharged). **It sits after the three identity positions** because the authentication hook takes `app_session` before any handler body exists and the privileged sign-in takes both credential locks while establishing the session a shop-config write runs under — nothing a handler takes can precede them, so this pins the order the code already has rather than imposing one. **It sits before the `scan_session` anchor** on coarse-before-fine: a scan session belongs to a shop, and a handler holding the finer lock while reaching for the tenant row would deadlock against the install callback, which takes the tenant row first. **A MINOR and not a patch, on v1.5.0's own precedent for the fifth position** — the order is a ratified construction and a position added to it is content, not a repaired fact. **Nothing else changes:** §5.1's class-one members are still six, §5.3's no-in-flight-state argument is untouched, and **I22's own §11 row is left exactly as written**, because it states the RULE and the positions live here. No chunk in the tree takes the new position together with any other today (a provider callback carries no `Idempotency-Key`, no cookie and no scan session), so it is registered ahead of its first pairing with one positive and two negative fixtures — the same posture that put I22 in this record before there were two handlers to deadlock. | amend-by-a-row from E03-D22 (000-docs/061) |
 | **1.5.0** | **2026-09-05** | **Minor — §5.1 gains two class-one members and ONE new statement about what §5.3 STORES; §5.3(b)'s lock order gains a FIFTH position. Amend-by-a-row from E03-D11 (000-docs/057).** **(1) The class-one members are SIX.** `POST /api/v1/privileged-sessions` and `POST /api/v1/privileged-sessions/end` join under **(b1)** — their entire externally visible effect is a `Set-Cookie`, they hand back no shown-once secret, and they owe no named UNIQUE — which is exactly what v1.3.0's own forward-looking sentence predicted (*"the next one will be E03-D06's password sign-in"*), landing one bead later than it guessed. **(2) A SHOWN-ONCE SECRET IS NOT PART OF THE STORED RESPONSE, and this is a statement about §5.3 rather than a new exemption.** `POST /api/v1/invitations` and `POST /api/v1/device-enrollment-codes` are in NEITHER class — each writes a row that outlives the response and is not a cookie — so each takes the header AND the `request_idempotency` row like any other mutating route. But the code they return must not be in the body §5.3 stores: `invitation` holds `sha256(code)` and nothing else, so storing the plaintext would put a live credential in a jsonb column on the one route whose entire custody story is *"shown once, stored nowhere"* (048 §7.1). **The code is part of the RESPONSE and not part of the STORED response, exactly as a `Set-Cookie` is** — a retry after a lost response gets a truthful `201` carrying the id and the expiry and NO code, and the owner issues another. The DTO says so in its own prose, because a response that differs from its own replay is a contract somebody will otherwise "fix". **(3) §5.3(b)'s order takes a FIFTH position**: `request_idempotency` INSERT → `app_session` → **`user_credential`** → `user_authenticator` → `scan_session` anchor. The two credential positions are taken TOGETHER by the privileged sign-in, because 048 §4.3's per-person lockout budget is shared across all three factors and two anchors over one count is the write-skew §9.1 exists to close — so their order is load-bearing rather than notional. I22's lint polices all five over every PAIR. | amend-by-a-row from E03-D11 (000-docs/057) |
@@ -963,3 +964,42 @@ current tree**. §1 stays
 REPRODUCED and everything else stays ASSERTED. **In particular, ratification does not retire the two live tenancy
 exposures — the unauthenticated shop enumeration at `routes:87`, now carried as a `defect` row that must not
 survive G2, and the unscoped photo tree at `app.ts:19-23` — both live at `b72033f`.**
+
+
+---
+
+## Amendment — E03-D24 `longbox-e5b.3.34` (2026-09-06), 042 → v1.6.2
+
+A PATCH on a ratified record: §5.1's class ONE gains a THIRD disjunct and the route table gains four rows. No
+sentence above is edited; every original clause is kept verbatim.
+
+**§5.1 CLASS ONE — clause (b) gains a THIRD disjunct, (b3).** The class already read *(b1)* a `Set-Cookie` and
+nothing else, or *(b2)* a shown-once secret PLUS a named UNIQUE on the act. **(b3): the route creates no
+durable state a duplicate of which would be a second effect — its only rows are AUDIT facts, whose N:1
+relationship to requests 059 v1.1.1 ruled CORRECT rather than tolerated.**
+
+Its one member is **`POST /api/v1/authenticators/offers`**, and the argument is the class's own. The route mints
+a TOTP secret, seals it, answers, and forgets: no authenticator, no recovery code, no membership, no
+credential. There is no duplicate for a stored response to prevent. And storing one would put a LIVE SECRET in
+a jsonb column on the one route whose whole custody story is *"shown once, stored nowhere"* — which is exactly
+the reason 042 v1.5.0 already keeps an invitation code out of a stored body. **The `Idempotency-Key` header is
+still REQUIRED**, by the hook, because 048 §5.2's second CSRF mechanism is *"a cross-site HTML form cannot set
+a custom header"*: §5.1's rule is kept and §5.3's storage is skipped, which is the same narrow deviation the
+three session routes make.
+
+**§5.1 — three routes that are in NEITHER class, and take the header AND the row.** `POST
+/api/v1/credentials`, `POST /api/v1/credentials/rotations` and `POST /api/v1/authenticators` each write a row
+that outlives the response — a credential, its replacement, an authenticator and its recovery set — so each
+takes a real `request_idempotency` row. The last carries v1.5.0's amend-by-a-row: the shown-once RECOVERY SET
+travels outside the STORED body, so a replay returns a truthful `201` with the enrolment's id and no codes.
+
+**§5.3(b) — the lock order is UNCHANGED, and this bead is the first to hold three of its positions in one
+transaction.** `enrolOwnAuthenticator` takes the `request_idempotency` INSERT, then `user_credential FOR
+UPDATE`, then `user_authenticator FOR UPDATE` — positions one, three and four — which is what 057 §4.5 says
+makes the shared per-person budget serialised. `pnpm arch` can SEE the third because `enrollAuthenticator`
+joined the lock pattern; before that, a handler taking the anchor through a helper was invisible to the lint.
+
+**§3.1's method set is unchanged.** All four new routes are `POST`. `POST /api/v1/authenticators/offers` is a
+POST that writes no durable row and declares `mutating: true` honestly — it takes the header, spends a bucket
+and writes an audit fact — rather than declaring `mutating: false` to dodge a rule, which is the same honesty
+053 §8 applied to a GET that writes.

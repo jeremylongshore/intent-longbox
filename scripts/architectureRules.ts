@@ -532,6 +532,16 @@ const CREDENTIAL_LOCK =
  * a second factor would hold domain state through an argon2id verification.
  *
  * ⚠ **NOTHING MATCHES IT TODAY**, and the rule is cheap precisely because of that:
+ * ⚠ **`enrollAuthenticator` JOINED THE PATTERN IN E03-D24**, and the widening is
+ * the reason this pattern matches HELPERS and not only SQL. That function takes
+ * this anchor internally (`lockLiveAuthenticator`, so it can retire the
+ * predecessor in the same transaction), and until it was listed here the one
+ * handler that takes BOTH credential positions together —
+ * `enrolOwnAuthenticator` — was invisible to the lint: it spells
+ * `lockCredential` and then `enrollAuthenticator`, which is exactly the order
+ * 057 §4.5 argues is load-bearing, and nothing checked it. A rule that only sees
+ * the locks a handler spells is a rule one refactor away from blindness.
+ *
  * E03-D06 registers no route, so no transaction takes both this lock and either
  * of the other three. It is added now, while the answer is obvious and free, so
  * that E03-D11's route inherits the order instead of choosing one — which is the
@@ -540,7 +550,7 @@ const CREDENTIAL_LOCK =
  * synthetic handlers, so a rule that has never fired is still known to work.
  */
 const AUTHENTICATOR_LOCK =
-  /(FROM\s+user_authenticator[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockLiveAuthenticator|verifyTotp|redeemRecoveryCode)\s*\(/i;
+  /(FROM\s+user_authenticator[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockLiveAuthenticator|verifyTotp|redeemRecoveryCode|enrollAuthenticator)\s*\(/i;
 
 /**
  * The STORE-CLAIM lock — **the FIFTH position in the ORDER, and the SIXTH
@@ -1315,7 +1325,11 @@ export const SERVICE_SCOPE_SITES: readonly { scope: string; count: number }[] = 
   // context can ask — `user_authenticator` carries no `shop_id` — and the second
   // exists because the one privileged act whose damage the session's expiry does
   // NOT bound is naming another owner.
-  { scope: "second-factor", count: 6 },
+  // E03-D24 adds ONE: `pnpm clear-credential`'s transaction, which NULLs a
+  // password and writes the clearance fact. Person-scoped for `user_credential`'s
+  // own reason — a password belongs to a person who may hold memberships at
+  // several shops (034 §2.6) — so there is no tenant for it to name.
+  { scope: "second-factor", count: 7 },
   // The OAuth callback's state lookup, its cross-tenant domain-claim check (F8),
   // the webhook's domain lookup, and the webhook's own transaction (whose receipt
   // may carry a NULL shop_id).
@@ -1828,6 +1842,69 @@ export function checkIdentityImportSurface(files: readonly SourceFile[]): Findin
         `the person query WITHOUT the audit fact, which is the control. ` +
         `\`pnpm depcruise\` says this for \`src/\`; this rule says it for \`scripts/\` too.`,
     });
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Rule 15 — E03-D24 / 063 §3.8: "these are break-glass" is an ASSERTION.
+// ---------------------------------------------------------------------------
+
+/**
+ * The scripts whose whole safety argument is that reaching them needs the schema
+ * owner's database URL and shell access on the host (057 §4.5, 063 §5 R1).
+ *
+ * ⚠ **THE CONSISTENCY LENS'S H6, AND THE REASON IT IS A RULE AND NOT A COMMENT.**
+ * Each of these files carries a header saying it is break-glass. A header is a
+ * sentence a reviewer is trusted to keep noticing; the property it describes —
+ * *no served code path can reach this* — is mechanical, and the day somebody
+ * imports one of them from a route to "reuse the logic", the substitution that
+ * stands in for a password (048 R20's first half, unenforceable from a shell
+ * tool) silently becomes reachable over HTTP by whoever holds a session.
+ *
+ * The rule is deliberately about the SERVER TREE and not only about
+ * `src/routes/`: a service imported by a route is as reachable as the route, and
+ * `src/` is the whole of what the running process loads.
+ */
+export const BREAK_GLASS_SCRIPTS: readonly string[] = [
+  "scripts/enroll-authenticator.ts",
+  "scripts/redeem-recovery-code.ts",
+  "scripts/clear-credential.ts",
+];
+
+export function checkBreakGlassScriptsAreUnreachable(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const file of files) {
+    if (!file.path.startsWith("src/")) continue;
+    const text = stripJsComments(file.text);
+    for (const script of BREAK_GLASS_SCRIPTS) {
+      // The module specifier as an import would spell it: any path ending in the
+      // script's own basename, with or without the `.js` an ESM import carries.
+      //
+      // ⚠ **BOTH FORMS, AND THE STATIC-ONLY VERSION WAS THE INVARIANT REVIEW'S
+      // NOTE 2.** The first pattern read `from "…"` alone, so a dynamic
+      // `await import("../scripts/clear-credential.js")` — which is how a
+      // service would most plausibly reach one of these, since it defers the
+      // cost and reads as harmless — passed the rule untouched. A rule whose
+      // whole claim is *no served code path can reach this* cannot be blind to
+      // the import form a caller would actually use.
+      const base = script.slice(script.lastIndexOf("/") + 1).replace(/\.ts$/, "");
+      const pattern = new RegExp(
+        `(?:from\\s+["'][^"']*${base}(?:\\.js)?["'])` +
+          `|(?:import\\s*\\(\\s*["'][^"']*${base}(?:\\.js)?["'])`
+      );
+      if (!pattern.test(text)) continue;
+      findings.push({
+        rule: "break-glass-scripts-are-unreachable",
+        message:
+          `${file.path} imports ${script}, which is declared BREAK-GLASS (063 §3.8, §5 R1). Its ` +
+          `entire safety argument is that reaching it needs the schema owner's database URL and ` +
+          `shell access on the host — 048 R20's first half is unenforceable from a shell tool, ` +
+          `and that access requirement is what substitutes for it. A served code path that can ` +
+          `reach it hands that substitution to whoever holds a session. Move the logic into a ` +
+          `service both can call, and leave the script as the operator's door.`,
+      });
+    }
   }
   return findings;
 }

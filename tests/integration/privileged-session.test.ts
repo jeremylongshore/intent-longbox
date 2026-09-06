@@ -32,7 +32,8 @@ import {
   enrollAuthenticator,
   liveAuthenticator,
   mintTotpSecret,
-  setPassword,
+  provisionPassword,
+  replacePassword,
   stepAt,
   totpCode,
 } from "../../src/services/auth/index.js";
@@ -65,8 +66,29 @@ describe.skipIf(!dbUp)("the privileged session (048 §4.1, §12.4 row 3a)", () =
     await withTransaction(
       pool,
       async (tx) => {
-        const set = await setPassword(tx, { appUserId, password: PASSWORD, pepper: TEST_PIN_PEPPER });
-        if (!set.ok) throw new Error(`password refused: ${set.refusal}`);
+        // ⚠ **PROVISION, THEN REPLACE — because E03-D24 split the upsert and the
+        // ROW COUNT is now the enforcement** (063 §3.3, the data-model lens's
+        // H4). This helper re-equips the SAME person several times to get an
+        // unspent TOTP step (048 R19), and the old shared `setPassword` silently
+        // overwrote. `provisionPassword` refuses `already_set` instead, which is
+        // the point of the split — so the fixture does what a real person does:
+        // set it the first time, replace it after.
+        const provisioned = await provisionPassword(tx, {
+          appUserId,
+          password: PASSWORD,
+          pepper: TEST_PIN_PEPPER,
+        });
+        if (!provisioned.ok && provisioned.refusal !== "already_set") {
+          throw new Error(`password refused: ${provisioned.refusal}`);
+        }
+        if (!provisioned.ok) {
+          const replaced = await replacePassword(tx, {
+            appUserId,
+            password: PASSWORD,
+            pepper: TEST_PIN_PEPPER,
+          });
+          if (!replaced.ok) throw new Error(`password refused: ${replaced.refusal}`);
+        }
         const enrolled = await enrollAuthenticator(tx, {
           appUserId,
           secret,
@@ -296,7 +318,11 @@ describe.skipIf(!dbUp)("the privileged session (048 §4.1, §12.4 row 3a)", () =
     await withTransaction(
       pool,
       (tx) =>
-        setPassword(tx, { appUserId: identity.operatorId, password: PASSWORD, pepper: TEST_PIN_PEPPER }),
+        provisionPassword(tx, {
+          appUserId: identity.operatorId,
+          password: PASSWORD,
+          pepper: TEST_PIN_PEPPER,
+        }),
       { tenant: { service: "second-factor" } }
     );
     const out = await signIn({
@@ -638,7 +664,11 @@ describe.skipIf(!dbUp)("the privileged session (048 §4.1, §12.4 row 3a)", () =
     await withTransaction(
       pool,
       async (tx) => {
-        const set = await setPassword(tx, { appUserId: person, password: PASSWORD, pepper: TEST_PIN_PEPPER });
+        const set = await provisionPassword(tx, {
+          appUserId: person,
+          password: PASSWORD,
+          pepper: TEST_PIN_PEPPER,
+        });
         if (!set.ok) throw new Error("password refused");
         const enrolled = await enrollAuthenticator(tx, {
           appUserId: person,

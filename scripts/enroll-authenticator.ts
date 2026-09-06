@@ -3,6 +3,33 @@
 //   pnpm enroll-authenticator --user <app-user-uuid> [--issuer Longbox]
 //
 // ============================================================================
+// ⚠ BREAK-GLASS ONLY — AND FIRST ENROLMENTS, WHICH IS NOT THE SAME SENTENCE
+// ============================================================================
+//
+// **E03-D24 built the route** (`POST /api/v1/authenticators/offers` then
+// `POST /api/v1/authenticators`, 000-docs/063), so the ORDINARY path for
+// replacing a second factor — a lost phone, a re-enrolment forced by a recovery
+// code, a routine rotation — is now a screen inside the person's own privileged
+// session, and this script is not it.
+//
+// **What it is still the ONLY path for, stated plainly rather than left to a
+// reader to discover: a FIRST enrolment** (063 §5 R1). The enrolment routes
+// require a privileged session, a privileged session requires a second factor,
+// and a person who has never had one cannot produce it — so the chain does not
+// close for them and this script is where their first authenticator comes from.
+// That residual belongs to the same place the FIRST PASSWORD's did: it is a
+// bootstrap, and E03-D26 (`longbox-e5b.3.36`) is the bead that folds shop
+// registration's own person creation into one code path where a first factor
+// can be issued beside a first membership.
+//
+// The other reason to run it is the one every break-glass tool has: the routes
+// are unreachable — a person is locked out, a ring version was removed, a
+// deployment is half-migrated — and somebody with the schema owner's database
+// URL and shell access on the host has to intervene. Reaching this script is a
+// stronger access requirement than any session (057 §4.5), which is what makes
+// it a safe fallback and a bad default.
+//
+// ============================================================================
 // WHY THIS IS A SCRIPT AND NOT A ROUTE (E03-D06)
 // ============================================================================
 //
@@ -13,17 +40,19 @@
 // §10.2 owned, and `app_session` modelled exactly two kinds, both bound to an
 // enrolled phone.
 //
-// ⚠ **E03-D11 BUILT BOTH, AND THIS SCRIPT IS STILL THE ONLY WAY TO ENROL** — for a
-// reason that is now narrower and sharper than the one above. There IS a privileged
-// session (`migrations/031`, 000-docs/057) and it would carry an enrollment route
-// perfectly well; what there is NOT is any way to provision the FIRST factor in a
-// running deployment, because `setPassword` has no production caller at all (057 §9
-// R2a). So the chain that would let a person enrol over HTTP does not close, and
-// this script is where an owner's second factor comes from. The bead that closes it
-// is E03-D24 `longbox-e5b.3.34`.
+// ⚠ **E03-D11 BUILT BOTH; E03-D24 CLOSED THE REMAINING HALF, AND THIS PARAGRAPH IS
+// KEPT AS THE HISTORY OF WHY.** It read: *"there IS a privileged session and it
+// would carry an enrollment route perfectly well; what there is NOT is any way to
+// provision the FIRST factor in a running deployment, because `setPassword` has no
+// production caller at all (057 §9 R2a) — so the chain that would let a person enrol
+// over HTTP does not close, and this script is where an owner's second factor comes
+// from."* `POST /api/v1/credentials` is that caller (063 §3.3), so the chain closes
+// for anybody who already holds a second factor, and the two enrolment routes are
+// where a REPLACEMENT now happens. A FIRST enrolment still lands here, for the
+// reason the header above gives.
 //
-// A `POST /api/v1/mfa/enrollments` shipped by this bead would therefore be
-// reachable from exactly one place: an OPERATOR session on the shared counter
+// A `POST /api/v1/mfa/enrollments` shipped by E03-D06 would have been reachable
+// from exactly one place: an OPERATOR session on the shared counter
 // phone. 048 §4.1 refuses that in its own words — *"requiring a phone-based second
 // factor from a person standing at a shared phone is a ceremony that produces a
 // shared authenticator, which is worse than no second factor because it looks like

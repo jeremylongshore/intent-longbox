@@ -28,6 +28,10 @@ const KEY_COLUMN: Record<string, string> = {
   lcid_registry: "lcid",
   lcid_split_outcome: "product_lcid",
   vertical_pack: "vertical",
+  // E03-D24: the spent-ticket fact has no surrogate at all. The identity of the
+  // row IS the ticket's digest, because a SEALED value has no row of its own to
+  // point at — which is the whole point of sealing it (063 §3.4).
+  authenticator_offer_use: "ticket_digest",
 };
 
 const keyOf = (table: string): string => KEY_COLUMN[table] ?? "id";
@@ -815,6 +819,33 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         const r = await pool.query(
           `INSERT INTO recovery_code_use (app_user_id, code_id) VALUES ($1,$2) RETURNING id`,
           [person, (code.rows[0] as { id: string }).id]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      // E03-D24's two (000-docs/063 §3.4, §3.8; `migrations/037`).
+      case "authenticator_offer_use": {
+        // 048 R15's idiom for the fourth time: the ticket's DIGEST is the key,
+        // so the recipe writes one rather than an id it would have to invent.
+        const person = await freshUser();
+        const digest = `sha256-fixture-${Math.random().toString(36).slice(2)}`;
+        const r = await pool.query(
+          `INSERT INTO authenticator_offer_use (ticket_digest, app_user_id)
+           VALUES ($1,$2) RETURNING ticket_digest`,
+          [digest, person]
+        );
+        return (r.rows[0] as { ticket_digest: string }).ticket_digest;
+      }
+      case "user_credential_clearance": {
+        const person = await freshUser();
+        const credential = await pool.query(
+          `INSERT INTO user_credential (app_user_id, password_hash)
+           VALUES ($1,'$argon2id$fixture') RETURNING id`,
+          [person]
+        );
+        const r = await pool.query(
+          `INSERT INTO user_credential_clearance (credential_id, app_user_id, reason)
+           VALUES ($1,$2,'lost_credential') RETURNING id`,
+          [(credential.rows[0] as { id: string }).id, person]
         );
         return (r.rows[0] as { id: string }).id;
       }

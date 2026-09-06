@@ -720,3 +720,158 @@ export const connectorWebhookResponse = z.object({ acknowledged: z.literal(true)
 
 export type SessionDetail = z.infer<typeof sessionDetailResponse>;
 export type IdentifyResponse = z.infer<typeof identifyResponse>;
+
+// ---------------------------------------------------------------------------
+// E03-D24 — the credential self-service surface (000-docs/063; 057 §9 R2/R2a;
+// 048 §4.1, §8.1).
+//
+// FOUR ROUTES, and the split between them is the authority each one runs on:
+//
+//   * `POST /api/v1/credentials` — the FIRST password, on the counter phone,
+//     inside the operator session the person just opened with their own PIN.
+//     This is the route 057 §9 R2a is about: without it a deployed system has no
+//     way to give anybody a password, so `POST /api/v1/privileged-sessions`
+//     cannot succeed for any real person and the two issuance routes it guards
+//     are unreachable by a shop.
+//   * `POST /api/v1/credentials/rotations` — REPLACING a password, which needs
+//     the privileged session the first one makes possible AND a fresh
+//     second-factor code (048 §4.1's freshness, 057 §4.4b's construction).
+//   * `POST /api/v1/authenticators/offers` then `POST /api/v1/authenticators` —
+//     enrolling a second factor in two steps, because *"a secret that is never
+//     confirmed never becomes a row"* (048 §4.3) and a confirmation needs a
+//     round trip. The unconfirmed secret is SEALED and handed to the client; it
+//     is in no table and in no server-side map.
+// ---------------------------------------------------------------------------
+
+/**
+ * Setting a first password.
+ *
+ * **ONE field, and every absent field is the design.** There is no
+ * `app_user_id`: the person is the operator session's, stamped from the session
+ * and never accepted from a body (048 §6.3, I8). There is no `email`, for the
+ * same reason. There is no `confirm_password`: a mistyped password is a screen's
+ * problem and 042 §4.3 keeps screens out of the server.
+ *
+ * The maximum is generous and the minimum is `MIN_PASSWORD_LENGTH`'s, checked in
+ * the service where the floor is stated once (057 §4.1 — a composition rule
+ * shortens real passwords and lengthens nobody's, so there is none).
+ */
+export const setCredentialRequest = z.object({ password: z.string().min(1).max(1024) }).strict();
+
+/**
+ * What setting a password returns: that it is set, and nothing else.
+ *
+ * No id, no timestamp, no "you may now sign in at" — an id would be a handle on
+ * a credential row nobody can act on, and a timestamp would be the first
+ * per-person datum on a wire 022 P3 keeps clear of them.
+ */
+export const setCredentialResponse = z.object({ credential_set: z.literal(true) });
+
+/**
+ * Replacing a password from a privileged session.
+ *
+ * `totp_code` is REQUIRED here where it is optional-in-shape on the invitation
+ * route, and the difference is that there is no role branch to wait for: every
+ * caller of this route is replacing a credential, and 048 §4.1's freshness is
+ * re-presented rather than inherited for the reason 057 §4.4b gives — a password
+ * a thief has replaced outlives the session they replaced it from.
+ *
+ * **There is no `current_password` field.** The session was established with the
+ * password less than `PRIVILEGED_ABSOLUTE_MS` ago (057 §4.3 — the absolute
+ * expiry IS the freshness window), so asking for it again would re-test a factor
+ * the session already carries while adding a second thing to get wrong. What the
+ * request re-presents is the factor the session does NOT carry a fresh proof
+ * of: the code from the person's own authenticator.
+ */
+export const rotateCredentialRequest = z
+  .object({ password: z.string().min(1).max(1024), totp_code: z.string().min(1).max(16) })
+  .strict();
+
+/** Same DTO as setting one: it is set, and nothing else is disclosed. */
+export const rotateCredentialResponse = setCredentialResponse;
+
+/** Asking for a secret to enrol. A body-less act on the caller's own person. */
+export const authenticatorOfferRequest = z.object({}).strict();
+
+/**
+ * The offer: a secret to scan, and the sealed ticket that carries it back.
+ *
+ * ⚠ **BOTH FIELDS ARE SHOWN ONCE AND STORED NOWHERE** (057 §4.8's rule, which
+ * this route inherits and 063 §3.4 extends). `otpauth_uri` CONTAINS the secret
+ * by construction — that is what an authenticator app scans — and
+ * `enrollment_ticket` is that same secret sealed under the authenticator ring
+ * with the person and the expiry as additional authenticated data. Neither is in
+ * any table: the server mints, seals, answers and forgets, and the only copies
+ * that exist afterwards are in the browser that asked and the phone that scanned.
+ *
+ * `expires_at` is here because the client must be able to say "start again"
+ * rather than discovering the expiry as a refusal. It is the ticket's own
+ * expiry, which is inside the sealed bytes as well, so a client that edits this
+ * field changes nothing.
+ */
+export const authenticatorOfferResponse = z.object({
+  otpauth_uri: z.string(),
+  enrollment_ticket: z.string(),
+  expires_at: z.string(),
+});
+
+/**
+ * Confirming an offer: the ticket that came back, and a code generated FROM the
+ * secret inside it.
+ *
+ * The code is what makes this an enrolment rather than an assertion: 048 §4.3's
+ * *"a secret that is never confirmed never becomes a row"* is enforced by
+ * `enrollAuthenticator`, which verifies the code against the secret before it
+ * writes anything and spends the confirming step so nobody standing behind the
+ * person can replay it (048 R19).
+ */
+export const enrolAuthenticatorRequest = z
+  .object({
+    enrollment_ticket: z.string().min(1).max(4096),
+    /** Generated from the secret inside the ticket. It confirms the NEW factor. */
+    code: z.string().min(1).max(16),
+    /**
+     * A code from the factor being REPLACED, required when there is one.
+     *
+     * ⚠ **TWO CODES FROM TWO SECRETS, AND CONFLATING THEM WOULD BE A HOLE.**
+     * `code` proves the person holds the new secret; this one proves they hold
+     * the OLD one, which is what stops a copied privileged cookie from silently
+     * replacing a live second factor with the thief's (057 §4.4b's rule
+     * generalised — the damage outlives the session, so the factor is
+     * re-presented rather than inherited).
+     *
+     * Optional in the SHAPE and mandatory in the RULE, on `invitationRequest`'s
+     * construction: the service requires it when `mfaState` reads `enrolled`,
+     * because whether a live factor exists is a fact about the PERSON and not
+     * about the request, and a caller must not be able to choose which rule
+     * applies to them by omitting a field. A person in 048 §8.1's re-enrolment
+     * state has no live factor and sends none — the recovery code they signed in
+     * with was that presentation.
+     */
+    fresh_totp_code: z.string().min(1).max(16).optional(),
+  })
+  .strict();
+
+/**
+ * What an enrolment returns: the fresh recovery set, shown ONCE.
+ *
+ * ⚠ **`recovery_codes` IS PRESENT ON THE FIRST RESPONSE AND ABSENT ON ITS
+ * REPLAY, AND THAT IS THE CONTRACT** — `invitationResponse`'s note governs this
+ * field verbatim (057 §4.8, 042 §5.1 at v1.5.0). The codes are argon2id digests
+ * under the pepper in `recovery_code` and are not recoverable from it, so they
+ * cannot be part of the body `request_idempotency` stores; a retry after a lost
+ * response therefore gets a truthful `201` with the enrolment's id and no codes,
+ * and the person enrols again — which supersedes the set they did not see.
+ *
+ * There is no secret, no otpauth URI and no key version: the secret was the
+ * offer's to show, and a key version is an operational fact about the ring
+ * rather than anything a client can act on.
+ */
+export const enrolAuthenticatorResponse = z.object({
+  authenticator: z.object({
+    id: uuid,
+    enrolled_at: z.string(),
+    /** Present on the first response only. See the note above. */
+    recovery_codes: z.array(z.string()).optional(),
+  }),
+});

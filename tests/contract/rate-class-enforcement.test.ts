@@ -262,6 +262,107 @@ const ENFORCEMENT: readonly EnforcementRow[] = [
       "buckets, two questions.",
   },
   // -------------------------------------------------------------------------
+  // E03-D24's four. Each one names TWO sites, and the pairing is the point: the
+  // DECLARED class is taken by the hook (the device bucket for the operator
+  // route, the shop's ordinary bucket for the three privileged ones), and a
+  // second bucket keyed on the SESSION CHAIN is taken in the service. Two
+  // buckets, two questions — "how much of this shop's or this phone's traffic"
+  // and "how much credential-changing has THIS session just done" — which is the
+  // same split `POST /api/v1/device-sessions` makes for the credential digest.
+  // -------------------------------------------------------------------------
+  {
+    method: "POST",
+    path: "/api/v1/credentials",
+    file: "src/services/auth/hook.ts",
+    fn: "registerAuthentication",
+    call: "deps.limiter.takeDevice(outcome.device.device_id)",
+    guard: 'spec?.rateClass === "device"',
+    why:
+      "it runs on a device+operator session OUTSIDE the tenant plugin, exactly as the PIN route " +
+      "and the operator switch do, so `app.ts`'s ordinary hook never sees it and the hook's " +
+      "device bucket is the class it can be given. Keyed on the PHONE and never on the person " +
+      "(048 R14): the device is authenticated and the person is what the route is about.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credentials",
+    file: "src/services/auth/api.ts",
+    fn: "setOwnPassword",
+    call: "deps.limiter.takeCredentialWrite(operator.chain_id)",
+    reachedFrom: "src/routes/auth.ts",
+    why:
+      "the credential surface's own budget (063 §3.6), keyed on the SESSION CHAIN — which is " +
+      "neither 048 R14's forbidden per-person key nor 019 T35's forbidden per-operator surface: " +
+      "the key is a session, only its holder can spend it, and the count is never rendered, " +
+      "grouped or exported. Taken in the service and BEFORE any hashing, so a throttled request " +
+      "spends no argon2id, and separate from the shop's 120/min because a counter's working rate " +
+      "is not a password-setting rate and the two must not exhaust each other.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credentials/rotations",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why:
+      "a privileged session names a SHOP and no device, so `ordinary` on that shop is the only " +
+      "class available and the one 042 §8.1 asks for. Taken at the earliest point the shop is " +
+      "known — 054 §4.3's F4 — which matters here because this route's hook path also writes an " +
+      "`authorization_decision` row.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credentials/rotations",
+    file: "src/services/auth/api.ts",
+    fn: "rotateOwnPassword",
+    call: "deps.limiter.takeCredentialWrite(session.chain_id)",
+    reachedFrom: "src/routes/auth.ts",
+    why: "the per-chain credential budget, as on the first-password route and for its reasons.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators/offers",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why: "the same site and the same reason as the rotation route above it.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators/offers",
+    file: "src/services/auth/api.ts",
+    fn: "offerAuthenticator",
+    call: "deps.limiter.takeCredentialWrite(session.chain_id)",
+    reachedFrom: "src/routes/auth.ts",
+    why:
+      "the per-chain budget, and this route is the one where it does the most work: it writes no " +
+      "durable row, so nothing else bounds how many secrets a held session can mint — and every " +
+      "one of them is a live TOTP secret in a response body.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators",
+    file: "src/services/auth/hook.ts",
+    fn: "enforcePrivileged",
+    call: "takeOrdinaryOnce(req, deps, session.shop_id)",
+    guard: 'ctx.spec === undefined || ctx.spec.rateClass !== "none"',
+    why: "the same site and the same reason as the two rows above.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators",
+    file: "src/services/auth/api.ts",
+    fn: "enrolOwnAuthenticator",
+    call: "deps.limiter.takeCredentialWrite(session.chain_id)",
+    reachedFrom: "src/routes/auth.ts",
+    why:
+      "the per-chain budget, taken before the enrolment's argon2id work — one hash per recovery " +
+      "code, eight of them (048 §8.1) — so a loop on this route cannot make the server spend that " +
+      "at a rate the caller chooses.",
+  },
+  // -------------------------------------------------------------------------
   // E03-B06's two connector routes. Each takes TWO buckets for the same reason
   // the two E03-D07 routes do — the shop is not knowable at `onRequest` — and
   // the second one is taken AFTER the signature verifies, which is the ordering

@@ -318,6 +318,24 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
       "watching a bus would most want.",
   },
   {
+    table: "authenticator_offer_use",
+    rule:
+      "The same rule, one artifact over (E03-D24, 063 §3.4). It is the SPENT-TICKET fact that " +
+      "makes a sealed enrolment offer single-use (048 R15), written in the SAME transaction as the " +
+      "authenticator it produced — so there is nothing eventual to react to — and an event would " +
+      "say 'this named person is enrolling a new second factor right now', which is the fact an " +
+      "attacker mid-takeover would most want to know had been noticed.",
+  },
+  {
+    table: "user_credential_clearance",
+    rule:
+      "An authentication fact and a BREAK-GLASS one (E03-D24, 063 §3.8): it says somebody's " +
+      "password was cleared, and by whom. It is written by a schema-owner CLI with no request and " +
+      "no session, so there is no shop-scoped transaction for an event to ride, and publishing it " +
+      "would put 'this named person was locked out and reset' on a bus whose consumers are a " +
+      "shop's pipeline. Whoever needs to know is the person at the terminal who did it.",
+  },
+  {
     table: "shop_recovery_nomination",
     rule:
       "048 §8.2: a statement about a shop's people, read by E11-B09's break-glass runbook out of " +

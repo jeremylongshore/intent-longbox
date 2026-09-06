@@ -25,6 +25,7 @@ import {
   checkAuthAttemptReads,
   checkAuthorizationDecisionCountNouns,
   checkIdentityAccessWriters,
+  checkBreakGlassScriptsAreUnreachable,
   checkIdentityImportSurface,
   checkIdentityPairEdit,
   checkIdentityPersonJoins,
@@ -74,6 +75,11 @@ const findings = [
   ...checkIdentityPersonJoins(bothTrees),
   ...checkIdentityAccessWriters(bothTrees),
   ...checkIdentityImportSurface(bothTrees),
+  // E03-D24 (the consistency lens's H6): "these two CLIs are break-glass" was a
+  // comment, and a comment is a sentence a reviewer is trusted to keep noticing.
+  // It is now an assertion over the SERVER TREE — a service imported by a route
+  // is as reachable as the route.
+  ...checkBreakGlassScriptsAreUnreachable(files),
   ...checkAuthAttemptReads(bothTrees),
   ...checkNoFreshnessColumn([...bothTrees, ...migrationFiles]),
   ...checkMigrationNumbers(readdirSync(join(REPO_ROOT, "migrations")).filter((f) => f.endsWith(".sql"))),
@@ -87,7 +93,7 @@ if (changedPath !== null) {
 
 if (findings.length === 0) {
   console.log(
-    `architecture gate: ok (${files.length} files, 11 tree rules over src/, ` +
+    `architecture gate: ok (${files.length} files, 12 tree rules over src/, ` +
       `8 rules over src/ + scripts/ (one of them also over migrations/), ` +
       `1 rule over migrations/ filenames` +
       (changedPath === null

@@ -390,7 +390,15 @@ export const ERROR_CODES = {
     operatorRenderable: true,
     copyRow: "021 — E05 owes the registered string",
     implements:
-      "057 §4.4b (E03-D11, the security lens's F1) — the act names a second OWNER, and that is the " +
+      "057 §4.4b (E03-D11, the security lens's F1), WIDENED BY E03-D24 to a CLASS of acts " +
+      "(063 §3.3, §3.4). ⚠ **THIS CODE NO LONGER MEANS ONLY 'you named an owner'**: three acts now " +
+      "re-present the factor rather than inheriting it — naming a second OWNER, REPLACING a " +
+      "password, and REPLACING a live second factor — and the rule that puts an act in the class is " +
+      "one sentence: the damage OUTLIVES the session it was done from, so 048 §4.1's freshness " +
+      "window (which 057 §4.3 makes the session's own absolute expiry) does not bound it. A " +
+      "membership is permanent; a replaced password locks the person out until somebody with " +
+      "database access intervenes; a replaced authenticator does the same to the second factor. " +
+      "The original act, and the sentence that argued it: the act names a second OWNER, and that is the " +
       "one privileged act whose damage the session's expiry does not bound: the membership is " +
       "PERMANENT and carries the power to grant it again, so a copied cookie spent here outlives " +
       "every session in the system. 048 §4.1's freshness window is therefore re-presented rather " +
@@ -411,11 +419,16 @@ export const ERROR_CODES = {
       "substituted for in the same transaction, so the session they now hold *'can reach NOTHING " +
       "else until it has'* enrolled a new second factor. It is a PREDICATE over facts and not a " +
       "flag: `mfaState` reads 'no live authenticator, and a recovery-code use exists', so the " +
-      "state cannot be left stale and cannot be escaped by anything except an enrollment. **The " +
-      "enrollment ROUTE does not exist yet** — enrollment is `pnpm enroll-authenticator`, a " +
-      "schema-owner CLI (048 §12.4 row 3a's remaining half) — so today this code means 'run the " +
-      "re-enrollment out of band', and the artifact that says so is 000-docs/057 §7 residual R2 " +
-      "rather than a screen that promises a button.",
+      "state cannot be left stale and cannot be escaped by anything except an enrollment. **THE " +
+      "ENROLLMENT ROUTE NOW EXISTS AND THIS CODE'S MEANING CHANGED WITH IT** (E03-D24, 063 §3.4): " +
+      "the session may reach `POST /api/v1/authenticators/offers`, `POST /api/v1/authenticators` " +
+      "and its own sign-out, and nothing else — a CLOSED set the route table declares row by row " +
+      "(`reachableWhileReenrolling`) rather than a condition somebody has to remember. So the " +
+      "code means 'enrol a new second factor, here, now' and a screen may promise the button. " +
+      "The state still lifts BY PREDICATE and never by a mutation: `mfaState` reads the new " +
+      "authenticator on the next request and the gate is simply no longer true. 000-docs/057 §9 " +
+      "R2 is discharged by that route; the CLI remains as break-glass and as the ONLY path for a " +
+      "FIRST enrolment, which no privileged session can reach (063 §5 R1).",
   },
   PERMISSION_DENIED: {
     status: 403,
@@ -458,6 +471,55 @@ export const ERROR_CODES = {
       "person, no device, no code, no shop. It carries NO `details`: naming which rule the chosen " +
       "PIN broke would publish the denylist, and 048 §3.5 keeps that check at set time precisely " +
       "so a verify-time attacker cannot learn which PINs are impossible.",
+  },
+  CREDENTIAL_REFUSED: {
+    status: 400,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "057 §4.1 / 063 §3.3 (E03-D24) — the PASSWORD POLICY, refused at SET time, and PIN_REFUSED's " +
+      "twin one factor up: it answers a value the caller just invented and discloses nothing about " +
+      "this system — no person, no shop, no credential. The only rule is a MINIMUM LENGTH, because " +
+      "048 §3.5 fixes the PIN's shape and says nothing at all about a password's composition, and " +
+      "057 §4.1 refuses to invent a composition rule that shortens real passwords and lengthens " +
+      "nobody's. It carries NO `details`: the floor is in the client's own copy, and returning " +
+      "'you need N characters' from a credential route is a rule published one refusal at a time.",
+  },
+  CREDENTIAL_ALREADY_SET: {
+    status: 409,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "063 §3.3 (E03-D24) — `POST /api/v1/credentials` provisions a FIRST password and never " +
+      "replaces one. **The refusal exists because of who can reach that route**: it runs on an " +
+      "operator session, which 048 §3.5 states plainly is NOT non-repudiable — a coworker who " +
+      "watches a PIN can open it — so a route that could overwrite a live password would let that " +
+      "coworker lock an owner out of the privileged surface. Replacing a password is " +
+      "`POST /api/v1/credentials/rotations`, which needs the privileged session and a fresh code. " +
+      "**409 and not 403, and separate from CREDENTIAL_REFUSED**: the caller is not forbidden and " +
+      "the value they chose is not wrong — the world is not in the state the act assumes, and the " +
+      "next action differs (042 §4.3: a client must be able to choose the recovery without " +
+      "parsing prose). The DISCLOSURE is stated rather than glossed: it tells the caller that the " +
+      "person whose operator session they hold already has a password. That is a fact about the " +
+      "identity they just authenticated as, not about a stranger, and the alternative — a 201 that " +
+      "wrote nothing — is a screen that lies.",
+  },
+  AUTHENTICATOR_ENROLLMENT_REFUSED: {
+    status: 400,
+    retryable: false,
+    operatorRenderable: true,
+    copyRow: "021 — E05 owes the registered string",
+    implements:
+      "048 §4.3 / 063 §3.4 (E03-D24) — ONE answer for every way an enrolment can fail that is not " +
+      "a missing factor: a ticket that has expired, a ticket that does not authenticate (a wrong " +
+      "ring version, an edited byte, or one minted for a DIFFERENT PERSON — 048 R18's AAD binding " +
+      "doing its job), a confirmation code that does not verify against the secret inside it, and " +
+      "a person whose live roles do not include one of 048 §4.1's three. NO `details`, on " +
+      "PIN_REFUSED's reasoning: every cause leads to the same next action — ask for a new secret " +
+      "and scan it again — and distinguishing them would tell a caller holding a ticket which " +
+      "half of it the server disliked.",
   },
   INVITATION_INVALID: {
     status: 401,
@@ -614,6 +676,9 @@ export const MESSAGES: Record<ErrorCode, string> = {
   PERMISSION_DENIED: "the role held at this shop does not carry the permission this route requires",
   PIN_INVALID: "the submitted credential was not accepted",
   PIN_REFUSED: "the chosen PIN does not satisfy the PIN policy",
+  CREDENTIAL_REFUSED: "the chosen password does not meet the minimum length",
+  CREDENTIAL_ALREADY_SET: "this person already has a password; replace it in a privileged session",
+  AUTHENTICATOR_ENROLLMENT_REFUSED: "the enrollment offer or its confirming code was not accepted",
   INVITATION_INVALID: "the submitted invitation code was not accepted",
   ENROLLMENT_CODE_INVALID: "the submitted enrollment code was not accepted",
   CONNECTOR_CALLBACK_REFUSED: "the connector authorization callback was not accepted",

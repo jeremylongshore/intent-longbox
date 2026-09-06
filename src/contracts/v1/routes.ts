@@ -21,7 +21,8 @@
 // row may exist at G2.
 import type { ZodTypeAny } from "zod";
 import type { ErrorCode } from "./errors.js";
-import type { Permission } from "./permissions.js";
+import type { Permission, RouteAuthority } from "./permissions.js";
+import { SELF_SERVICE } from "./permissions.js";
 import * as s from "./schemas.js";
 
 export type RouteKind = "exemption" | "defect";
@@ -168,6 +169,49 @@ export const ROUTE_ALLOWLIST: readonly AllowlistRow[] = [
       "the session's, and the LOCATION is a body field checked against that shop rather than a " +
       "second path segment.",
   },
+  // E03-D24's four. All correct outside the tenant prefix, and the reason is the
+  // SUBJECT rather than the session: a password and a second factor belong to a
+  // PERSON, who may hold memberships at several shops (034 §2.6), and
+  // `user_credential` / `user_authenticator` carry no `shop_id` at all. A
+  // `shopId` in any of these paths would say that one shop owns a row that
+  // crosses shops — which is a stronger objection than 042 E4's, because there is
+  // no correct value to put there rather than a caller-asserted one.
+  {
+    method: "POST",
+    path: "/api/v1/credentials",
+    kind: "exemption",
+    reason:
+      "a person sets their FIRST password, inside the operator session they just opened with " +
+      "their own PIN (000-docs/063 §3.3; 057 §9 R2a). The PERSON is the session's and the " +
+      "credential is theirs across every shop they work at, so there is no shop whose prefix " +
+      "would be true — and the shop the operator session names is used for the audit row and the " +
+      "idempotency row rather than to scope the credential.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credentials/rotations",
+    kind: "exemption",
+    reason:
+      "the same row, replaced from a privileged session with a fresh second-factor code (063 " +
+      "§3.3). Same reason: one password, several possible shops, no true prefix.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators/offers",
+    kind: "exemption",
+    reason:
+      "a person asks for a second-factor secret to scan (063 §3.4). `user_authenticator` is " +
+      "person-scoped for 034 §2.6's reason and is a declared row-level-security exemption for it " +
+      "(057 §9 R7), so a tenant prefix would be a tenancy claim about a row that has none.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators",
+    kind: "exemption",
+    reason:
+      "the confirmation of that offer, which writes the person's authenticator and their recovery " +
+      "set (063 §3.4). Same reason as the row above.",
+  },
   // E03-B06's two connector routes. Both are CORRECT outside the tenant prefix,
   // and for a reason neither of the two above has: their caller is not a Longbox
   // client at all. A `shopId` in either path would be a tenant asserted by
@@ -291,6 +335,13 @@ export interface AuthAllowlistRow {
    * The permission a PENDING privileged route will require when it lands
    * (E03-B03, 054 §3.4).
    *
+   * ⚠ **IT HOLDS A PERMISSION AND NEVER THE SELF-SERVICE MARKER** (E03-D24). A
+   * route in the self-service class needs no answer pre-decided for it: there is
+   * nothing for the matrix's owner to rule on, because no grant decides the act.
+   * The marker therefore lives only in the ROUTE TABLE, where the route that
+   * carries it is registered, and this field stays what it was — a permission a
+   * bead is inheriting rather than choosing.
+   *
    * It is here rather than on the route table because a pending route has no row
    * there — `ROUTES` generates the OpenAPI document, and a route in the document
    * that the server does not serve is a lie in a published artifact. The
@@ -305,24 +356,23 @@ export interface AuthAllowlistRow {
    */
   readonly requires?: Permission;
   /**
-   * **A `privileged` route that acts on the CALLER'S OWN SESSION and nothing
-   * else, and therefore requires no permission** (E03-D11, 057 §4.4).
+   * WHERE `selfService` WENT (E03-D24, 000-docs/063 §3.2).
    *
-   * It exists so the privileged branch of the authentication hook can fail
-   * CLOSED like the tenant branch does. There, a route that declares no
-   * `requires` is refused, because a shop-scoped route added next year must not
-   * inherit "anyone with a membership" by saying nothing. The same default is
-   * right here and has one genuine exception — signing yourself out — and the
-   * exception is a ROW with a reason rather than a name the hook special-cases,
-   * for 041 §9.2 item 4's rule: an absence is indistinguishable from an
-   * oversight, and a declared exemption is a decision a reviewer can argue with.
+   * 057 §4.4 declared the exception as a boolean on THIS row because the route
+   * table's `requires` column held permissions only, so a route that needed no
+   * permission could say nothing at all — an absence, which 041 §9.2 item 4
+   * makes indistinguishable from an oversight. The flag fixed that by turning
+   * the exception into a declaration.
    *
-   * There is exactly one member and there is no obvious second. A route that
-   * touches anything beyond the caller's own session — a membership, a device, a
-   * credential, a shop's configuration — is not self-service however it is
-   * spelled, and the permission it needs is a decision for 054's matrix.
+   * It is REPLACED rather than extended because a second member showed what the
+   * flag cost: the rule then lived in two tables. A privileged route's authority
+   * was `ROUTES.requires` unless `AUTH_ALLOWLIST.selfService` said otherwise, so
+   * an author adding a route wrote two rows in two files and a reviewer read
+   * both to learn what one route required. The marker is a VALUE in the column
+   * every route already fills in — still a deliberate word with a reason beside
+   * it, still fail-closed, and now in one place. See `SELF_SERVICE` in
+   * `./permissions.js`.
    */
-  readonly selfService?: true;
 }
 
 export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
@@ -464,9 +514,10 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
     path: "/api/v1/privileged-sessions/end",
     principal: "privileged",
     kind: "route",
-    selfService: true,
     reason:
-      "Ending the chain the `__Host-lb_priv` cookie names. `privileged` and not `none`: a caller " +
+      "Ending the chain the `__Host-lb_priv` cookie names. Its AUTHORITY is now the `self_service` " +
+      "marker in the ROUTE TABLE (E03-D24, 063 §3.2), which is where the `selfService` flag that " +
+      "used to sit on this row moved to — one column, one place to read, one place to get wrong.  `privileged` and not `none`: a caller " +
       "with no privileged session has nothing to end, and answering 200 to one would be an oracle " +
       "that says nothing useful and invites a client to treat sign-out as fire-and-forget.",
   },
@@ -564,6 +615,77 @@ export const AUTH_ALLOWLIST: readonly AuthAllowlistRow[] = [
       "against the shop and against their own grant; 057 §4.4). A person who names none holds a " +
       "session that reaches shop-scoped acts only, which is fail-closed and is the correct " +
       "direction: a grant that is valid somewhere does not reach an act from nowhere.",
+  },
+  // -------------------------------------------------------------------------
+  // E03-D24 — the credential self-service surface (000-docs/063; 057 §9 R2/R2a).
+  //
+  // The FIRST row is the one that closes R2a, and its principal is the whole of
+  // the argument: a password can only be provisioned by somebody the system can
+  // already name, and before a password exists the only thing that names a
+  // PERSON is an operator session — the PIN, on the phone the shop enrolled.
+  // The other three run on the privileged session that first password makes
+  // reachable.
+  // -------------------------------------------------------------------------
+  {
+    method: "POST",
+    path: "/api/v1/credentials",
+    principal: "device+operator",
+    kind: "route",
+    reason:
+      "THE ROUTE 057 §9 R2a IS ABOUT: without it nothing in a running deployment can give anybody " +
+      "a password, so the privileged sign-in cannot succeed for any real person and the two " +
+      "issuance routes behind it are unreachable by a shop. **`device+operator` is forced rather " +
+      "than chosen.** A privileged principal is unavailable by construction — that session is what " +
+      "a password is FOR — and `device` alone names no person, so the only principal left that " +
+      "identifies a human is the operator session: the PIN, on a phone the shop enrolled, which " +
+      "is 048 §3.5's knowledge factor on a possession-bound channel. The person is the SESSION's " +
+      "and never the body's (048 §6.3, I8). **What that principal is worth is stated rather than " +
+      "assumed**: 048 §3.5 rules an operator session is NOT non-repudiable, so a coworker who " +
+      "watched a PIN can reach this route as its holder — which is exactly why the route " +
+      "PROVISIONS and never REPLACES (409 CREDENTIAL_ALREADY_SET), and why the password it sets " +
+      "opens nothing on its own: a privileged session additionally needs a second factor this " +
+      "route cannot mint (063 §3.3).",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credentials/rotations",
+    principal: "privileged",
+    kind: "route",
+    reason:
+      "REPLACING a password, which is the act the route above refuses. It runs on the privileged " +
+      "session — password plus second factor, inside 048 §4.1's freshness window — AND asks for a " +
+      "fresh code in the request, on 057 §4.4b's rule generalised: the damage of a replaced " +
+      "password OUTLIVES the session it was done from, and the window bounds sessions rather than " +
+      "acts. `self_service` and not a permission because the subject is the caller's OWN " +
+      "person-scoped credential, which no membership at any shop grants or withholds (063 §3.1).",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators/offers",
+    principal: "privileged",
+    kind: "route",
+    reason:
+      "STEP ONE OF AN ENROLMENT, and it exists because of 048 §4.3's *'a secret that is never " +
+      "confirmed never becomes a row'*: a confirmation needs a round trip, and the unconfirmed " +
+      "secret has to live somewhere in between. It lives in the CLIENT, sealed under the " +
+      "authenticator ring with the person and the expiry as additional authenticated data (048 " +
+      "R18's construction, applied to a value that is not a row) — not in a table, and not in a " +
+      "map in this process that a restart or a second instance would lose. It is reachable while " +
+      "the session is in 048 §8.1's re-enrolment state, which is the state it exists to end.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators",
+    principal: "privileged",
+    kind: "route",
+    reason:
+      "STEP TWO: the sealed offer plus a code generated from the secret inside it. It supersedes " +
+      "whatever the person had — `enrollAuthenticator` retires the predecessor and issues a fresh " +
+      "recovery set in the same transaction (048 §8.1) — and it is the ONE act that lifts 048 " +
+      "§8.1's re-enrolment gate, which lifts BY PREDICATE (`mfaState` reads the new row) and never " +
+      "by a mutation. **A person who still HOLDS a live factor must present a fresh code from it**, " +
+      "on the rotation route's reasoning above; a person in the re-enrolment state has none to " +
+      "present, and the recovery code they signed in with was that presentation.",
   },
 ];
 
@@ -669,7 +791,48 @@ export interface RouteSpec {
    * `rate-class-enforcement.test.ts` had to learn: a declaration whose
    * enforcement nobody proved reachable is a declaration, not a control.
    */
-  readonly requires: Permission | null;
+  readonly requires: RouteAuthority | null;
+  /**
+   * **May a session in 048 §8.1's re-enrolment state reach this route?**
+   * (E03-D24, 000-docs/063 §3.5.)
+   *
+   * 048 §8.1 rules that a session established with a RECOVERY CODE *"can reach
+   * NOTHING else until"* the person has enrolled a new second factor, and
+   * E03-D11 enforced that with a condition keyed on `requires === null` — which
+   * meant "the sign-out, because it is the only route that declares nothing".
+   * That was a proxy for a set with one member, and it stopped being true the
+   * moment a second route needed to be in it AND the sign-out stopped declaring
+   * nothing (§3.2's marker).
+   *
+   * So the set is DECLARED, row by row, and the hook reads it. Three members:
+   * the sign-out, and the two halves of an enrolment — which is the act the
+   * state exists to force. Everything else, including the password routes,
+   * refuses `MFA_REENROLLMENT_REQUIRED`. A route added later is OUTSIDE the set
+   * by default, which is the direction 048 §8.1 asks for.
+   */
+  readonly reachableWhileReenrolling?: true;
+  /**
+   * **What this route's idempotency hash is taken OVER, when it is not the
+   * literal body** (E03-D24; the data-model lens's H5).
+   *
+   * 042 §5.4 hashes the request body so a reused key with different content is a
+   * 422 — and several routes deliberately hash something else, each for a good
+   * reason and each stated only in a comment until now: an invitation code and a
+   * password are low-entropy secrets that a stored SHA-256 would be an offline
+   * verifier for, and an enrolment's confirming code is a TOTP value that
+   * changes every thirty seconds for one logical act (which shipped as a defect
+   * and was caught by CI — 063 §0).
+   *
+   * The lens's finding is that these were "ad hoc per-route hash inputs" with no
+   * declaration a build could check, while 042 §5.1 class TWO already makes a
+   * member NAME its constraint. So a route whose hash is not its body says so
+   * here in plain English, and `tests/contract/idempotency-hash-declaration.test.ts`
+   * asserts the SERVICE function actually builds that shape — a label with no
+   * matching code is the same failure `uniqueOn` exists to prevent.
+   *
+   * Absent means "the literal body", which is every other route.
+   */
+  readonly idempotencyHashOf?: string;
   readonly request: ZodTypeAny | null;
   /**
    * The QUERY schema, for a route whose input arrives in the query string
@@ -870,7 +1033,14 @@ export const ROUTES: readonly RouteSpec[] = [
     method: "POST",
     path: `${s.API_PREFIX}/privileged-sessions/end`,
     pluginPath: null,
-    requires: null,
+    // E03-D24: the marker, where the auth allowlist's `selfService` flag used to
+    // be. Ending your own session touches one chain and nothing else, so no
+    // membership at any shop decides it (063 §3.1, §3.2).
+    requires: SELF_SERVICE,
+    // 048 §8.1: a person forced to re-enrol may always sign out. It was the ONLY
+    // member of that set until this bead; now it is one of three, and the set is
+    // DECLARED rather than derived from "declares no permission".
+    reachableWhileReenrolling: true,
     mutating: true,
     // `ordinary` and NOT `device`: this route's caller holds a privileged
     // session, which names a shop and names no device at all — so the shop is
@@ -890,6 +1060,10 @@ export const ROUTES: readonly RouteSpec[] = [
     pluginPath: null,
     requires: "membership.invite",
     mutating: true,
+    idempotencyHashOf:
+      "the invited address's DIGEST, plus the role and the location as themselves. An address is " +
+      "a person; the role and the location are part of the act, and two invitations differing only " +
+      "in role are two acts that must not replay each other's response.",
     // `ordinary`, keyed on the SESSION's shop — which the hook resolves before
     // the permission decision, so unlike the redemption routes this bucket is
     // taken in the hook and not in the service. There is no body field to wait
@@ -959,6 +1133,134 @@ export const ROUTES: readonly RouteSpec[] = [
     ],
     summary: "End the operator session; the device session survives.",
   },
+  // -------------------------------------------------------------------------
+  // E03-D24 — the credential self-service surface (000-docs/063; 057 §9 R2/R2a;
+  // 048 §4.1, §4.3, §8.1).
+  //
+  // All four carry `requires: SELF_SERVICE` — the authority that says NO GRANT
+  // DECIDED THIS, because every row each one reads or writes is keyed on the
+  // caller's own `app_user_id`. The first is the only one an operator session
+  // can reach, and it is the one 057 §9 R2a is about.
+  // -------------------------------------------------------------------------
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/credentials`,
+    pluginPath: null,
+    requires: SELF_SERVICE,
+    mutating: true,
+    idempotencyHashOf:
+      "a marker that a password was supplied, and never the password. `request_hash` is STORED, " +
+      "and a stored SHA-256 of a password is an offline verifier for anybody holding a dump — " +
+      "which is what 048 §9.2 spends a section keeping out of reach.",
+    // The `device` class: this route runs on a device+operator session outside
+    // the tenant plugin, so the hook's device bucket is the one that covers it —
+    // keyed on the PHONE and never on the person, which is 048 R14's own rule
+    // (`GET /api/v1/operators` and the PIN route carry it for the same reason).
+    // A SECOND bucket is taken in the service on the session's CHAIN, because a
+    // shop's 120/min is a counter's working rate and a credential write is not
+    // counter work (063 §3.6).
+    rateClass: "device",
+    request: s.setCredentialRequest,
+    response: s.setCredentialResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "SESSION_REQUIRED",
+      "OPERATOR_REQUIRED",
+      "CREDENTIAL_REFUSED",
+      "CREDENTIAL_ALREADY_SET",
+      "PERMISSION_DENIED",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Set a first password for the person this operator session names.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/credentials/rotations`,
+    pluginPath: null,
+    requires: SELF_SERVICE,
+    mutating: true,
+    idempotencyHashOf: "a marker that a password was supplied, for the reason the route above gives.",
+    // `ordinary`, keyed on the privileged session's shop — the only key that
+    // session offers, and the one 042 §8.1 asks for. Taken by the hook's
+    // privileged branch; the per-chain credential bucket is taken in the service.
+    rateClass: "ordinary",
+    request: s.rotateCredentialRequest,
+    response: s.rotateCredentialResponse,
+    successStatus: 200,
+    errors: [
+      "VALIDATION_FAILED",
+      "PRIVILEGED_SESSION_REQUIRED",
+      "MFA_REENROLLMENT_REQUIRED",
+      "FRESH_SECOND_FACTOR_REQUIRED",
+      "CREDENTIAL_REFUSED",
+      "PERMISSION_DENIED",
+      "SHOP_NOT_FOUND",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Replace this person's password, with a fresh second-factor code.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/authenticators/offers`,
+    pluginPath: null,
+    requires: SELF_SERVICE,
+    // 048 §8.1's state exists to be ended by an enrolment, and an enrolment
+    // starts here.
+    reachableWhileReenrolling: true,
+    mutating: true,
+    rateClass: "ordinary",
+    request: s.authenticatorOfferRequest,
+    response: s.authenticatorOfferResponse,
+    successStatus: 200,
+    errors: [
+      "VALIDATION_FAILED",
+      "PRIVILEGED_SESSION_REQUIRED",
+      "AUTHENTICATOR_ENROLLMENT_REFUSED",
+      "PERMISSION_DENIED",
+      "SHOP_NOT_FOUND",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Mint a second-factor secret to scan; it is shown once and stored nowhere.",
+  },
+  {
+    method: "POST",
+    path: `${s.API_PREFIX}/authenticators`,
+    pluginPath: null,
+    requires: SELF_SERVICE,
+    reachableWhileReenrolling: true,
+    mutating: true,
+    idempotencyHashOf:
+      "the sealed TICKET'S DIGEST, and never the confirming code. The ticket identifies the ACT " +
+      "(one offer, one enrolment); a TOTP code changes every thirty seconds for that same act, so " +
+      "hashing it made a retry after a lost response a 422 rather than a replay — the defect CI " +
+      "caught in this bead (063 §0). A digest of AEAD ciphertext inverts to nothing.",
+    rateClass: "ordinary",
+    request: s.enrolAuthenticatorRequest,
+    response: s.enrolAuthenticatorResponse,
+    successStatus: 201,
+    errors: [
+      "VALIDATION_FAILED",
+      "PRIVILEGED_SESSION_REQUIRED",
+      "FRESH_SECOND_FACTOR_REQUIRED",
+      "AUTHENTICATOR_ENROLLMENT_REFUSED",
+      "PERMISSION_DENIED",
+      "SHOP_NOT_FOUND",
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "IDEMPOTENCY_KEY_REUSED",
+      "RATE_LIMITED",
+      "INTERNAL_ERROR",
+    ],
+    summary: "Confirm an enrolment offer; the recovery set is shown once.",
+  },
   {
     // E03-D07. `ordinary`, keyed on THE SHOP THE TOKEN NAMES (048 R14) — which
     // is the device session's shop, because R15 makes a redemption succeed only
@@ -980,6 +1282,10 @@ export const ROUTES: readonly RouteSpec[] = [
     pluginPath: null,
     requires: null,
     mutating: true,
+    idempotencyHashOf:
+      "the CODE'S DIGEST plus a marker that a PIN was supplied, and neither secret. A 40-bit code " +
+      "and six digits are both enumerable against a stored SHA-256 by anybody holding a dump " +
+      "(048 §9.2), and the digest separates two redemptions under one key exactly as well.",
     rateClass: "ordinary",
     request: s.invitationRedemptionRequest,
     response: s.invitationRedemptionResponse,

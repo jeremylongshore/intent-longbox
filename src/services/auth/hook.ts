@@ -36,7 +36,7 @@ import { tenantDb, withTransaction, type Tx } from "../../db.js";
 import type { ShopRateLimiter } from "../rateLimit.js";
 import type { AppConfig } from "../../config.js";
 import { highestRole, membershipsAt, type MembershipRow, type Role } from "./memberships.js";
-import { isPrivileged } from "../../contracts/v1/permissions.js";
+import { SELF_SERVICE, isPrivileged, isSelfService } from "../../contracts/v1/permissions.js";
 import { PERMISSION_MATRIX_VERSION, authorize } from "./permissions.js";
 import { recordAuthorizationDecision, shouldRecord } from "./authorizationAudit.js";
 import { mfaState } from "./authenticator.js";
@@ -305,6 +305,25 @@ export function registerAuthentication(app: FastifyInstance, deps: AuthHookDeps)
       req.auth.shopId = operator.shop_id;
       req.auth.locationId = operator.location_id;
 
+      // ⚠ **A SELF-SERVICE ROUTE OUTSIDE THE PREFIX RECORDS ITS DECISION HERE,
+      // AND AT v1.0.0 IT RECORDED NOTHING** (E03-D24, the security lens's F1;
+      // 063 §3.7). `POST /api/v1/credentials` — the single act this bead exists
+      // to enable, performed by the one principal 048 §3.5 calls NOT
+      // non-repudiable — sat outside `TENANT_PREFIX`, so the audit call below
+      // could never run for it: the record claimed a decision row and the
+      // evidence for the claim came from a privileged sibling instead.
+      //
+      // It is written BEFORE the handler, which has a consequence stated rather
+      // than papered over: a `201` and a `409 CREDENTIAL_ALREADY_SET` both
+      // record `allowed`. **A self-service allowance is an allowance to
+      // ATTEMPT** (063 §3.7), which is 059's N:1 ruling arriving one class over
+      // — and there is deliberately no outcome column, because a column the
+      // hook cannot fill truthfully would be worse than an absence a reader can
+      // see.
+      if (!url.startsWith(TENANT_PREFIX) && isSelfService(spec?.requires)) {
+        await recordSelfServiceDecision(req, deps, { url, spec, session: operator });
+      }
+
       if (url.startsWith(TENANT_PREFIX)) {
         const urlShopId = (req.params as { shopId?: string } | undefined)?.shopId;
         // The session is the tenant; the URL is a value CHECKED against it. The
@@ -420,12 +439,22 @@ async function enforcePermission(
     memberships: readonly MembershipRow[];
   }
 ): Promise<void> {
-  const permission = ctx.spec?.requires ?? null;
-  if (permission === null) {
+  const authority = ctx.spec?.requires ?? null;
+  if (authority === null || isSelfService(authority)) {
     // Fail closed: a shop-scoped route that declares no permission is refused.
     // See the header — this is the default that makes the column mandatory.
+    //
+    // ⚠ **AND THE SAME REFUSAL FOR THE SELF-SERVICE MARKER, WHICH IS NOT A
+    // LOOPHOLE ARRIVING BY A SIDE DOOR** (E03-D24, 063 §3.2). The marker means
+    // *the caller's own person is the whole of the authority*, which is a
+    // sentence that can only be true of a route whose every row is keyed on that
+    // person. A TENANT-PREFIXED route is by construction about a shop's things,
+    // so a marker on one is a mis-declaration rather than a decision — and it is
+    // refused here rather than trusted, so the class cannot be widened by an
+    // author writing one word in the wrong table's row.
     throw new LongboxError("PERMISSION_DENIED");
   }
+  const permission = authority;
 
   // ---- the ORDINARY bucket, taken HERE and not in the tenant plugin --------
   //
@@ -497,6 +526,56 @@ async function enforcePermission(
   }
   if (verdict.kind === "refused_scope") throw new LongboxError("SHOP_NOT_FOUND");
   throw new LongboxError("PERMISSION_DENIED");
+}
+
+/**
+ * **The audit row for a self-service act** (E03-D24; 054 §4.3, 063 §3.7).
+ *
+ * It is written for a MUTATING self-service route and for no other, which is
+ * 054 §4.3's own rule read literally: *every refusal, plus an allowance where
+ * the act MUTATES or the permission is PRIVILEGED*. There are no refusals to
+ * record here — the class has no decision to lose, because the caller's own
+ * identity is the whole of the authority — so what is left is the allowance, and
+ * an allowance on a READ would be the browsing history 022 P3 forbids.
+ *
+ * ⚠ **`permission` HOLDS THE MARKER AND NOT A PERMISSION NAME, AND THAT IS THE
+ * POINT.** `self_service` is deliberately absent from `PERMISSIONS`, so an
+ * auditor who looks it up finds nothing — which is the true statement: no grant
+ * decided this row's act. `membership_id` and `role` are NULL for the same
+ * reason, and the migration's CHECK permits that pair (a row may name neither).
+ * `matrix_version` is still stamped because it records WHICH BUILD'S RULES were
+ * in force when the act was allowed, which stays answerable after this constant
+ * moves.
+ *
+ * It is written outside the request transaction, on `recordAuthorizationDecision`'s
+ * own two reasons, and the fail-closed direction is the same: a mutation we are
+ * about to PERMIT and cannot record is refused, because otherwise "every
+ * authorized mutation has a decision record" is a sentence no artifact may say.
+ */
+async function recordSelfServiceDecision(
+  req: FastifyRequest,
+  deps: AuthHookDeps,
+  ctx: { url: string; spec: RouteSpec | undefined; session: SessionRow }
+): Promise<void> {
+  if (ctx.spec?.mutating !== true) return;
+  try {
+    await recordAuthorizationDecision(tenantDb(deps.pool, ctx.session.shop_id), {
+      shopId: ctx.session.shop_id,
+      routeMethod: req.method.toUpperCase(),
+      routePath: ctx.url,
+      permission: SELF_SERVICE,
+      matrixVersion: PERMISSION_MATRIX_VERSION,
+      matrixCommit: deps.config.buildCommit ?? "unknown",
+      membershipId: null,
+      role: null,
+      sessionChainId: ctx.session.chain_id,
+      decision: "allowed",
+      refusalReason: null,
+    });
+  } catch (err) {
+    req.log.error({ err }, "self-service decision could not be recorded; refusing the request");
+    throw new LongboxError("INTERNAL_ERROR");
+  }
 }
 
 /** The shop's `ordinary` token, taken at most once per request (054 §4.3 F4). */
@@ -582,8 +661,21 @@ async function enforcePrivileged(
     takeOrdinaryOnce(req, deps, session.shop_id);
   }
 
+  // ⚠ **THE GATE'S CONDITION CHANGED WITH E03-D24, AND THE OLD ONE WAS A PROXY**
+  // (048 §8.1; 063 §3.5). It read `ctx.spec?.requires !== null` — which meant
+  // "everything except the sign-out, because the sign-out is the only route that
+  // declares no permission". That was true of a set with one member and it stops
+  // being true twice over in this bead: the enrolment routes have to be IN the
+  // set (they are the act the state exists to force), and the sign-out no longer
+  // declares nothing (it declares the self-service marker).
+  //
+  // So the set is DECLARED, row by row, and read here. A route added later is
+  // OUTSIDE it by default, which is the direction 048 §8.1's *"can reach NOTHING
+  // else until"* asks for — and a route that a `must_reenroll` session should be
+  // able to reach says so in the table, where a reviewer looking at the route
+  // will see it.
   const state = await mfaState(tenantDb(deps.pool, session.shop_id), appUserId);
-  if (state === "must_reenroll" && ctx.spec?.requires !== null) {
+  if (state === "must_reenroll" && ctx.spec?.reachableWhileReenrolling !== true) {
     throw new LongboxError("MFA_REENROLLMENT_REQUIRED");
   }
 
@@ -592,12 +684,23 @@ async function enforcePrivileged(
   const held = highestRole(memberships);
   if (held !== undefined) req.auth.role = held;
 
-  const row = authRowFor(req.method, ctx.url);
-  if (ctx.spec?.requires === null || ctx.spec?.requires === undefined) {
-    // The declared exception, and it is one row: a route that acts on the
-    // caller's own session needs no permission, and a route that does not say so
-    // is refused.
-    if (row?.selfService !== true) throw new LongboxError("PERMISSION_DENIED");
+  const authority = ctx.spec?.requires ?? null;
+  if (isSelfService(authority)) {
+    // **THE DECLARED SELF-SERVICE CLASS** (E03-D24, 063 §3.1/§3.2). The subject
+    // is the caller's own person, so no grant decides it and `authorize()` has
+    // nothing to answer — but the ACT is recorded, because setting your own
+    // password or replacing your own second factor is the strongest thing a
+    // session can do to the identity it holds, and 054 §4.3 records an allowance
+    // when the act mutates or the permission is privileged. Both are true here
+    // in substance, and the row says `self_service` rather than naming a
+    // permission precisely so an auditor reading it knows NO GRANT WAS
+    // CONSULTED (063 §3.7).
+    await recordSelfServiceDecision(req, deps, { url: ctx.url, spec: ctx.spec, session });
+  } else if (authority === null) {
+    // Fail closed, exactly as the tenant branch does: a privileged route that
+    // declares neither a permission nor the marker is REFUSED. Without this a
+    // route added next year would inherit "any privileged session at any shop".
+    throw new LongboxError("PERMISSION_DENIED");
   } else {
     await enforcePermission(req, deps, { url: ctx.url, spec: ctx.spec, session, memberships });
   }

@@ -154,13 +154,44 @@ const ERROR_COPY = {
   // names the step that is actually available — somebody with access to the
   // system does it out of band — and says what the person can do meanwhile,
   // which is the honest half. It stays soft and it does not diagnose.
+  //
+  // ⚠ **AND THE SENTENCE CHANGED AGAIN AT E03-D24, BECAUSE THE ROUTE NOW
+  // EXISTS — but it says "from your own sign-in" and not "here" (the gate
+  // audit's N4). THIS client is the counter phone; the enrolment routes need a
+  // PRIVILEGED session, which no screen in this file can open. Promising a
+  // button on the wrong client is the same defect F5 caught, one bead later. F5's fix was honest about a route that did not exist; keeping it
+  // after `POST /api/v1/authenticators` landed would be the mirror mistake —
+  // sending somebody to find a colleague for something they can do themselves in
+  // the next thirty seconds. The copy names the step that is now available and
+  // keeps the reassurance, because the counter really does keep working.
   MFA_REENROLLMENT_REQUIRED:
-    "Your authenticator needs setting up again before this will work. That is done for you — ask whoever looks after this system. You can keep working at the counter in the meantime.",
-  // 057 §4.4b. ONE sentence for a missing code and a wrong one, because the next
-  // action is the same and the caller already holds the session, so nothing is
-  // withheld by merging them.
+    "Set up your authenticator again before carrying on — you can do it from your own sign-in. You can keep working at the counter in the meantime.",
+  // 057 §4.4b, WIDENED BY E03-D24 (063 §3.3, §3.4). ONE sentence for a missing
+  // code and a wrong one, because the next action is the same and the caller
+  // already holds the session, so nothing is withheld by merging them — and one
+  // sentence for THREE acts now (adding an owner, changing a password, replacing
+  // an authenticator), so it names the ask rather than the act. The old wording
+  // said "adding an owner", which would have been a wrong diagnosis on two of
+  // the three the moment they shipped.
   FRESH_SECOND_FACTOR_REQUIRED:
-    "Adding an owner needs a fresh code from your authenticator. Open it and enter the current code.",
+    "This one needs a fresh code from your authenticator. Open it and enter the current code.",
+  // E03-D24 (063 §3.3, §3.4). Three more codes this client can receive and no
+  // screen in it can cause yet — here for the reason the four above are: a code
+  // marked operator-renderable with nothing to render falls through to a generic
+  // sentence at the moment somebody needed a specific one. **The registered
+  // strings are E05's under 021's T26 pre-send and these are not them.**
+  //
+  // It says the floor is a length and does not say what the length is: the
+  // number belongs in the form's own hint, beside the box, where somebody can
+  // read it BEFORE they choose — not in a refusal that arrives after.
+  CREDENTIAL_REFUSED: "Choose a longer password.",
+  // A fact about the person's own account, which is why it can be said at all —
+  // and the sentence names the way forward rather than the obstacle (022 P6).
+  CREDENTIAL_ALREADY_SET: "You already have a password. Change it from your own sign-in rather than here.",
+  // ONE code for an offer that expired, one that does not match, and a code from
+  // the wrong app — so the copy names the one action that is right in every
+  // case, and does not guess which happened.
+  AUTHENTICATOR_ENROLLMENT_REFUSED: "That didn't take. Start the setup again and scan the new code.",
   INVITATION_REFUSED:
     "There are already as many unused invitations as this shop can have. Wait for one to be used, or let it expire.",
   ENROLLMENT_CODE_REFUSED:

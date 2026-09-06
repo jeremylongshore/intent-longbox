@@ -170,7 +170,20 @@ describe("the route table (042 §3.1, I6)", () => {
     // travels outside the STORED body, exactly as a `Set-Cookie` does, because
     // storing it would put a live credential in a jsonb column on the one route
     // whose whole custody story is "shown once, stored nowhere".
-    expect(mutating).toHaveLength(18);
+    //
+    // TWENTY-TWO at E03-D24, and its four split the same way. `POST
+    // /api/v1/credentials`, `POST …/credentials/rotations` and `POST
+    // /api/v1/authenticators` each write a row that outlives the response — a
+    // credential, a replacement, an authenticator and its recovery set — so each
+    // takes the header AND the `request_idempotency` row, with the shown-once
+    // recovery codes travelling outside the STORED body exactly as an invitation
+    // code does. `POST /api/v1/authenticators/offers` is CLASS ONE by 042
+    // v1.6.0's third disjunct **(b3)**: it writes NO durable row at all — its
+    // only rows are AUDIT facts, whose N:1 relationship to requests 059 already
+    // ruled CORRECT — so there is no duplicate for a stored response to prevent,
+    // and storing one would put a live secret in a jsonb column on a route whose
+    // whole custody story is "shown once, stored nowhere" (063 §3.4).
+    expect(mutating).toHaveLength(22);
     for (const route of ROUTES) {
       // POST always mutates. A GET mutates ONLY as a provider callback — 048
       // I6(d) as amended at v1.5.2, whose original ground was that a cross-site

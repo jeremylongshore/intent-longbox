@@ -30,8 +30,10 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   AUTHORIZATION_DECISION_WRITER,
+  BREAK_GLASS_SCRIPTS,
   ORIGIN_DESIGNATION_WRITER,
   checkAuthorizationDecisionCountNouns,
+  checkBreakGlassScriptsAreUnreachable,
   checkAuthorizationDecisionWriters,
   checkAuthAttemptReads,
   checkIdentityAccessWriters,
@@ -415,6 +417,18 @@ describe("the non-graph rules, against the real tree", () => {
     expect(checkIdentityImportSurface(all)).toEqual([]);
     // Not vacuous: files that import the barrel DO exist in both trees.
     expect(all.filter((f) => /identity\/index\.js/.test(f.text)).length).toBeGreaterThan(1);
+  });
+
+  // E03-D24's rule 15 (the consistency lens's H6), against the REAL tree: the
+  // whole safety argument for three scripts is that reaching them costs the
+  // schema owner's database URL and shell access on the host, and a header
+  // saying so is a sentence rather than a property.
+  it("063 §5 R1: no file under src/ reaches a break-glass script", () => {
+    expect(checkBreakGlassScriptsAreUnreachable(files)).toEqual([]);
+    // Not vacuous in the way that matters: the declared scripts exist, so the
+    // empty result is a pass over a real inventory rather than an empty one.
+    const onDisk = collectSources(join(repoRoot, "scripts")).map((f) => f.path);
+    for (const script of BREAK_GLASS_SCRIPTS) expect(onDisk, script).toContain(script);
   });
 
   it("000-docs/060 §3.4: NOTHING under src/ reads identity_access — the audit is a CLI", () => {
@@ -1044,6 +1058,47 @@ describe("the non-graph rules, against fixtures that violate them", () => {
       checkSupersedesWriters([
         { path: SUPERSEDES_WRITER, text: "INSERT INTO human_confirmation (a, supersedes_id)" },
         { path: "src/services/condition.ts", text: "// a correction goes through the supersedes_id writer" },
+      ])
+    ).toEqual([]);
+  });
+
+  // ── E03-D24 rule 15 / 063 §5 R1 — the two import forms ────────────────────
+  it("063 §5 R1: a service that statically imports a break-glass script is a violation", () => {
+    const findings = checkBreakGlassScriptsAreUnreachable([
+      {
+        path: "src/services/auth/api.ts",
+        text: 'import { enrollAuthenticator } from "../../../scripts/enroll-authenticator.js";',
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("scripts/enroll-authenticator.ts");
+    expect(findings[0]!.message).toContain("BREAK-GLASS");
+  });
+
+  // ⚠ **THE NEGATIVE CONTROL THE INVARIANT REVIEW'S NOTE 2 ASKED FOR.** The rule
+  // read `from "…"` alone, so the import form a caller would most plausibly
+  // REACH for — deferred, inside a branch, reading as harmless — passed
+  // untouched. A rule whose claim is *no served code path can reach this* is
+  // worth nothing if the reachable path is the one it cannot see.
+  it("063 §5 R1: a DYNAMIC import of one is the same violation", () => {
+    const findings = checkBreakGlassScriptsAreUnreachable([
+      {
+        path: "src/services/auth/credentials.ts",
+        text: 'const m = await import("../../../scripts/clear-credential.js");',
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("scripts/clear-credential.ts");
+  });
+
+  it("063 §5 R1: the rule reads src/ only, and does not fire on prose", () => {
+    // A script importing its own sibling is the operator's door working, not a
+    // served path — and naming one in a comment must stay possible, or the
+    // scripts become unmentionable in the tree that documents them.
+    expect(
+      checkBreakGlassScriptsAreUnreachable([
+        { path: "scripts/clear-credential.ts", text: 'from "./enroll-authenticator.js"' },
+        { path: "src/services/auth/credentials.ts", text: "// the remedy is pnpm clear-credential" },
       ])
     ).toEqual([]);
   });

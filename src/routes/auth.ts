@@ -20,13 +20,17 @@ import {
   createInvitation,
   endOperatorSession,
   endPrivilegedSession,
+  enrolOwnAuthenticator,
   myShops,
+  offerAuthenticator,
   openDeviceSession,
   openOperatorSession,
   openPrivilegedSession,
   operatorRoster,
   redeemEnrollmentCode,
   redeemInvitation,
+  rotateOwnPassword,
+  setOwnPassword,
   type AuthDeps,
   type AuthResult,
 } from "../services/auth/api.js";
@@ -194,6 +198,64 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
       deviceLabel: body.device_label,
       deviceKind: body.device_kind,
       idempotencyKey: requireIdempotencyKey(req),
+    });
+    return send(req, reply, result);
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-D24 — the credential self-service surface (000-docs/063; 057 §9 R2/R2a).
+  //
+  // Four handlers, and each one hands the SERVICE the session the hook resolved
+  // — never a person id from a body. `sessionLock` is passed through so 042
+  // §5.3(b)'s SECOND position is taken inside the request's own transaction: a
+  // rotation that rolls back issues no successor (048 K1, I3(viii)).
+  // -------------------------------------------------------------------------
+
+  // THE ROUTE 057 §9 R2a IS ABOUT. `device+operator`: before a password exists,
+  // the only principal that names a PERSON is the operator session on the phone
+  // the shop enrolled.
+  app.post(`${P}/credentials`, async (req, reply) => {
+    const body = parse(contract.setCredentialRequest, req.body ?? {});
+    const operator = req.auth.operator;
+    // Unreachable: the allowlist requires `device+operator`. Here for
+    // `requireDevice`'s reason — a thrown code is cheaper than a 500.
+    if (!operator) throw new LongboxError("OPERATOR_REQUIRED");
+    const result = await setOwnPassword(deps, operator, {
+      password: body.password,
+      idempotencyKey: requireIdempotencyKey(req),
+      ...(req.auth.sessionLock !== undefined ? { sessionLock: req.auth.sessionLock } : {}),
+    });
+    return send(req, reply, result);
+  });
+
+  app.post(`${P}/credentials/rotations`, async (req, reply) => {
+    const body = parse(contract.rotateCredentialRequest, req.body ?? {});
+    const result = await rotateOwnPassword(deps, requirePrivileged(req), {
+      password: body.password,
+      totpCode: body.totp_code,
+      idempotencyKey: requireIdempotencyKey(req),
+      ...(req.auth.sessionLock !== undefined ? { sessionLock: req.auth.sessionLock } : {}),
+    });
+    return send(req, reply, result);
+  });
+
+  app.post(`${P}/authenticators/offers`, async (req, reply) => {
+    parse(contract.authenticatorOfferRequest, req.body ?? {});
+    return send(req, reply, await offerAuthenticator(deps, requirePrivileged(req), observedRoute(req)));
+  });
+
+  app.post(`${P}/authenticators`, async (req, reply) => {
+    const body = parse(contract.enrolAuthenticatorRequest, req.body ?? {});
+    const result = await enrolOwnAuthenticator(deps, requirePrivileged(req), {
+      ticket: body.enrollment_ticket,
+      code: body.code,
+      // 063 §3.4: passed through whatever the state, and the SERVICE decides
+      // whether it is required — because the answer is a fact about the person
+      // (do they still hold a live factor?) and not about the request, and a
+      // rule split across an edge and a service is a rule with two homes.
+      ...(body.fresh_totp_code !== undefined ? { freshCode: body.fresh_totp_code } : {}),
+      idempotencyKey: requireIdempotencyKey(req),
+      ...(req.auth.sessionLock !== undefined ? { sessionLock: req.auth.sessionLock } : {}),
     });
     return send(req, reply, result);
   });

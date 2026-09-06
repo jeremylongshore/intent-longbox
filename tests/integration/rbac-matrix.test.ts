@@ -46,7 +46,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
-import { ROUTES } from "../../src/contracts/v1/routes.js";
+import { ROUTES, type RouteSpec } from "../../src/contracts/v1/routes.js";
+import { isSelfService, type Permission } from "../../src/contracts/v1/permissions.js";
 import { TENANT_PREFIX } from "../../src/contracts/v1/schemas.js";
 import { ROLE_GRANTS, type Role } from "../../src/services/auth/index.js";
 import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
@@ -65,7 +66,15 @@ const dbUp = await probeDb();
 const UPLOADS_DIR = "tests/.tmp-rbac-uploads";
 
 /** Every shop-scoped route, which is exactly the set the permission gate covers. */
-const TENANT_ROUTES = ROUTES.filter((r) => r.path.startsWith(TENANT_PREFIX));
+// E03-D24: `requires` may now hold the self-service marker as well as a
+// permission, so the filter narrows the TYPE as well as the set. A
+// tenant-prefixed route carrying the marker is refused by the hook (063 §3.2),
+// so there is no such row to generate cases for — and the predicate says so
+// rather than casting past it.
+const TENANT_ROUTES = ROUTES.filter(
+  (r): r is RouteSpec & { requires: Permission } =>
+    r.path.startsWith(TENANT_PREFIX) && r.requires !== null && !isSelfService(r.requires)
+);
 const ROLES = Object.keys(ROLE_GRANTS) as Role[];
 
 describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §3)", () => {
@@ -170,7 +179,7 @@ describe.skipIf(!dbUp)("least privilege, one case per (role, route) pair (054 §
   // -------------------------------------------------------------------------
   for (const role of ROLES) {
     for (const route of TENANT_ROUTES) {
-      const permission = route.requires!;
+      const permission = route.requires;
       const allowed = ROLE_GRANTS[role].includes(permission);
       const label = `${role} ${allowed ? "MAY" : "may NOT"} ${route.method} ${route.path} (${permission})`;
 

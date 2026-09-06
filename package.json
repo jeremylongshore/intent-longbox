@@ -35,6 +35,7 @@
     "enroll-authenticator": "tsx scripts/enroll-authenticator.ts",
     "retire-authenticator": "tsx scripts/retire-authenticator.ts",
     "redeem-recovery-code": "tsx scripts/redeem-recovery-code.ts",
+    "clear-credential": "tsx scripts/clear-credential.ts",
     "reencrypt-authenticators": "tsx scripts/reencrypt-authenticators.ts",
     "connector-install": "tsx scripts/connector-install.ts",
     "connector-retire-token": "tsx scripts/connector-retire-token.ts",

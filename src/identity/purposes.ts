@@ -56,9 +56,14 @@ export const PURPOSE_PROSE: Readonly<Record<IdentityPurpose, string>> = {
     "(048 §7.1). The invitation was written for them before the code existed, so the name is one " +
     "the shop already holds; resolving it discloses nothing the inviter did not supply.",
   authenticator_enrollment:
-    "The person a second factor is being enrolled for, resolved by a schema-owner CLI to label " +
-    "the otpauth URI it prints once (048 §4.3). It has no tenant: a second factor belongs to a " +
-    "PERSON, who may hold memberships at more than one shop (034 §2.6).",
+    "The person a second factor is being enrolled for, resolved to label the otpauth URI that is " +
+    "shown once (048 §4.3) — so the authenticator app shows something its holder recognises " +
+    "rather than `Longbox: 7f3a…`. TWO CALLERS, and E03-D24 added the second: the schema-owner " +
+    "CLI, which prints the URI on a terminal the person is standing at, and " +
+    "`POST /api/v1/authenticators/offers`, where the person resolves THEMSELVES inside their own " +
+    "privileged session. The CLI's fact carries a NULL `shop_id` (`migrations/035`'s CHECK ties " +
+    "that null to `accessor_method = 'CLI'`); the route's carries the session's shop, because a " +
+    "route has one and the running server's tenant policy requires it.",
 };
 
 /**
@@ -150,6 +155,19 @@ export const DECLARED_ACCESSORS: readonly DeclaredAccessor[] = [
     reason:
       "Redeeming an invitation grants a membership and sets a PIN in one act (048 §7.2); the 201 " +
       "names the person the invitation was written for.",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/authenticators/offers",
+    purposes: ["authenticator_enrollment"],
+    reason:
+      "E03-D24. Starting an enrolment over HTTP labels the otpauth URI with the caller's own login " +
+      "identifier, for the reason the CLI does (048 §4.3). **The person resolved is the CALLER** — " +
+      "taken from the privileged session, never from a body — so this read is one person reading " +
+      "their own name, which is `session_display_name`'s shape with the login identifier instead " +
+      "of the display name. It cites `authenticator_enrollment` rather than that purpose because " +
+      "the COLUMN differs: `email` is projected by exactly one accessor, and a purpose is the " +
+      "reason for a read rather than a label on a route.",
   },
   {
     method: "CLI",

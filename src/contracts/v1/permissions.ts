@@ -242,3 +242,53 @@ export function isPrivileged(permission: Permission): boolean {
   // makes a new permission non-privileged unless it says otherwise.
   return (PERMISSIONS[permission] as PermissionSpec).privileged === true;
 }
+
+// ===========================================================================
+// THE SELF-SERVICE MARKER — E03-D24 (000-docs/063 §3.1)
+// ===========================================================================
+
+/**
+ * **What a route declares when NO GRANT DECIDES IT, because its subject is the
+ * caller's own person.**
+ *
+ * ⚠ **IT IS NOT A PERMISSION AND IS DELIBERATELY NOT IN `PERMISSIONS`.** Every
+ * member of that map is an answer to *"may this ROLE act on this SHOP's
+ * things"*: each one carries a `scope` of `shop` or `location`, each is decided
+ * against a MEMBERSHIP, and `authorize()` reads the grants a person holds AT ONE
+ * SHOP. A person's password and their second factor are not one shop's things.
+ * `user_credential` and `user_authenticator` carry no `shop_id` at all and are
+ * declared row-level-security exemptions for exactly that reason (056 §11 R9,
+ * 057 §9 R7): a person may hold memberships at several shops (034 §2.6) and has
+ * ONE password across all of them.
+ *
+ * **So a permission would be a category error with a failure mode.** Keyed on a
+ * membership, "may I change my own password" would be answered per shop — and
+ * the first shop whose role did not carry it would make a person unable to
+ * change a password that is not that shop's to withhold. The marker says the
+ * true thing instead: *the caller's own identity is the whole of the authority,
+ * and no grant was consulted.*
+ *
+ * **It is still a DECLARED VALUE and the hook still fails closed.** A privileged
+ * route that declares neither a permission nor this marker is REFUSED (054 §3's
+ * default, one principal over), so the class is entered by writing a word with a
+ * reason beside it — never by an omission. That is the same property 057 §4.4
+ * built the auth-allowlist `selfService` flag for; this marker REPLACES that
+ * flag, so the rule has one home in the table every route already declares in
+ * rather than two homes that can disagree (000-docs/063 §3.2).
+ *
+ * **The class is closed by argument as well as by type.** A route joins it only
+ * when every row it reads or writes is keyed on the CALLER'S OWN
+ * `app_user_id` — their session, their credential, their authenticator, their
+ * recovery set. A route that touches another person's anything, a membership, a
+ * device or a shop's configuration is not self-service however it is spelled,
+ * and the permission it needs is a decision for 054's matrix.
+ */
+export const SELF_SERVICE = "self_service" as const;
+
+/** What `RouteSpec.requires` may hold: a permission, the marker, or nothing yet. */
+export type RouteAuthority = Permission | typeof SELF_SERVICE;
+
+/** Is this authority the self-service marker rather than a permission? */
+export function isSelfService(value: RouteAuthority | null | undefined): value is typeof SELF_SERVICE {
+  return value === SELF_SERVICE;
+}

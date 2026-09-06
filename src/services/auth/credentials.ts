@@ -60,7 +60,13 @@ const CREDENTIAL_COLUMNS = `c.id, c.app_user_id, c.password_hash, c.pepper_versi
 export interface UserCredentialRow {
   id: string;
   app_user_id: string;
-  password_hash: string;
+  /**
+   * NULL after a break-glass clearance (`migrations/037`, 063 §3.8). A null
+   * digest verifies against nothing, so a cleared person is refused with 048
+   * §9.3's constant answer exactly as a person with no credential is — and the
+   * ANCHOR survives, which is the whole reason a clearance is not a DELETE.
+   */
+  password_hash: string | null;
   pepper_version: number;
 }
 
@@ -98,25 +104,186 @@ async function decoy(pepper: string): Promise<string> {
  */
 export const MIN_PASSWORD_LENGTH = 12;
 
-export type PasswordRefusal = "too_short";
+export type PasswordRefusal = "too_short" | "already_set" | "no_credential";
 
-export async function setPassword(
+/**
+ * Hash a chosen password, or refuse the floor. Shared by the two writers below
+ * so the argon2id call and the length rule have exactly one home.
+ */
+async function digestOrRefuse(
+  password: string,
+  pepper: string
+): Promise<{ ok: true; hash: string } | { ok: false; refusal: PasswordRefusal }> {
+  if (password.length < MIN_PASSWORD_LENGTH) return { ok: false, refusal: "too_short" };
+  return { ok: true, hash: await hashWithPepper(password, pepper) };
+}
+
+/**
+ * **PROVISION a first password. It can never overwrite one, and the DATABASE is
+ * what makes that true** (E03-D24; the data-model lens's H4, 000-docs/063 §3.3).
+ *
+ * ⚠ **THIS WAS ONE `setPassword` UPSERT AND THE LENS WAS RIGHT TO REFUSE IT.**
+ * That function was an `INSERT … ON CONFLICT (app_user_id) DO UPDATE`, willing
+ * to overwrite, shared by both writers and distinguished only by an
+ * application-level existence check in one of them — so 063 §3.3's central
+ * security claim (*the credential route provisions and can never replace*) was a
+ * fact about which of two call sites a future author remembered to invoke. A
+ * break-glass administration path is already on this epic's roadmap and is
+ * exactly the third call site that would have inherited the gap silently.
+ *
+ * **`DO NOTHING RETURNING id` makes the ROW COUNT the enforcement**, which is
+ * 048 R19's own idiom one factor down: an existing credential returns no row, so
+ * the refusal comes from the database rather than from a `SELECT` somebody has
+ * to remember to run first.
+ *
+ * ⚠ **AND A CLEARED ROW IS ABSENT, WHICH TAKES A SECOND STATEMENT** (the
+ * invariant review's BLOCK, 063 §3.8). A break-glass clearance NULLs the hash
+ * and keeps the row — the row is the lockout anchor — so `ON CONFLICT DO
+ * NOTHING`, which keys on the ROW, refused a person who has no password. The
+ * `UPDATE … WHERE password_hash IS NULL` below is the revival, and its predicate
+ * is what keeps the enforcement intact: a LIVE hash matches nothing there. The caller still takes `lockCredential` before this
+ * — not for correctness here, but because the shared per-person lockout budget
+ * has two anchors and a write that skipped one would not serialise against a
+ * concurrent sign-in (057 §4.5).
+ *
+ * The password's SHAPE is deliberately not policed beyond a floor, and the
+ * absence is a decision (057 §4.1): 048 §3.5 fixes the PIN's shape because six
+ * digits is a keyspace worth arguing about, and says nothing at all about a
+ * password's composition. A composition rule shortens real passwords and
+ * lengthens nobody's. What IS enforced is a minimum length, because a
+ * two-character password is a typo rather than a choice.
+ */
+export async function provisionPassword(
   tx: Tx,
   args: { appUserId: string; password: string; pepper: string }
 ): Promise<{ ok: true; credentialId: string } | { ok: false; refusal: PasswordRefusal }> {
-  if (args.password.length < MIN_PASSWORD_LENGTH) return { ok: false, refusal: "too_short" };
-  const hash = await hashWithPepper(args.password, args.pepper);
+  const digest = await digestOrRefuse(args.password, args.pepper);
+  if (!digest.ok) return digest;
   const id = randomUUID();
-  const res = await tx.query(
+  const inserted = await tx.query(
     `INSERT INTO user_credential (id, app_user_id, password_hash)
      VALUES ($1,$2,$3)
-     ON CONFLICT (app_user_id)
-       DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = now()
+     ON CONFLICT (app_user_id) DO NOTHING
      RETURNING id`,
-    [id, args.appUserId, hash]
+    [id, args.appUserId, digest.hash]
   );
-  return { ok: true, credentialId: (res.rows[0] as { id: string }).id };
+  const fresh = inserted.rows[0] as { id: string } | undefined;
+  if (fresh) return { ok: true, credentialId: fresh.id };
+
+  // ⚠ **A CLEARED ROW IS ABSENT FOR PROVISIONING PURPOSES, AND WITHOUT THIS
+  // SECOND STATEMENT A CLEARED PERSON WAS UNREACHABLE BY EVERY SURFACE** (the
+  // invariant review's BLOCK; 063 §3.8). `clearPassword` NULLs the hash and
+  // keeps the ROW, because the row is 048 §9.1's lockout anchor and
+  // `migrations/031`'s trigger refuses a DELETE to everyone including the schema
+  // owner. But `ON CONFLICT DO NOTHING` keys on the ROW, so the first-password
+  // route answered `already_set` for somebody who has no password; the rotation
+  // route needs a privileged session, which needs the password that was just
+  // cleared; and no CLI calls either. `--reason lost_credential` therefore had
+  // no outcome at all, and three artifacts said the opposite.
+  //
+  // **The affected-row count is still the whole of the authorization** (H4): the
+  // `password_hash IS NULL` predicate is what makes this a REVIVAL and not an
+  // overwrite — a live hash matches nothing here and falls through to
+  // `already_set`, so `replacePassword` remains the only statement in this
+  // system that can overwrite a live password, and it still costs a privileged
+  // session and a fresh second factor.
+  //
+  // It sits inside `migrations/031`'s column licence, which is the same licence
+  // the clearance's NULL uses: the trigger pins `id`, `app_user_id`,
+  // `created_at` and `authored_by`, and says nothing about the value of
+  // `password_hash` — so NULL → hash needs no migration and no widening.
+  const revived = await tx.query(
+    `UPDATE user_credential
+        SET password_hash = $2, updated_at = now()
+      WHERE app_user_id = $1 AND password_hash IS NULL
+     RETURNING id`,
+    [args.appUserId, digest.hash]
+  );
+  const row = revived.rows[0] as { id: string } | undefined;
+  if (!row) return { ok: false, refusal: "already_set" };
+  return { ok: true, credentialId: row.id };
 }
+
+/**
+ * **REPLACE an existing password. It can never create one**, and the row count
+ * is again the enforcement (H4).
+ *
+ * 048 §10.1: *"a password is changed in place; versioning the hash would keep
+ * every old password's hash forever, which is a liability rather than an audit
+ * trail."* `migrations/031`'s `ENABLE ALWAYS` trigger is what makes "in place"
+ * mean the three columns it may mean — the row's owner, its id and its birth are
+ * as immutable as any append-only fact.
+ *
+ * A person with no credential matches no row and is refused `no_credential`
+ * rather than quietly acquiring one from a route whose whole gate is a fresh
+ * second factor.
+ */
+export async function replacePassword(
+  tx: Tx,
+  args: { appUserId: string; password: string; pepper: string }
+): Promise<{ ok: true; credentialId: string } | { ok: false; refusal: PasswordRefusal }> {
+  const digest = await digestOrRefuse(args.password, args.pepper);
+  if (!digest.ok) return digest;
+  const res = await tx.query(
+    `UPDATE user_credential
+        SET password_hash = $2, updated_at = now()
+      WHERE app_user_id = $1
+     RETURNING id`,
+    [args.appUserId, digest.hash]
+  );
+  const row = res.rows[0] as { id: string } | undefined;
+  if (!row) return { ok: false, refusal: "no_credential" };
+  return { ok: true, credentialId: row.id };
+}
+
+/**
+ * **CLEAR a password, as a schema-owner break-glass act** (E03-D24; the security
+ * lens's F3, 000-docs/063 §3.8).
+ *
+ * `migrations/031`'s trigger refuses a DELETE to everyone including the schema
+ * owner, deliberately — the anchor row is what the lockout budget counts
+ * against, and a credential that could be deleted is a lockout that could be
+ * reset by deleting it. So a clearance NULLs the hash, which the trigger's
+ * three-column licence permits, and the FACT of it is a row in
+ * `user_credential_clearance` (`migrations/037`).
+ *
+ * A NULL hash verifies against nothing: `verifyPassword` reads the column and a
+ * null digest cannot match, so a cleared person is refused with §9.3's constant
+ * answer exactly as a person with no credential is.
+ *
+ * ⚠ **AND THE FIRST-PASSWORD ROUTE IS REACHABLE AGAIN, WHICH TOOK A CODE CHANGE
+ * RATHER THAN THE SENTENCE THIS COMMENT USED TO CARRY.** It said the route was
+ * *"reachable again, because `provisionPassword`'s `ON CONFLICT DO NOTHING` keys
+ * on the ROW and the row is still there"* — which was exactly backwards: keying
+ * on the row is what made it REFUSE. `provisionPassword` now treats a cleared
+ * row as absent (`UPDATE … WHERE password_hash IS NULL`), so a clearance is a
+ * terminal act whose outcome is that the person is provisioned from the counter
+ * phone by the ordinary route. Clearing rather than deleting still keeps the
+ * anchor and its lockout history.
+ */
+export async function clearPassword(
+  tx: Tx,
+  args: { appUserId: string; reason: CredentialClearanceReason; clearedBy: string | null; note?: string }
+): Promise<{ cleared: boolean; credentialId?: string }> {
+  const res = await tx.query(
+    `UPDATE user_credential
+        SET password_hash = NULL, updated_at = now()
+      WHERE app_user_id = $1
+     RETURNING id`,
+    [args.appUserId]
+  );
+  const row = res.rows[0] as { id: string } | undefined;
+  if (!row) return { cleared: false };
+  await tx.query(
+    `INSERT INTO user_credential_clearance (credential_id, app_user_id, reason, cleared_by, note)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [row.id, args.appUserId, args.reason, args.clearedBy, args.note ?? null]
+  );
+  return { cleared: true, credentialId: row.id };
+}
+
+/** Why a password was cleared. A CLOSED set, matching `migrations/037`'s CHECK. */
+export type CredentialClearanceReason = "squatted_credential" | "lost_credential";
 
 /** Read a person's credential without locking it. For state questions only. */
 export async function readCredential(
@@ -189,10 +356,13 @@ export async function verifyPassword(
   const wait = await personWait(tx, appUserId, args.now);
   if (wait > 0) return { ok: false, reason: "wait" };
 
-  const digest = row ? row.password_hash : await decoy(args.pepper);
+  // A CLEARED row (`password_hash IS NULL`, 063 §3.8) pays the decoy's cost and
+  // answers as an absent credential does — the same work in every case (§9.3),
+  // and no branch where a null reaches the verifier.
+  const digest = row?.password_hash ?? (await decoy(args.pepper));
   const matched = await verifyWithPepper(args.password, args.pepper, digest);
 
-  if (!row) {
+  if (!row || row.password_hash === null) {
     await recordFailure(tx, { appUserId, method: "password", failureClass: "no_credential" });
     return { ok: false, reason: "no_credential" };
   }

@@ -2,6 +2,30 @@
 //
 //   pnpm redeem-recovery-code --user <app-user-uuid>
 //
+// ============================================================================
+// ⚠ BREAK-GLASS ONLY (E03-D24)
+// ============================================================================
+//
+// **The ordinary path is the ROUTE**, and it always was: `POST
+// /api/v1/privileged-sessions` accepts `recovery_code` in place of the TOTP code
+// — with the password, never instead of it (048 R20) — and E03-D24 gave the
+// session that comes back somewhere to go: `POST /api/v1/authenticators/offers`
+// and `POST /api/v1/authenticators` are reachable while the person is in 048
+// §8.1's re-enrolment state, and enrolling lifts it. Before that bead the state
+// could only sign itself out, which is the residual 057 §9 R2 recorded and the
+// reason this script was the way back in.
+//
+// So run this when the ROUTE cannot be reached at all — the deployment is down,
+// the person's password is also lost, a ring version was removed — and not
+// otherwise.
+//
+// ⚠ **AND ITS SINGLE-ANCHOR EXCEPTION IS NOW BOUNDED BY A ROUTE THAT TAKES
+// BOTH** (057 §4.5, §9 R8). `enrolOwnAuthenticator` holds `user_credential` and
+// then `user_authenticator` in one transaction, in 042 §5.3(b)'s declared order,
+// so the recovery flow that a network caller can reach DOES serialise against a
+// concurrent password attempt. What follows is still true OF THIS SCRIPT, and it
+// is now a statement about a break-glass tool rather than about the only path.
+//
 // ⚠ THE FIRST FACTOR IS NOT CHECKED HERE, AND THAT IS WHY THIS IS AN OPERATOR
 // TOOL RATHER THAN A ROUTE (048 §8.1, R20).
 //
@@ -35,9 +59,10 @@
 //     racing themselves, over a budget that same operator can reset by hand.
 //
 // **Using a code retires the authenticator it substituted for**, in the same
-// transaction as the use. After this runs, `mfaState` reads `must_reenroll` and the
-// only way out is `pnpm enroll-authenticator`, which also supersedes every
-// remaining code in the set — because codes that survive a re-enrollment are codes
+// transaction as the use. After this runs, `mfaState` reads `must_reenroll`, and the
+// way out is `POST /api/v1/authenticators` inside the person's own privileged
+// session (E03-D24) — or `pnpm enroll-authenticator` when that is unreachable.
+// Either way the enrolment supersedes every remaining code in the set — because codes that survive a re-enrollment are codes
 // that survive whatever caused it.
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";

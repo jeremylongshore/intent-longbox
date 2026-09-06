@@ -564,6 +564,25 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
       "constraint the database decides — and not a row a policy filters.",
   },
   {
+    table: "authenticator_offer_use",
+    reason:
+      "E03-D24 / 000-docs/063 §3.4: the spent-ticket fact for a sealed enrolment offer, keyed on " +
+      "the ticket's DIGEST and naming a PERSON. Person-scoped exactly like `recovery_code_use` two " +
+      "rows up, and for the same reason its subject is: a second factor belongs to a person who " +
+      "may hold memberships at more than one shop (034 §2.6), so there is no tenant to key a " +
+      "policy on. What bounds it is narrower than a policy would be: the only writer is " +
+      "`enrolOwnAuthenticator`, inside a privileged session for the person the ticket's AAD names, " +
+      "and the row holds a digest that inverts to nothing.",
+  },
+  {
+    table: "user_credential_clearance",
+    reason:
+      "E03-D24 / 000-docs/063 §3.8: the break-glass clearance fact for `user_credential`, which " +
+      "carries no tenant for the reason stated on that table. It is written by a SCHEMA-OWNER CLI " +
+      "and by nothing else — the app role is not the writer and does not need to be — so the " +
+      "boundary that matters here is the privilege, not a policy.",
+  },
+  {
     table: "app_user_origin",
     reason:
       "E03-D14 / 000-docs/058: whether a person is LONGBOX-ORIGIN is a fact about them and follows " +

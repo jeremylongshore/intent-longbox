@@ -10,6 +10,7 @@
 // that no decision function took. An audit table with two authors is an audit
 // table whose rows mean two different things.
 import type { Permission } from "../../contracts/v1/permissions.js";
+import type { SELF_SERVICE } from "../../contracts/v1/permissions.js";
 import type { Queryable } from "../../db.js";
 import type { Role } from "./memberships.js";
 import { ORIGIN_PREDICATE_FUNCTION } from "./origin.js";
@@ -39,7 +40,14 @@ export interface AuthorizationDecisionRecord {
   /** The route TEMPLATE, never the request URL (054 §4.2). */
   readonly routeMethod: string;
   readonly routePath: string;
-  readonly permission: Permission;
+  /**
+   * The permission the route required — or `self_service`, the marker a route
+   * declares when the caller's own identity is the whole of the authority
+   * (E03-D24, 063 §3.7). The marker is deliberately NOT a member of
+   * `PERMISSIONS`, so an auditor who looks it up finds nothing, which is the
+   * true statement: no grant decided that row's act.
+   */
+  readonly permission: Permission | typeof SELF_SERVICE;
   readonly matrixVersion: string;
   /** The commit the deciding build was made from, or `"unknown"` (054 §4.2, K2). */
   readonly matrixCommit: string;

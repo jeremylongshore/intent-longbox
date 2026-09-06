@@ -551,6 +551,39 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: false,
   },
   {
+    table: "authenticator_offer_use",
+    trigger: "authenticator_offer_use_append_only",
+    since: "037_authenticator_offer_use_and_credential_clearance.sql",
+    // 048 R15's idiom for the FOURTH time, and this one is the security lens's
+    // F2: **single use is a constraint or it is a race.** The sealed enrolment
+    // offer (063 §3.4) had nothing making it single-use, and a replay forty
+    // seconds later minted a second authenticator with eight fresh recovery
+    // codes — silently retiring the set the person had just written down. The
+    // key is the ticket's DIGEST, because a sealed value has no row of its own
+    // to point at, and that is the whole point of sealing it.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
+    table: "user_credential_clearance",
+    trigger: "user_credential_clearance_append_only",
+    since: "037_authenticator_offer_use_and_credential_clearance.sql",
+    // The security lens's F3. `migrations/031`'s trigger refuses a DELETE on
+    // `user_credential` to everyone including the schema owner — the row is 048
+    // §9.1's lockout anchor, and a row that could be deleted is a lockout that
+    // could be reset by deleting it — so a clearance NULLs the hash inside that
+    // trigger's own three-column licence and the FACT of it is this row. A
+    // clearance is a thing that happened and is never corrected.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+    // ⚠ **THE APP ROLE HOLDS NOTHING HERE**, on `app_user_origin`'s reasoning
+    // (058 §5): a table that records a break-glass intervention must not be
+    // writable — or readable — by the process the intervention is about. The
+    // only writer is `pnpm clear-credential`, which runs as the SCHEMA OWNER,
+    // and the only reader is a person at a terminal asking what was cleared.
+    appGrant: "none",
+  },
+  {
     table: "shop_recovery_nomination",
     trigger: "shop_recovery_nomination_append_only",
     since: "025_authenticator_recovery_and_nomination.sql",

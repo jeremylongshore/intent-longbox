@@ -19,11 +19,23 @@ import "dotenv/config";
 //      file fails loudly instead of being silently skipped;
 //   3. `pnpm migrate --dry-run` prints the plan and WRITES NOTHING — it reads the
 //      ledger if one exists and creates nothing, not even its own table.
+// E03-D20 (000-docs/044 §2 A1, §9) adds two more, both linted in the same pass:
+//   4. a migration that ENABLES row-level security or CREATEs a policy declares
+//      `-- contract: deploy unit …; 006 row: …` — the boundary retires nothing,
+//      so what it must declare is the code it ships and rolls back WITH;
+//   5. a `CREATE INDEX` without CONCURRENTLY on a table the file did not create
+//      declares `-- index lock: …`. It WARNS while `G3_LIVE_SHOP_ROWS` is false
+//      and REFUSES after, because the lock is free only while the table is empty.
 import pg from "pg";
 import { applyAppRoleGrants } from "../src/db/appRoleGrants.js";
 import { applyRowLevelSecurity } from "../src/db/rowLevelSecurity.js";
 import { resolveMigrateUrl } from "./migrateUrl.js";
-import { lintMigration, planMigrations, readMigrations, type LedgerRow } from "./migrationDiscipline.js";
+import {
+  lintMigrationDetailed,
+  planMigrations,
+  readMigrations,
+  type LedgerRow,
+} from "./migrationDiscipline.js";
 
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
@@ -31,7 +43,21 @@ async function main(): Promise<void> {
 
   // The lint runs BEFORE any connection is opened, so a bad file is refused
   // without a database and `--dry-run` reports it too.
-  const lintErrors = files.flatMap((f) => lintMigration(f.filename, f.sql));
+  //
+  // E03-D20 added a WARNING class alongside the refusals: a non-CONCURRENTLY
+  // index build on a table this file did not create is free while no table can
+  // hold a live shop row (034:421) and a write outage afterwards, so it is
+  // printed now and refused when `G3_LIVE_SHOP_ROWS` flips (000-docs/044 §9).
+  // Warnings print BEFORE the connection for the same reason the errors do.
+  const linted = files.map((f) => lintMigrationDetailed(f.filename, f.sql));
+  const lintWarnings = linted.flatMap((l) => l.warnings);
+  for (const warning of lintWarnings) console.log(`lint  WARN  ${warning}`);
+  if (lintWarnings.length > 0) {
+    console.log(
+      `lint  ${lintWarnings.length} warning(s); each becomes a refusal at the G3 cut-over (044 §9)`
+    );
+  }
+  const lintErrors = linted.flatMap((l) => l.errors);
   if (lintErrors.length > 0) {
     throw new Error(`expand/contract lint failed:\n\n${lintErrors.join("\n\n")}`);
   }

@@ -165,8 +165,17 @@ export function findContractingStatements(sql: string): ContractingStatement[] {
  * itself a contract step.** Declaring costs one comment line and buys the reader
  * the two facts they will want — which expand migration is being retired, and
  * which decision-log row authorised it.
+ *
+ * **This is the ERROR half of `lintMigrationDetailed`** (E03-D20). It keeps its
+ * original signature because three callers and the runner depend on it, and
+ * because the warning half is a different question — *what will refuse at G3?* —
+ * that a caller has to ask on purpose.
  */
 export function lintMigration(filename: string, sql: string): string[] {
+  return lintMigrationDetailed(filename, sql).errors;
+}
+
+function lintExpandContract(filename: string, sql: string): string[] {
   const contracting = findContractingStatements(sql);
   const header = parseContractHeader(sql);
   const errors: string[] = [];
@@ -262,4 +271,303 @@ export function planMigrations(
     if (row.checksum !== sum) throw new MigrationChecksumError(f.filename, row.checksum, sum);
     return { filename: f.filename, action: "skip", checksum: sum };
   });
+}
+
+// ============================================================================
+// THE FIFTH SHAPE, AND THE INDEX-LOCK RULE
+// (E03-D20; 000-docs/044 §2 A1, §4 A1, §9, §10; 000-docs/056 §9 and §14)
+// ============================================================================
+//
+// WHY A FIFTH SHAPE. The four shapes above break a running deploy by REMOVING
+// something a live reader or writer still names, so the danger is NEW schema
+// under OLD code and the answer is to land the contract step after the last
+// writer is gone. Enabling row-level security removes nothing and breaks a
+// running deploy anyway, in the opposite direction: after `migrations/029` the
+// application role with no tenant context reads ZERO rows from every policied
+// table, so the dangerous state is OLD CODE against the NEW schema — and it
+// fails SILENTLY, as an empty result rather than as an error (056 §6, §14).
+// Rolling the code back alone is a total read outage nothing reports; rolling
+// the schema back alone makes the boot assertion refuse to bind a port. So the
+// declaration this shape asks for is not *what does this retire* — it retires
+// nothing — but *what must ship and roll back WITH it*.
+//
+// WHY AN INDEX RULE THAT ONLY WARNS TODAY. A plain `CREATE INDEX` takes
+// `ACCESS EXCLUSIVE` for the duration of the build: a write outage on a
+// populated table, and free on an empty one. 034:421 puts the first live shop
+// item behind **G3** while this rule lands at G2, so today every table these
+// builds touch is empty or synthetic. `G3_LIVE_SHOP_ROWS` is the one thing a
+// reader has to flip when that stops being true.
+
+/**
+ * **PROVISIONAL (000-docs/044 §9).** `false` while no database this repository
+ * migrates can hold a live shop row.
+ *
+ * 034:421 — *"019 §5 puts T24 in CI at G2 as a Core Safe criterion, and places
+ * Pilot A behind G3. RLS (E03-B04) is a G2 deliverable; the first live shop item
+ * is a G3 event."* Until that event a non-concurrent index build locks a table
+ * that is empty or synthetic, so the rule below WARNS. After it, the same build
+ * is a write outage, so the rule REFUSES.
+ *
+ * **It is a flag and not a date, on purpose.** G3 has no scheduled date in any
+ * ratified record — 014 §5's gate frame (014:245-258) states G3's REQUIRED PROOF
+ * and what it unlocks (014:254), not a calendar — and a date hardcoded here would
+ * be a fabricated fact that starts refusing migrations on a day nobody chose. The
+ * flip is a deliberate act: the change that opens the first live shop sets this to
+ * `true`, writes the 000-docs/006 row that records the date, and answers whatever
+ * warnings the flip turns into refusals (044 §9 names the two honest answers).
+ */
+export const G3_LIVE_SHOP_ROWS = false;
+
+/** A statement that introduces or reshapes a tenant boundary (044 §2 A1). */
+const TENANT_BOUNDARY_PATTERNS: ReadonlyArray<{ kind: string; re: RegExp }> = [
+  // `ALTER TABLE … ENABLE ROW LEVEL SECURITY` — from this statement forward, a
+  // connection with no `longbox.shop_id` set reads nothing from the table.
+  { kind: "enable row level security", re: /\bENABLE\s+ROW\s+LEVEL\s+SECURITY\b[^;]*/gi },
+  // `FORCE` additionally binds the table OWNER, which is the role migrations and
+  // every operator CLI run as (E02-D06). Strictly larger blast radius than ENABLE.
+  { kind: "force row level security", re: /\bFORCE\s+ROW\s+LEVEL\s+SECURITY\b[^;]*/gi },
+  // A policy is what makes an enabled table readable at all — enabled with no
+  // policy denies everything — so creating one is part of the same deploy unit,
+  // and RESHAPING one changes what a live reader sees without touching a column.
+  // 056 F1 is exactly that failure, caught in review rather than in production.
+  { kind: "create policy", re: /\bCREATE\s+POLICY\b[^;]*/gi },
+  // ⚠ `ALTER POLICY` and `DROP POLICY` are NOT matched, and the omission is a
+  // decision rather than an oversight (044 §2 A1). Every policy in this repository
+  // is written DROP-then-CREATE — `029:220` does it in the loop, for the
+  // re-runnability §7 requires, because `CREATE POLICY` has no `IF NOT EXISTS` —
+  // so the CREATE half is caught and matching the DROP would double every count.
+  // A bare `ALTER POLICY` in some future file would slip past this lint, and the
+  // mechanism that sees it is not a regex: the boot assertion compares every LIVE
+  // policy's normalised `qual` and `with_check` against the declared set
+  // (`src/services/roleSeparation.ts:343-346`), so a reshape fails to bind a port.
+];
+
+/**
+ * Every tenant-boundary statement in `sql`, comments already removed.
+ *
+ * Deliberately SEPARATE from `findContractingStatements` rather than a fifth row
+ * in its table, because the two demand different halves of the header: a contract
+ * step names the expand migration it retires, and a boundary step retires nothing
+ * and names the DEPLOY UNIT it must ship and roll back with.
+ *
+ * As naive about string literals as everything else here, and in the same
+ * direction: `029` builds its policies inside `format()` calls in a `DO` block, so
+ * the match lands on the string rather than on the executed statement — and the
+ * file is still correctly identified as the one that turns the boundary on.
+ */
+export function findTenantBoundaryStatements(sql: string): ContractingStatement[] {
+  const body = stripSqlComments(sql);
+  const found: ContractingStatement[] = [];
+  for (const { kind, re } of TENANT_BOUNDARY_PATTERNS) {
+    for (const m of body.matchAll(re)) {
+      found.push({ kind, snippet: m[0].replace(/\s+/g, " ").trim().slice(0, 120) });
+    }
+  }
+  return found;
+}
+
+/** The header a migration that moves a tenant boundary must carry (044 §2 A1). */
+export interface DeployUnitHeader {
+  /** The code and schema that must ship together, and the order they roll back in. */
+  readonly deployUnit: string;
+  readonly row: string;
+}
+
+/** `-- contract: deploy unit <text>; 006 row: <text>` — the boundary half of §2's mechanism. */
+const DEPLOY_UNIT_HEADER =
+  /^[ \t]*--[ \t]*contract:[ \t]*deploy[ \t]+unit[ \t]+(.+?)[ \t]*;[ \t]*006[ \t]+row:[ \t]*(.+?)[ \t]*$/im;
+
+export function parseDeployUnitHeader(sql: string): DeployUnitHeader | undefined {
+  const m = DEPLOY_UNIT_HEADER.exec(sql);
+  if (!m) return undefined;
+  const deployUnit = m[1]!;
+  const row = m[2]!;
+  if (deployUnit.length === 0 || row.length === 0) return undefined;
+  return { deployUnit, row };
+}
+
+/** One `CREATE INDEX` that holds `ACCESS EXCLUSIVE` for the duration of its build. */
+export interface IndexBuild {
+  /** The table the index is built on, or `undefined` when the naive match read none. */
+  readonly table: string | undefined;
+  readonly snippet: string;
+}
+
+const CREATE_TABLE =
+  /\bCREATE\s+(?:UNLOGGED\s+|TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi;
+// ⚠ `ALTER TABLE … ADD CONSTRAINT … UNIQUE` and `… ADD PRIMARY KEY` are NOT
+// matched, and they build an index under ACCESS EXCLUSIVE exactly as a plain
+// `CREATE INDEX` does. Matching them would need the `USING INDEX` form to be told
+// from the building form, which is parsing — a third stated miss rather than a
+// second, weaker Postgres (044 §9).
+const CREATE_INDEX_NOT_CONCURRENTLY = /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?!CONCURRENTLY\b)[^;]*/gi;
+const INDEX_TARGET = /\bON\s+(?:ONLY\s+)?([A-Za-z_][A-Za-z0-9_]*)/i;
+
+/**
+ * Every non-`CONCURRENTLY` index build in `sql` on a table this file did not create.
+ *
+ * **The same-file exemption is what makes the rule usable rather than ceremony.**
+ * Nearly every migration here creates a table and indexes it three lines later;
+ * that table holds no rows, so the lock is instantaneous and asking the author to
+ * declare it would teach them the declaration means nothing. What is left is the
+ * shape that actually costs something — an index built on a table that was already
+ * there: `029`'s eighteen, and whatever the next one is.
+ *
+ * It misses one case, stated rather than hidden: a file that creates a table, then
+ * POPULATES it, then indexes it. That is a missed detection, never a false one,
+ * which is §2's stated direction for every naive rule in this file.
+ */
+export function findNonConcurrentIndexBuilds(sql: string): IndexBuild[] {
+  const body = stripSqlComments(sql);
+  const createdHere = new Set<string>();
+  for (const m of body.matchAll(CREATE_TABLE)) createdHere.add(m[1]!.toLowerCase());
+
+  const found: IndexBuild[] = [];
+  for (const m of body.matchAll(CREATE_INDEX_NOT_CONCURRENTLY)) {
+    const statement = m[0];
+    const target = INDEX_TARGET.exec(statement)?.[1];
+    if (target !== undefined && createdHere.has(target.toLowerCase())) continue;
+    found.push({ table: target, snippet: statement.replace(/\s+/g, " ").trim().slice(0, 120) });
+  }
+  return found;
+}
+
+/** `-- index lock: <justification>` — one line, and the justification may not be empty. */
+const INDEX_LOCK_HEADER = /^[ \t]*--[ \t]*index[ \t]+lock:[ \t]*(.+?)[ \t]*$/im;
+
+export function parseIndexLockHeader(sql: string): string | undefined {
+  const m = INDEX_LOCK_HEADER.exec(sql);
+  if (!m) return undefined;
+  const justification = m[1]!;
+  return justification.length === 0 ? undefined : justification;
+}
+
+/** Which of the two E03-D20 shapes a grandfather row covers. */
+export type GrandfatheredShape = "tenant boundary" | "non-concurrent index";
+
+/**
+ * A migration that predates the rule it would otherwise fail (044 §10).
+ *
+ * **What an entry MEANS, precisely:** this file has already been applied
+ * everywhere it will ever be applied, so the statement the rule guards against has
+ * already happened and cannot happen again — the runner skips an applied file by
+ * checksum and never re-runs its index builds. It is NOT a waiver for a file that
+ * has yet to reach a database, and it is not a way to avoid writing a header.
+ *
+ * **A shipped migration is never edited** (044 §4), so naming the old bytes here
+ * with a reason is the only honest way to apply a new rule to them.
+ */
+export interface GrandfatheredMigration {
+  readonly filename: string;
+  readonly shapes: ReadonlyArray<GrandfatheredShape>;
+  readonly reason: string;
+}
+
+export const MIGRATION_LINT_GRANDFATHER: ReadonlyArray<GrandfatheredMigration> = [
+  {
+    filename: "029_row_level_security.sql",
+    shapes: ["tenant boundary", "non-concurrent index"],
+    reason:
+      "Landed under 000-docs/056 (E03-B04, merged to main as a451de8) BEFORE this rule existed, and a " +
+      "shipped migration is never edited (044 §4) — so the rule applies forward and this file is NAMED " +
+      "rather than rewritten. Both halves are already argued in the record it landed under: its deploy " +
+      "unit, its rollback order and the silent-empty-read failure are 056 §14, and its eighteen " +
+      "non-CONCURRENTLY index builds are 056 §9's stated decision, free because 034:421 puts the first " +
+      "live shop item behind G3.",
+  },
+];
+
+function grandfatheredFor(filename: string, shape: GrandfatheredShape): boolean {
+  return MIGRATION_LINT_GRANDFATHER.some((g) => g.filename === filename && g.shapes.includes(shape));
+}
+
+/** What one file's lint produced: refusals, and the warnings that become refusals at G3. */
+export interface MigrationLint {
+  readonly errors: string[];
+  readonly warnings: string[];
+}
+
+export interface MigrationLintOptions {
+  /**
+   * Whether any table in this schema may hold a live shop row. Defaults to
+   * `G3_LIVE_SHOP_ROWS`; the parameter exists so the post-G3 refusal is TESTED
+   * before G3 rather than trusted (029 §5 move 8 — prove the gate can fail).
+   */
+  readonly liveShopRows?: boolean;
+}
+
+/**
+ * Lint one migration file, errors and warnings both.
+ *
+ * Three rules, in the order they were added: the expand/contract rule (§2, E02-B10),
+ * the tenant-boundary rule (§2 A1, E03-D20) and the index-lock rule (§9, E03-D20).
+ */
+export function lintMigrationDetailed(
+  filename: string,
+  sql: string,
+  options: MigrationLintOptions = {}
+): MigrationLint {
+  const liveShopRows = options.liveShopRows ?? G3_LIVE_SHOP_ROWS;
+  const errors = lintExpandContract(filename, sql);
+  const warnings: string[] = [];
+
+  // ---- the fifth shape: a tenant boundary moves (044 §2 A1) ----------------
+  const boundary = grandfatheredFor(filename, "tenant boundary") ? [] : findTenantBoundaryStatements(sql);
+  const deployUnit = parseDeployUnitHeader(sql);
+  if (boundary.length > 0 && !deployUnit) {
+    const kinds = [...new Set(boundary.map((b) => b.kind))].sort().join(", ");
+    errors.push(
+      `${filename}: contains ${boundary.length} tenant-boundary statement(s) [${kinds}] but declares no ` +
+        `\`-- contract: deploy unit\` header. A boundary retires nothing and is therefore NOT covered by the ` +
+        `\`retires\` header — what it needs declared is the code that must ship and roll back WITH it ` +
+        `(000-docs/044 §2 A1, §4 A1; 056 §14). Rolling the code back alone leaves every read returning zero ` +
+        `rows, silently; rolling the schema back alone makes the boot assertion refuse to serve. Add:\n` +
+        `  -- contract: deploy unit <what ships together, and the rollback order>; 006 row: <decision-log entry>\n` +
+        `First offending statement: ${boundary[0]!.snippet}`
+    );
+  }
+  if (deployUnit && boundary.length === 0) {
+    errors.push(
+      `${filename}: declares a \`-- contract: deploy unit\` header but moves no tenant boundary. ` +
+        `A header on a file that enables no row-level security and creates no policy is a claim the file ` +
+        `does not support; remove it.`
+    );
+  }
+
+  // ---- the index-lock rule (044 §9) ---------------------------------------
+  const builds = grandfatheredFor(filename, "non-concurrent index") ? [] : findNonConcurrentIndexBuilds(sql);
+  const indexLock = parseIndexLockHeader(sql);
+  if (builds.length > 0 && !indexLock) {
+    const tables = [...new Set(builds.map((b) => b.table ?? "«unread»"))].sort().join(", ");
+    if (liveShopRows) {
+      errors.push(
+        `${filename}: builds ${builds.length} index(es) without CONCURRENTLY on ` +
+          `${builds.length === 1 ? "a table" : "tables"} this file did not create [${tables}]. A plain ` +
+          `\`CREATE INDEX\` holds ACCESS EXCLUSIVE for the duration of the build, which is a write outage ` +
+          `once the table has rows (000-docs/044 §9; 056 §9). Either build it \`CONCURRENTLY\` — outside a ` +
+          `transaction, and an interrupted build leaves an INVALID index to drop and rebuild — or declare ` +
+          `why the lock is free here:\n` +
+          `  -- index lock: <why this table is empty, or why the outage is acceptable and who agreed it>\n` +
+          `First offending statement: ${builds[0]!.snippet}`
+      );
+    } else {
+      // ONE compact line per file, deliberately: ten paragraphs of remedy text on
+      // every `pnpm migrate` would teach the reader to scroll past the eleventh.
+      // The full remedy is the error message above, printed when it can act.
+      warnings.push(
+        `${filename}: ${builds.length} non-CONCURRENTLY index build(s) on pre-existing table(s) ` +
+          `[${tables}] — free today, because \`G3_LIVE_SHOP_ROWS\` is false and no table can hold a live ` +
+          `shop row yet (034:421), and a REFUSAL when that flag flips (000-docs/044 §9, §10).`
+      );
+    }
+  }
+  if (indexLock && builds.length === 0) {
+    errors.push(
+      `${filename}: declares an \`-- index lock:\` header but builds no non-CONCURRENTLY index on a ` +
+        `pre-existing table. A header on a file that takes no such lock is a claim the file does not ` +
+        `support; remove it.`
+    );
+  }
+
+  return { errors, warnings };
 }

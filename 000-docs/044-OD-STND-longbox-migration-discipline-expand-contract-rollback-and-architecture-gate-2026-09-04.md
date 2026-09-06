@@ -1,9 +1,23 @@
 # Standard — Migration Discipline: Expand/Contract, the Ledger Checksum, Prior-Snapshot Upgrades, Compatible Rollback, and the Architecture Gate
 
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** OPERATING STANDARD (not a decision record)
-**Bead:** `longbox-e5b.2.10` (E02-B10)
-**Date:** 2026-09-04
+**Bead:** `longbox-e5b.2.10` (E02-B10) · **amended at v1.1.0 by** E03-D20 `longbox-e5b.3.30`
+**Date:** 2026-09-04 · **Last amended:** 2026-09-05
+
+---
+
+## Change log
+
+**Version convention** (006 `:6`): a **minor** bump means the content of a rule changed; a **patch** means a statement of fact was repaired with no rule changing. **This section was added at v1.1.0**; the two rows below it reconstruct what the file's own `Version:` line already recorded, and no earlier text is edited to make them fit.
+
+**How this standard is amended.** By ROWS and APPENDED sections, never by rewriting a rule in place. An author reading §2 must be able to see the four shapes as E02-B10 shipped them AND the fifth beside them, because the difference is the record of what was learned. That is the same idiom the ratified decision records use (054 §6's `AMENDMENT` block, 058 §8), applied to a standard.
+
+| Version | Date | What changed | Authority |
+|---|---|---|---|
+| **1.1.0** | **2026-09-05** | **MINOR — two rules added, none reversed** (E03-D20 `longbox-e5b.3.30`, from the 056 gate audit's N2/N9 and the consistency lens's K8). **A1 (§2, §4):** `ENABLE`/`FORCE ROW LEVEL SECURITY` and `CREATE POLICY` become a **FIFTH contracting shape**, with the deploy-order rule 056 §14 could state for one bead and not generalise — schema and code that introduce a tenant boundary are ONE deploy unit and roll back **both or neither** — and a header half that fits a step which retires nothing: `-- contract: deploy unit …; 006 row: …`. **A2 (§9):** any `CREATE INDEX` without `CONCURRENTLY` on a table the file did not create must carry `-- index lock: …`; the lint **WARNS** while `G3_LIVE_SHOP_ROWS` is false (034:421 — the first live shop item is a G3 event) and **REFUSES** after. **§10 (new):** the grandfather allowlist, its one entry (`029`) and what an entry means. **Three misses are recorded rather than left to be discovered** — `ALTER POLICY`/`DROP POLICY` (§2 A1), the create-populate-then-index file and `ALTER TABLE … ADD CONSTRAINT … UNIQUE`/`ADD PRIMARY KEY` (§9) — each with the reason it is not matched and, where one exists, the mechanism that does see it. The four shapes in §2's table, §4's three reasons and §6's gate are unchanged and are not re-worded. | E03-D20 → acting head |
+| 1.0.1 | 2026-09-04 | PATCH — §3's fixture parenthesis repaired to describe what `pnpm fixture:schema` actually does after E03-D04 (`--schema-only`, the target refusal, the seed emitted from a constant). No rule changed. | E03-D04 |
+| 1.0.0 | 2026-09-04 | Initial standard: the expand/contract lint and its four shapes, the ledger checksum, prior-snapshot upgrade tests, compatible rollback, the architecture gate and its exemption rows. | E02-B10 |
 
 ---
 
@@ -60,6 +74,32 @@ Both halves are required, and the lint refuses either alone. A contract step wit
 
 **The lint does not parse SQL.** A SQL parser here would be a second, weaker Postgres, and every false positive it produced would train an author to reach for an escape hatch. It strips comments (necessary: `003` and `006` quote `ALTER TABLE … DISABLE TRIGGER` and `UPDATE … SET` at length in their headers) and matches four shapes. It is naive about string literals, and that naivety costs a *missed* detection, never a false one — the right direction for a rule whose false positives would teach people to route around it.
 
+> ### AMENDMENT A1 (v1.1.0, 2026-09-05 — E03-D20 `longbox-e5b.3.30`; grounds: 056 §14, §9). THE FOUR SHAPES ABOVE STAND VERBATIM. A FIFTH IS ADDED BESIDE THEM.
+>
+> **The fifth shape is `ENABLE ROW LEVEL SECURITY` — and `FORCE`, and `CREATE POLICY` on a table that had no policy before.**
+>
+> | Kind | Why it contracts |
+> |---|---|
+> | `ENABLE ROW LEVEL SECURITY` | a reader with no tenant context stops seeing rows that are still there |
+> | `FORCE ROW LEVEL SECURITY` | the same, and it binds the table OWNER too — the role every migration and CLI runs as (E02-D06) |
+> | `CREATE POLICY` | an enabled table with no policy denies everything, so the policy is what makes it readable at all; RESHAPING one changes what a live reader sees without touching a column (056 F1 is exactly that failure, caught in review) |
+>
+> **It contracts in the OPPOSITE DIRECTION from the four above, which is why it needed its own row rather than a wider regex.** The four shapes remove something a live reader or writer still names, so the danger is the NEW schema under OLD code and the answer is 040 §8.2's — land the contract step after the last writer is gone. A tenant boundary removes nothing and breaks a running deploy anyway: after `migrations/029`, the application role **with no transaction-local context reads zero rows from every policied table** (056 §3, §6). So the dangerous state is **old code against the new schema**, and it fails **silently** — an empty result, not an error. 056 §14 states it for one bead in the words this amendment generalises: *"a database with the policies removed and this code deployed is a system where every statement still carries its `SET LOCAL` and nothing enforces it — silent, not loud."*
+>
+> **What the lint does, in the mechanism §2 already has.** A migration containing the shape must carry a `-- contract:` header. It carries a different HALF, because the existing half asks the wrong question: a boundary step **retires nothing**, so `retires <file>` would be a false claim, and forcing an author to invent one is how a declaration becomes ceremony. The form is:
+>
+> ```sql
+> -- contract: deploy unit 031 + src/db/tenantContext.ts + the boot assertion; roll back the code first, then the policy; 006 row: 2026-09-XX E03-XXX
+> ```
+>
+> Both halves are required and the lint refuses either alone, exactly as for `retires`. A `deploy unit` header on a file that enables no row-level security and creates no policy is refused for the same reason a `retires` header on an expand migration is: **it is a claim the file does not support.** A file that does both carries both lines.
+>
+> **The deploy-order rule the header is asking the author to have thought about:** *schema and code that introduce a tenant boundary deploy as ONE unit, and the rollback is BOTH or NEITHER.* §4's amendment states the two failure modes.
+>
+> **`029` is grandfathered, by name, with its reason** — §10. It landed under 056 before this rule existed, and **a shipped migration is never edited** (§4), so the rule applies forward and the old bytes are named rather than rewritten.
+>
+> **Naive in the same direction, and it matters here.** `029` builds its policies inside `format()` calls in a `DO` block, so the match lands on a string literal rather than on the executed statement — and the file is still correctly identified as the one that turns the boundary on. **`ALTER POLICY` and `DROP POLICY` are deliberately NOT matched:** every policy in this repository is written DROP-then-CREATE for the re-runnability §7 requires (`029:220`, because `CREATE POLICY` has no `IF NOT EXISTS`), so the CREATE half is already caught and matching the DROP would double every count — but a bare `ALTER POLICY` in some future file WOULD slip past this lint, and what sees a reshape is not a regex: the boot assertion compares every live policy's normalised `qual` and `with_check` against the declared set (`src/services/roleSeparation.ts:343–346`), so a reshaped policy fails to bind a port. The lint also cannot see a policy created by TypeScript: the second and third policies are emitted from `src/db/rowLevelSecurity.ts` and never appear in a migration at all (056 §4). **That half is not this lint's to hold** and no reader should think it is — the boot assertion's SET comparison is what catches a policy that exists and should not, or does not exist and should (056 F2), and it is the only mechanism that sees both sources.
+
 ---
 
 ## 3. Prior-snapshot upgrade tests
@@ -101,6 +141,19 @@ Three reasons, and only the first is about tooling:
 3. **The contract half is not reversible anyway** (040 §8.3). Re-adding a dropped column does not restore its *values*: the derived state can be recomputed, the historical column value cannot. That is why the contract step lands only after the expand half has soaked with both paths live.
 
 So: to undo an expand migration, ship a new expand migration that stops the column being read and leaves it in place; to undo a *constraint*, ship a new migration that drops it (a `DROP CONSTRAINT` is not on §2's contracting list precisely because it widens rather than narrows). The evidence that the ledger refuses an unknown checksum is `tests/migration-discipline.test.ts`.
+
+> ### AMENDMENT A1 (v1.1.0, 2026-09-05 — E03-D20 `longbox-e5b.3.30`; grounds: 056 §14). THE THREE REASONS ABOVE STAND VERBATIM. A TENANT BOUNDARY ADDS A COUPLING THEY DO NOT EXPRESS.
+>
+> **The rule: schema and code that introduce a tenant boundary deploy as ONE unit, and the rollback is BOTH or NEITHER.** Not because a half-rollback is untidy, but because each half fails differently and one of them fails without saying anything:
+>
+> - **Code rolled back, policy still applied → a silent TOTAL READ OUTAGE.** The old build sets no transaction-local tenant, and no policy contains `OR … IS NULL` (056 §3), so every scoped read returns zero rows. Nothing raises; the application looks like a shop with no data.
+> - **Schema rolled back, code still deployed → a BOOT REFUSAL.** `assertTenantIsolationOrThrow` compares the set of policies that exists against the set the design emits and refuses to bind a port when they differ (056 §4). Loud, and therefore the safer of the two.
+>
+> **Which makes the order asymmetric, and 056 §14 already wrote it down:** *"The compatible rollback is to redeploy the previous application build first and drop the policies second, in that order."* That sentence is a property of tenant boundaries generally, not of that one bead, and generalising it is why this amendment exists — 056 §14 says so in its own last clause.
+>
+> **The `-- contract: deploy unit` header (§2 A1) is where an author records which artifacts that unit contains** — the migration, the module that sets the context, the boot assertion, and the rollback order. The header does not enforce the deploy; nothing here can. It makes the unit **nameable at the moment somebody is holding a rollback decision at an hour when they will not be reading a decision record.**
+>
+> **This does not weaken §4's headline.** A rollback is still a new expand migration and never a down-migration, and it still never deletes rows. Dropping a policy is not a data change: it is the one shape where "undo the schema" is genuinely available, which is exactly why the ORDER has to be written down.
 
 ---
 
@@ -180,6 +233,55 @@ Every count is **exact, never a ceiling**. A new occurrence fails the gate; a re
 3. **Removing anything:** it is a contract step. Prove zero writers with the `pnpm arch` inventory first, then write the migration with its `-- contract:` header and its `000-docs/006` row.
 4. **Before pushing:** `pnpm migrate --dry-run` (plan + lint, no database writes), `pnpm typecheck`, `pnpm test`, `pnpm depcruise`, `pnpm arch`, then the integration lane.
 
+> **AMENDMENT A1/A2 (v1.1.0, 2026-09-05 — E03-D20). Items 1–4 stand verbatim; two more join them.**
+>
+> 5. **Enabling row-level security, forcing it, or creating a policy:** it is a contract step of the fifth kind (§2 A1). Write the `-- contract: deploy unit …; 006 row: …` header naming what ships with it and the rollback order, and read §4 A1 before you decide the deploy sequence — the two halves fail differently and one of them fails silently.
+> 6. **Building an index on a table this migration did not create:** use `CONCURRENTLY` (outside a transaction; an interrupted build leaves an INVALID index to drop and rebuild), or write `-- index lock: <why the lock is free, or why the outage is acceptable and who agreed it>`. Today the lint WARNS and `pnpm migrate --dry-run` prints the line without a database; after the G3 cut-over it refuses (§9).
+
 ## 8. Required CI checks
 
 The `Architecture gate` job is **new and must be added to branch protection on `main`**, taking the required-check count from 7 to 8. It runs `pnpm depcruise` and `pnpm arch`. Until it is added by the repository owner it runs and reports but does not block, which is the one gap this document cannot close by itself.
+
+---
+
+## 9. Index builds, `CONCURRENTLY`, and the G3 cut-over
+
+**ADDED at v1.1.0 (E03-D20 `longbox-e5b.3.30`). Nothing above this line is edited by it.** The rule generalises what 056 §9 decided for one migration, in the consistency lens's own words, quoted there rather than paraphrased:
+
+> none use CONCURRENTLY, so on a populated production table this migration takes ACCESS EXCLUSIVE for the duration of the index build — fine for a pre-launch pilot, worth a line in 044 or the deploy runbook before the estate has real row counts.
+
+**The rule.** A `CREATE INDEX` without `CONCURRENTLY`, on a table the same migration did not create, must carry:
+
+```sql
+-- index lock: cost_log holds no live shop row before G3 (034:421); the build is instantaneous
+```
+
+**When it binds, and why that is a flag rather than a date.** `G3_LIVE_SHOP_ROWS` in `scripts/migrationDiscipline.ts` is **PROVISIONAL** and `false` today, so the lint **WARNS**. When it is `true`, the identical file is **REFUSED**. The trigger is 034:421 — *"019 §5 puts T24 in CI at G2 as a Core Safe criterion, and places Pilot A behind G3. RLS (E03-B04) is a G2 deliverable; the first live shop item is a G3 event."* Before that event every table this rule can reach is empty or synthetic and the lock costs nothing.
+
+**It is a flag and NOT a hardcoded date because no ratified record schedules G3** — 014 **§5**, the gate frame (014:245–258), gives G3 its *required proof* and what it *unlocks* at 014:254 (*"Identity/condition/pricing/Shopify quality, ops, delivery and restore gates"* → *"25-item live batch"*), which is a set of conditions and not a calendar — and a guessed date compiled into a lint would start refusing migrations on a day nobody chose. Flipping it is a deliberate act with three parts: set the constant, write the 000-docs/006 row that records the date, and answer the warnings the flip turns into refusals.
+
+**The same-file exemption, which is what makes the rule usable rather than ceremony.** Almost every migration here creates a table and indexes it three lines later. That table holds no rows, the lock is instantaneous, and asking for a declaration would teach the author that the declaration means nothing. So the lint skips an index whose target table appears in a `CREATE TABLE` in the same file. **One case is missed and is stated rather than hidden:** a file that creates a table, populates it, then indexes it. That is a missed detection, never a false one — §2's stated direction for every naive rule in this lint. A second: a build whose target is unreadable (`format('… ON %I')`, which is how `007` and `008` write theirs) is reported with the table as `«unread»` rather than assumed safe. **A third, and it is the one a future author is most likely to walk into:** `ALTER TABLE … ADD CONSTRAINT … UNIQUE` and `… ADD PRIMARY KEY` **build an index under `ACCESS EXCLUSIVE` exactly as a plain `CREATE INDEX` does, and are NOT matched.** Matching them would mean telling the `USING INDEX` form (which adopts an index already built `CONCURRENTLY`) from the building form, and that is parsing — the second, weaker Postgres §2 refuses. It is recorded here so the gap is a known one rather than a discovered one.
+
+**What the tree looks like today.** Eleven shipped migrations carry the warning — `003`, `004`, `007`, `008`, `011`, `012`, `023`, `025`, `026`, `030`, `034` — and `029`'s eighteen do not, because it is grandfathered (§10). The count is asserted **exactly** in `tests/migration-discipline.test.ts`, on §6's precedent: a new occurrence fails the test, and a removed one also fails it until someone lowers the number.
+
+**The eleventh arrived while this rule was being written, and that is the first evidence the rule works on somebody else's file.** `034_scan_session_composite_tenant_keys.sql` (E03-D19) landed on `main` mid-flight with `CREATE UNIQUE INDEX IF NOT EXISTS scan_session_scope_key ON scan_session (id, shop_id)` — a build on a table it did not create, which is exactly the shape §9 exists for. The exact-count assertion **failed at the rebase** and named the file, which is the mechanism doing its job rather than a nuisance. It **warns and does not refuse**, because the flag is false and `scan_session` cannot hold a live shop row yet; after the G3 cut-over the same statement would have had to declare itself. `034` is **not** added to §10's allowlist: it is a shipped file like the other ten, and the allowlist is for the one file that would otherwise REFUSE today.
+
+**Two things this rule deliberately does not claim.** It does not know which tables hold rows — nothing static can — so `CONCURRENTLY` is required by the FILE's shape and not by a row count. And it does not make an already-applied migration dangerous: the runner skips an applied file by checksum and never re-runs its index builds, which is exactly what a §10 entry asserts on a human's authority.
+
+---
+
+## 10. The grandfather allowlist
+
+**ADDED at v1.1.0 (E03-D20).** `MIGRATION_LINT_GRANDFATHER` in `scripts/migrationDiscipline.ts` names migrations that predate a rule they would otherwise fail. It exists because **a shipped migration is never edited** (§4): applying a new rule to old bytes can only be done by naming them.
+
+**What an entry MEANS, precisely.** *This file has already been applied everywhere it will ever be applied, so the statement the rule guards against has already happened and cannot happen again.* It is **not** a waiver for a file that has yet to reach a database, and it is not a way to avoid writing a header.
+
+**Every entry carries a filename, the shapes it covers, and a reason.** A contract test asserts that the list names an existing migration, that every entry's reason is substantive, and — today — that it names **exactly one file**.
+
+| File | Shapes | Why |
+|---|---|---|
+| `029_row_level_security.sql` | `tenant boundary`, `non-concurrent index` | It landed under 056 (E03-B04, merged to `main` as `a451de8`) **before this rule existed**. Both halves are already argued in the record it landed under: the deploy unit, the rollback order and the silent-empty-read failure are 056 §14; the eighteen non-`CONCURRENTLY` builds are 056 §9's stated decision, free because 034:421 puts the first live shop item behind G3. **029 is never rewritten.** |
+
+**Proving the row is load-bearing rather than decorative.** The test feeds `029`'s exact bytes to the lint under a **different filename** and asserts that both rules fire — the deploy-unit refusal and the index refusal — then feeds them under the real name and asserts silence. A grandfather row nobody can see working is indistinguishable from a rule that never applied.
+
+**At the G3 cut-over, this list is where the shipped set is answered.** The ten files in §9 will refuse when `G3_LIVE_SHOP_ROWS` flips. The two honest answers, both recorded in the 006 row that accompanies the flip: add an entry per file with the reason above (it is true of every one of them — they were applied long before the first live shop), or, for any file still pending on some database, ship the index `CONCURRENTLY` in a new migration and leave the old one refused. **What is not an answer is deleting the rule, lowering it to a warning permanently, or editing the shipped bytes.**

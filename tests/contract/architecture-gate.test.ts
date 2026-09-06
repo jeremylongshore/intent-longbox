@@ -1213,6 +1213,90 @@ describe("042 I22 — the fixed lock order", () => {
     expect(findings[0]!.message).toContain("the scan_session anchor lock BEFORE the user_authenticator lock");
   });
 
+  // THE FIFTH POSITION IN THE ORDER, AND THE SIXTH ADDED TO IT (E03-D22, 056 §11
+  // R10, 042 v1.6.1, 000-docs/061 §5). Nothing in the tree takes it TOGETHER with
+  // any other position today — `completeInstall` is a provider callback with no
+  // idempotency key, no cookie and no scan session — so these FOUR fixtures (one
+  // positive, three negative, the last of them the SHAPE case) are the only
+  // evidence the position works, on exactly the reasoning the fourth position's
+  // fixtures were written under.
+  it("passes when the store claim sits between the authenticator lock and the anchor (E03-D22)", () => {
+    expect(
+      checkLockOrder([
+        {
+          path: "src/services/shopConfigApi.ts",
+          text:
+            "export async function attach(deps, ctx, body) {\n" +
+            "  return runIdempotent(deps.pool, idem, async (tx) => {\n" +
+            "    await lockAndRotate(tx, ctx.session, new Date());\n" +
+            "    await verifyTotp(tx, { appUserId: ctx.operatorId, code: body.code });\n" +
+            "    await claimStoreDomain(tx, ctx.shopId, body.domain);\n" +
+            "    await lockScanSession(tx, s, i);\n" +
+            "    return { status: 200 };\n" +
+            "  });\n" +
+            "}\n",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("fails on a handler that takes the scan_session anchor BEFORE the store claim (E03-D22)", () => {
+    // Coarse before fine, and the hierarchy is real: a `scan_session` belongs to
+    // a shop. A handler holding the finer lock while reaching for the tenant row
+    // deadlocks against the install callback, which takes the tenant row first.
+    const findings = checkLockOrder([
+      {
+        path: "src/services/shopConfigApi.ts",
+        text:
+          "export async function attach(deps, ctx, body) {\n" +
+          "  await lockScanSession(tx, s, i);\n" +
+          "  await tx.query(`UPDATE shop SET shopify_domain = $1 WHERE id = $2`, [d, id]);\n" +
+          "  return { status: 200 };\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the scan_session anchor lock BEFORE the shop store-claim lock");
+  });
+
+  it("takes the position from a SELECT … FROM shop … FOR UPDATE too — the shape, not the name (E03-D22)", () => {
+    // ⚠ The invariant review's finding. The claim's guarantee is the btree
+    // unique, not the row lock (000-docs/061 §3.1), so the plausible wrong
+    // refactor is "optimise" it into an explicit `SELECT … FOR UPDATE` on the
+    // shop row. That would remove the guarantee — and, if the lint matched only
+    // `claimStoreDomain` and the `UPDATE`, it would also take the lock position
+    // INVISIBLY, so the rule would stop policing the handler it exists for.
+    const findings = checkLockOrder([
+      {
+        path: "src/services/shopConfigApi.ts",
+        text:
+          "export async function attach(deps, ctx, body) {\n" +
+          "  await lockScanSession(tx, s, i);\n" +
+          "  await tx.query(`SELECT id FROM shop WHERE id = $1 FOR NO KEY UPDATE`, [id]);\n" +
+          "  return { status: 200 };\n" +
+          "}\n",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the scan_session anchor lock BEFORE the shop store-claim lock");
+  });
+
+  it("fails on a handler that claims the store BEFORE its idempotency INSERT (E03-D22)", () => {
+    // The identity of the request is recognised before it writes tenant config,
+    // for 042 §5.3(b)'s original reason: a replay must be answered from the
+    // stored response having taken no lock at all.
+    const findings = checkLockOrder([
+      {
+        path: "src/routes/shopConfig.ts",
+        text:
+          'app.post("/x", async () => { await claimStoreDomain(tx, shopId, domain); ' +
+          "await tx.query(`INSERT INTO request_idempotency (k) VALUES ($1)`); });",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("the shop store-claim lock BEFORE its request_idempotency INSERT");
+  });
+
   it("fails on a handler that takes the scan_session anchor BEFORE the session lock (048 K1)", () => {
     const findings = checkLockOrder([
       {

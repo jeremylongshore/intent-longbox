@@ -22,6 +22,10 @@ import {
   SHOPIFY_MAX_SCOPES,
   SHOPIFY_REQUIRED_SCOPES,
   SHOPIFY_SCOPE_LIST_VERSION,
+  STATE_USE_INDEX,
+  STORE_CLAIM_INDEX,
+  isStateUseConflict,
+  isStoreClaimConflict,
   connectorKeyEnv,
   connectorResidual,
   expandGrantedScopes,
@@ -289,6 +293,76 @@ describe("stateDigest — the state is never in a column (053 §5.1)", () => {
     expect(digest).not.toContain("some-state-value");
     expect(stateDigest("some-state-value")).toBe(digest);
     expect(stateDigest("some-state-valuf")).not.toBe(digest);
+  });
+});
+
+describe("isStoreClaimConflict — the ONE refusal the store claim may swallow (E03-D22)", () => {
+  // 000-docs/061 §3. The claim's whole guarantee is a `23505`, and the danger of
+  // catching one is catching the WRONG one: `connector_token_version` carries
+  // `UNIQUE (shop_id, connector, version_no)` in the same transaction, and a
+  // concurrent double-introduction raising THAT must not be reported to a
+  // merchant as "another shop holds your store" — nor silently swallowed.
+  it("names the index rather than matching a message", () => {
+    expect(STORE_CLAIM_INDEX).toBe("shop_shopify_domain_is_one_store");
+  });
+
+  it("recognises a 23505 raised BY THAT INDEX", () => {
+    expect(isStoreClaimConflict({ code: "23505", constraint: STORE_CLAIM_INDEX })).toBe(true);
+  });
+
+  it("REFUSES a 23505 from any other constraint in the same transaction", () => {
+    expect(isStoreClaimConflict({ code: "23505", constraint: "connector_token_version_shop_no_key" })).toBe(
+      false
+    );
+    expect(isStoreClaimConflict({ code: "23505", constraint: "connector_install_state_use_state_idx" })).toBe(
+      false
+    );
+  });
+
+  it("REFUSES a different SQLSTATE on the same index, and every shape that is not an error", () => {
+    // A `23514` or a `42501` on this table means the CHECK or the policy refused,
+    // which is a different fact about the world and must not become a callback
+    // refusal that reads as "taken".
+    expect(isStoreClaimConflict({ code: "42501", constraint: STORE_CLAIM_INDEX })).toBe(false);
+    expect(isStoreClaimConflict({ code: "23505" })).toBe(false);
+    expect(isStoreClaimConflict(new Error("duplicate key value violates unique constraint"))).toBe(false);
+    expect(isStoreClaimConflict(null)).toBe(false);
+    expect(isStoreClaimConflict(undefined)).toBe(false);
+    expect(isStoreClaimConflict("23505")).toBe(false);
+  });
+});
+
+describe("isStateUseConflict — the replay UNIQUE that was answering 500 (E03-D22 F8)", () => {
+  // The security lens's F8. `UNIQUE (state_id)` on `connector_install_state_use`
+  // is what 053 §5.2 calls "the whole mechanism" for a replayed callback, and it
+  // is raised INSIDE the install transaction — where, before this bead, nothing
+  // caught it. So the one refusal the schema is proudest of arrived as an
+  // unhandled `23505`: a 500 with a stack, on a route where every other refusal
+  // is one 4xx code.
+  it("names the index rather than matching a message", () => {
+    expect(STATE_USE_INDEX).toBe("connector_install_state_use_state_idx");
+  });
+
+  it("recognises a 23505 raised BY THAT INDEX", () => {
+    expect(isStateUseConflict({ code: "23505", constraint: STATE_USE_INDEX })).toBe(true);
+  });
+
+  it("is DISJOINT from the store-claim predicate — neither may swallow the other's refusal", () => {
+    // Two different facts about the world: one says the state was already spent,
+    // the other says another shop holds the store. Reporting either as the other
+    // is a lie in the log, and for the second a lie about the estate.
+    expect(isStateUseConflict({ code: "23505", constraint: STORE_CLAIM_INDEX })).toBe(false);
+    expect(isStoreClaimConflict({ code: "23505", constraint: STATE_USE_INDEX })).toBe(false);
+  });
+
+  it("REFUSES every shape that is not a 23505 from that index", () => {
+    expect(isStateUseConflict({ code: "23505", constraint: "connector_token_version_shop_no_key" })).toBe(
+      false
+    );
+    expect(isStateUseConflict({ code: "23503", constraint: STATE_USE_INDEX })).toBe(false);
+    expect(isStateUseConflict({ code: "23505" })).toBe(false);
+    expect(isStateUseConflict(new Error("duplicate key"))).toBe(false);
+    expect(isStateUseConflict(null)).toBe(false);
   });
 });
 

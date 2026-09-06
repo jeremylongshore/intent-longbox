@@ -542,6 +542,59 @@ const CREDENTIAL_LOCK =
 const AUTHENTICATOR_LOCK =
   /(FROM\s+user_authenticator[\s\S]{0,200}?FOR\s+UPDATE)|\b(lockLiveAuthenticator|verifyTotp|redeemRecoveryCode)\s*\(/i;
 
+/**
+ * The STORE-CLAIM lock — **the FIFTH position in the ORDER, and the SIXTH
+ * ADDED to it**, by E03-D22 (056 §11 R10, §6.3; 042 v1.6.1; 000-docs/061 §5).
+ *
+ * ⚠ **THAT PHRASING IS THE ONE FRAMING, AND IT IS USED IN ALL THREE PLACES**
+ * (the E03-D22 INVARIANT REVIEW, which found this comment, the record's §5 and
+ * the RTM each counting differently; the gate audit's N1 before it had only
+ * asked this comment to follow 042's idiom, which is a narrower ask and is
+ * credited correctly here rather than to the reviewer who did the wider work). Two counts are genuinely in play — 042's change-log idiom counts
+ * POSITIONS THE ORDER HAS (E03-D06's row says "a FOURTH position", E03-D11's "a
+ * FIFTH", this bead's "a SIXTH"), while `CREDENTIAL_LOCK` below numbers by
+ * SEQUENCE ("the THIRD position … the fifth position to be added"). Saying both
+ * halves in one sentence is what stops a reader arriving from either direction
+ * concluding the other is wrong. This lock sits between the authenticator lock
+ * and the `scan_session` anchor.
+ *
+ * `claimStoreDomain` writes `shop.shopify_domain` inside the install callback's
+ * transaction, which takes a row lock on the shop's own `shop` row and — the
+ * part that is the point — waits on `shop_shopify_domain_is_one_store` while a
+ * concurrent claimant is uncommitted. It is a LOCK on the tenant row, so it
+ * belongs in this order rather than beside it.
+ *
+ * **Why it sits AFTER the three identity positions and not before them.** The
+ * authentication hook takes `app_session` before any handler body exists, and
+ * the privileged sign-in takes both credential locks while establishing the
+ * session that a shop-config write would run under — so nothing a handler takes
+ * can precede them. This is the lint pinning the order the code already has,
+ * exactly as the credential positions did.
+ *
+ * **Why it sits BEFORE the `scan_session` anchor.** Coarse before fine, and the
+ * hierarchy is real: a `scan_session` belongs to a shop. A handler that held a
+ * session anchor and then reached for the tenant row would deadlock against one
+ * doing the reverse, and the reverse is the one the callback already does.
+ *
+ * ⚠ **THE PATTERN MATCHES THE LOCK'S SHAPE AND NOT ONLY ITS NAME** (the
+ * invariant review). `claimStoreDomain` and the `UPDATE … shopify_domain` it
+ * runs are the shape that exists today; the third alternative catches
+ * `SELECT … FROM shop … FOR [NO KEY] UPDATE`, which is the shape somebody
+ * reaches for when they "optimise" the claim into an explicit row lock. That
+ * refactor would REMOVE the guarantee — the btree unique is what serialises two
+ * shops, not the row lock (000-docs/061 §3.1) — and without this alternative it
+ * would also take the position INVISIBLY, so the lint would stop policing the
+ * very handler it was added for. A negative fixture pins it.
+ *
+ * ⚠ **NO CHUNK TAKES TWO OF THESE TODAY** — `completeInstall` takes this one and
+ * none of the other four (a provider callback carries no `Idempotency-Key`, no
+ * cookie and no scan session). The position is registered now, while the answer
+ * is free, for the reason the authenticator lock was: so the handler written six
+ * months from now inherits an order instead of choosing one.
+ */
+const SHOP_CLAIM_LOCK =
+  /(UPDATE\s+shop\s+SET[\s\S]{0,200}?shopify_domain)|(FROM\s+shop\b[\s\S]{0,200}?FOR\s+(NO\s+KEY\s+)?UPDATE)|\bclaimStoreDomain\s*\(/i;
+
 /** The layers where a handler can live. A rule keyed on one layout goes blind on the next. */
 const HANDLER_LAYERS = ["src/routes/", "src/services/"];
 
@@ -560,16 +613,17 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
   for (const file of files) {
     if (!HANDLER_LAYERS.some((layer) => file.path.startsWith(layer))) continue;
     for (const [i, body] of splitMutatingHandlers(file.text).entries()) {
-      // FIVE POSITIONS SINCE E03-D11, checked over every PAIR so a chunk that
-      // takes only two of the five is still policed:
+      // SIX POSITIONS SINCE E03-D22, checked over every PAIR so a chunk that
+      // takes only two of the six is still policed:
       //   request_idempotency INSERT → app_session (FOR NO KEY UPDATE)
       //     → user_credential (FOR UPDATE) → user_authenticator (FOR UPDATE)
-      //     → scan_session anchor (FOR UPDATE)
+      //     → shop store-claim (UPDATE) → scan_session anchor (FOR UPDATE)
       const positions: Array<{ name: string; at: number }> = [
         { name: "its request_idempotency INSERT", at: body.search(IDEMPOTENCY_INSERT) },
         { name: "the app_session lock", at: body.search(SESSION_LOCK) },
         { name: "the user_credential lock", at: body.search(CREDENTIAL_LOCK) },
         { name: "the user_authenticator lock", at: body.search(AUTHENTICATOR_LOCK) },
+        { name: "the shop store-claim lock", at: body.search(SHOP_CLAIM_LOCK) },
         { name: "the scan_session anchor lock", at: body.search(ANCHOR_LOCK) },
       ].filter((p) => p.at !== -1);
 
@@ -589,16 +643,18 @@ export function checkLockOrder(files: readonly SourceFile[]): Finding[] {
           message:
             `${file.path}: mutating handler #${i + 1} takes ${first} BEFORE ` +
             `${second} (042 §5.3(b) I22, extended to three positions by 048 K1, to four by ` +
-            `E03-D06 and to five by E03-D11). The fixed order is request_idempotency INSERT, ` +
-            `then the app_session row FOR NO KEY UPDATE, then the user_credential row FOR ` +
-            `UPDATE, then the user_authenticator row FOR UPDATE, then the scan_session anchor ` +
-            `FOR UPDATE, in every handler, always — the idempotency row is the request's ` +
-            `IDENTITY, the session says who is asking, the first factor and then the second say ` +
-            `they are still who they claim, and only then is the domain subject touched. The ` +
-            `two credential positions are taken TOGETHER by the privileged sign-in, because ` +
-            `their per-person lockout budget is shared (048 §4.3, 057 §4.5), so their order is ` +
-            `load-bearing rather than notional. Two handlers with opposite orders deadlock ` +
-            `(40P01) intermittently, at a counter, reproducing on nobody's laptop.`,
+            `E03-D06, to five by E03-D11 and to six by E03-D22). The fixed order is ` +
+            `request_idempotency INSERT, then the app_session row FOR NO KEY UPDATE, then the ` +
+            `user_credential row FOR UPDATE, then the user_authenticator row FOR UPDATE, then ` +
+            `the shop store-claim UPDATE, then the scan_session anchor FOR UPDATE, in every ` +
+            `handler, always — the idempotency row is the request's IDENTITY, the session says ` +
+            `who is asking, the first factor and then the second say they are still who they ` +
+            `claim, then the TENANT row the act configures, and only then is the domain subject ` +
+            `touched. The two credential positions are taken TOGETHER by the privileged sign-in, ` +
+            `because their per-person lockout budget is shared (048 §4.3, 057 §4.5), so their ` +
+            `order is load-bearing rather than notional; the store claim is coarse-before-fine ` +
+            `over the anchor it contains (000-docs/061 §5). Two handlers with opposite orders ` +
+            `deadlock (40P01) intermittently, at a counter, reproducing on nobody's laptop.`,
         });
       }
     }

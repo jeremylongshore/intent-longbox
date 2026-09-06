@@ -72,8 +72,24 @@ async function main(): Promise<void> {
         minted.authorizeUrl,
         "",
         "Shopify will show the consent screen and redirect back to " +
-          `${app.redirectUri}. The callback verifies the signature, spends the state and ` +
-          "introduces the token version. Nothing publishes at any point.",
+          `${app.redirectUri}. The callback verifies the signature, spends the state, ` +
+          "CLAIMS the store for this shop and introduces the token version. Nothing " +
+          "publishes at any point.",
+        "",
+        // ⚠ THREE SENTENCES, AND THE FOURTH IS DELIBERATELY GONE (021 B16, the
+        // gate audit's S2). A draft of this block said the claim makes two shops
+        // holding one store "impossible rather than merely unlikely". A sentence
+        // about what the software CANNOT do is a commitment at whatever class the
+        // reader is in, not a description — and this one would be read as a
+        // guarantee against an attacker rather than against a race, which is not
+        // what 000-docs/061 §3 argues and not what 056 R1 leaves standing. What
+        // is left says what HAPPENS: a record is written, a conflicting install
+        // is refused, and moving a store is somebody's decision.
+        "A store belongs to at most one Longbox shop (E03-D22). Completing this install " +
+          `records ${shopDomain} on shop ${shopId}. If this store is already recorded ` +
+          "against a different shop the callback is refused and nothing is written; moving " +
+          "a store between shops is an owner decision somebody makes deliberately, not a " +
+          "side effect of an install.",
       ].join("\n")
     );
   } finally {

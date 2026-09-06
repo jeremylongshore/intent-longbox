@@ -1,6 +1,6 @@
 # Decision Record — Connector OAuth: Where a Provider-Minted Token Lives, What Authority It Carries, and What an Uninstall Actually Ends
 
-**Version:** 1.0.6
+**Version:** 1.0.8
 **Status:** **RATIFIED 2026-09-04 (v1.0.5)** by the acting head under Jeremy's standing delegation — `security-auditor` and `rich-hickey-reviewer` were DISPATCHED on the §2 Q1 ruling (both ACCEPT-WITH-CHANGES; verdicts and dissents in §14.1 are the reopening triggers); `longbox-invariant-reviewer` BLOCK at `16f17ef` → PASS-WITH-NOTES at `843652c`; `longbox-gate-auditor` NOT-READY ×2 on statements of fact → v1.0.4; landed as PR #87 squash `f4a03b6`. The custody ruling (AEAD column with its own ring; the three-way rule; a credential's death must be observable) may be cited as settled from this version; the scope claim is a stolen database dump IN ISOLATION until E13-D01 separates the archive. **v1.0.6 (2026-09-05): E13-D01's separation is REPRODUCED IN TEST and is NOT applied on the hosts, so the scope claim is UNCHANGED — see the change log and §14 item 2.**
 **Bead:** E03-B06 `longbox-e5b.3.6` — *Implement connector OAuth, least scopes, token lifecycle, consent and uninstall/revocation* (epic LBOX-E03 `longbox-e5b.3`, gate G2) — see 000-docs/014 §8 row E03-B06
 **Filed:** 2026-09-04 · **Author:** `longbox-security-tenancy-builder` · **Owner:** parent session (acting head of board)
@@ -15,6 +15,8 @@
 
 | Version | Date | What changed | Authority |
 | --- | --- | --- | --- |
+| **1.0.8** | **2026-09-06** | **Patch — two statements of fact repaired in v1.0.7's own amendment block; no ruling moves and §7's text stays verbatim.** **(1)** The §7.2 amendment said the one-shop rule is decided by *"the database"* and that `pnpm connector-install` *"says so"*. **Both were wrong.** The rule is decided by the INSTALL CALLBACK'S TRANSACTION — a constraint against a RACE, and route-scoped, because `introduceTokenVersion` writes a token version, consults no claim and takes a NULL install state by design (§5.3), so a live token does not imply a claim (061 §9 R5). And the CLI does NOT say so: the clause characterising the mechanism was **DROPPED under 021 B16** before v1.0.7 was written, so the attribution described a sentence that does not ship. The CLI states the rule and what happens when a store is already recorded, and characterises nothing. **(2)** v1.0.7's row said the callback's loser is answered *"byte-identically"* to an unknown state; the accurate form is **identical in bytes**, with the qualifier that the pre- and post-exchange refusal classes differ by ONE OUTBOUND CALL to the token endpoint — unreachable without a valid HMAC, so it discloses nothing to the population the constant answer defends against. | E03-D22 re-audit (000-docs/061 v1.1.2) |
+| **1.0.7** | **2026-09-06** | **PATCH — one mechanism strengthened by a bead outside this record, recorded as a ROW and TWO amendment blocks. No ruling here moves and the scope claim does not change.** E03-D22 `longbox-e5b.3.32` (000-docs/061) makes the **callback CLAIM the store** on `shop.shopify_domain` inside the transaction that introduces the token version, so §7.3's *"an uninstall retires EVERY live token granted for that store"* can no longer end the WRONG shop's authority through a race: two shops holding live tokens for one store was previously prevented by a read outside that transaction (the security lens's F8), and is now prevented by `shop_shopify_domain_is_one_store`, with the loser answered `CONNECTOR_CALLBACK_REFUSED` identically in bytes to an unknown state (the classes differ by one outbound call, unreachable without a valid HMAC — see v1.0.8). **§5.5's ruling is UNCHANGED and was re-asserted rather than assumed**: the tenant of an `app/uninstalled` is still resolved from `connector_token_version.shop_domain` — the value an authenticated grant wrote — and never from the config column, which now has a value and still is not read as a lookup key. The finding-1 regression test changed shape to keep proving that (it asserts the independence on a shop with NO claim, §5.3's Dev Dashboard token, instead of asserting a NULL this change makes false). **The claim is NOT released by an uninstall** (061 §4): the column is configuration under 034 §4.2, and a third party's act at Shopify must not un-configure a Longbox shop; the cost — moving a store to a DIFFERENT Longbox shop needs a schema-owner act — is 061 §9 R2 and belongs to offboarding. One side effect worth naming: `src/consumers/index.ts` reads that column with an env fallback, so a connector-installed shop's draft now names the store the GRANT names. **No migration; `026`'s index and column already carried everything** (061 §7). | E03-D22 `longbox-e5b.3.32` → `longbox-security-tenancy-builder` |
 | **1.0.6** | **2026-09-05** | **Patch — a statement of fact about the backup, from E13-D01 `longbox-e5b.13.11`. No ruling moves and THE SCOPE CLAIM DOES NOT CHANGE.** §14 item 2 said the estate's borg include set carries `/etc` and the database dump in one archive, and named E13-D01 as the bead that separates them. That separation is now **REPRODUCED IN TEST** — intent-os PR #576, squash SHA `77000dd3` excludes `/etc/intentsolutions/age.key`, the host SOPS files and the home/root `.config/sops/age` paths from the archive that carries `/var/backups/db-dumps`, adds a preflight that REFUSES the run when the exclusion is missing, and proves it with 30 cases under real borg including a negative control. **It is NOT applied on either host**: the live timers still run the deployed copies, so today's archives still carry the key, and archives already in Backblaze keep their contents for their Object-Lock life. **Therefore the honest scope of this encryption is still *a stolen database dump in isolation*** — a test proves a script, and only a deploy changes what an archive holds. When the deploy happens it is recorded as a decision-log row in **006**, and only then may this item be read as closed. | acting head, on E13-D01 |
 | **1.0.5** | **2026-09-04** | **Ratified.** Status and §16 signed after PR #87 merged (`f4a03b6`); nothing else changed. | acting head |
 | **1.0.4** | **2026-09-04** | **Patch — one BLOCK the REBASE exposed, and three pointers. No decision moves.** **(B8) §1 was pinned to a commit that is on NO BRANCH.** v1.0.0–v1.0.3 cited `8e86490`, the head of `feat/e03-d06-totp` when this branch was cut; that branch squash-merged into `ec9b465`, so the hash stopped resolving — `git branch -a --contains 8e86490` returns nothing. **A citation to an unreachable commit is not a weak citation, it is an unverifiable one**, and 018's REPRODUCED rung means precisely that somebody else can run the command. §1's header, its six command cells and §11's *"none existed at"* now name **`ec9b465`**, the MERGED EQUIVALENT — the same tree, on `main` — and the gate re-audit re-ran all six and got identical output, which is what makes this a RE-PIN rather than a re-derivation. **The generalisation is written into §1 rather than left in this row:** a hash from a branch that will be squashed is a PERISHABLE citation, and the durable form is the merge commit it becomes. **(P7)** §5.5 said the open-world `reason_code` citation is carried by "§5.4 below"; the carrier is **§2 Q4**. **(P8)** 016's three E03-B06 appends were stamped `v1.18.0` and the file is `1.19.0` — main's four E03-D12 appends are left alone, because they were correct when written and are not this bead's to re-tag. **(P9)** 016's 053 row led with `1.0.2`. | gate re-audit of `734e0ed` → acting head |
@@ -184,6 +186,28 @@ resolve(s,c) := the live version of (s,c) with the greatest version_no
 
 **There is no cache, and that is a decision rather than an oversight.** The read path gains a join for a value that changes rarely. The obvious mitigation is deliberately not taken, for `credentialVersions.ts`'s reason arriving a third time: **a cached credential is a retired credential still working**, which is the exact failure the ending exists to prevent.
 
+> **AMENDMENT (v1.0.7, 2026-09-06, E03-D22 `longbox-e5b.3.32`, 000-docs/061). A
+> SIXTH fact about the lifecycle, beside the five above rather than instead of
+> any of them. Nothing in this section is edited.**
+>
+> **The install's transaction now begins by CLAIMING the store on
+> `shop.shopify_domain`.** The predicate set is unchanged — `live`, `resolve`, the
+> four version cases — and what is added is a serialisation point *before* the
+> first of them: `shop_shopify_domain_is_one_store` refuses a second Longbox shop
+> introducing a version for a store another shop holds. That closes the race
+> 056 §11 R10 named, which is the race that could put the system into the one
+> state §7.3's *"every live token granted for that store"* makes dangerous.
+>
+> **"More than one live version → the newest wins and the overlap is legal" is
+> untouched.** The claim is an `UPDATE` of the shop's OWN row, so a rotation by
+> the same shop writes the same value and conflicts with nothing (050 §2 Q2).
+>
+> **The claim is CONFIG and the version's `shop_domain` is a FACT, and the split
+> is 034 §4.2's.** `connector_token_version.shop_domain` remains the store a past
+> grant was for, append-only and unchanged by anything here; the claim is a
+> statement about the present, corrected in place, and it is **NOT** released when
+> every version is retired (061 §4).
+
 ---
 
 ## 5. Decision C — The schema (`migrations/026`)
@@ -248,6 +272,38 @@ Five tables, all append-only, all `ENABLE ALWAYS`, all declared in `src/db/appen
 > ⚠ **THE ENDPOINT'S EXISTENCE AT THE PINNED API VERSION IS AN ASSUMPTION SIGNED OPEN, in 043 A11's idiom.** No call to Shopify's documentation or to a store was made while writing this, and 018 makes an unverified third-party interface an assumption rather than a fact. **Its closing evidence is 043 A11's: one call against the ISOLATED DEV STORE named in `.env.example`, before this path serves a real shop.**
 >
 > **What is NOT contingent on it** is everything a wrong guess would otherwise hide. The two columns record what was CALLED and what came BACK; `revocationOutcome` renders FOUR cases including *no attempt was made*; and a 404 or a 405 reports *"treat the token as still usable at Shopify"*. **So a wrong guess about the endpoint degrades to a truthful receipt rather than to a false one**, which is the property that let this ship with the assumption open.
+
+> **AMENDMENT to 7.2 and 7.3 (v1.0.7, 2026-09-06, E03-D22 `longbox-e5b.3.32`,
+> 000-docs/061). Two sentences added beside these acts; none is edited.**
+>
+> **To 7.2 (starting an install).** Completing the install now also CLAIMS the
+> store for the shop the state names, so a store belongs to at most one Longbox
+> shop and **the install callback's transaction decides it — a constraint against
+> a RACE, and route-scoped** (061 §9 R5: `introduceTokenVersion` writes a token
+> version, consults no claim, and takes a NULL install state by design (§5.3), so
+> a live token does not imply a claim). `pnpm connector-install` says a store
+> belongs to at most one Longbox shop and what happens when one is already
+> recorded; **it does NOT characterise the mechanism** (021 B16 — a statement
+> about what the software cannot do is a commitment, not a description). The
+> merchant-facing landing is still **`pending: true` with E10-B02 named**, and
+> that copy goes through 021 T26 pre-send when it becomes merchant-facing rather
+> than now — registered meanwhile as `C-CANDIDATE-E03D22-1`.
+>
+> **To 7.3 (ending it).** An `app/uninstalled` retires every live version for that
+> store **and leaves the claim standing** — deliberately (061 §4). The column is
+> configuration (034 §4.2): it says which store this shop sells into, and a third
+> party's act at another system must not be able to un-configure a Longbox shop
+> and open its store to a different one. The consequence is stated rather than
+> discovered: a store moving to a DIFFERENT Longbox shop needs a schema-owner act
+> today — a missing CODE PATH rather than a missing privilege — and belongs to
+> the beads that own winding a shop down: **`longbox-e5b.16.1`** (alias of record
+> **E17-B01**; one reviewer called it E16-B01, and the id is the same) with
+> **E03-B09** `longbox-e5b.3.9` for the retention and deletion policy it must
+> satisfy — and is carried as 061 §9 R2. *(v1.0.7 as first written said
+> "offboarding (E15)"; `longbox-e5b.15` is CI/CD and controlled release and owns
+> none of this. Corrected in the same version, before the record was signed.)* Nothing
+> about the retirement itself changes, and the tenant resolution still keys on
+> `connector_token_version.shop_domain` and never on the claim (§5.5).
 
 **7.4 The client's precedence, and the pilot.** `resolveShopifyClientForShop` resolves a live connector token first; refuses when versions exist and none is live; and falls through to the legacy static path only for a shop with no connector version at all. **The pilot keeps working** — the per-store Dev Dashboard token is the "no versions" case — and the cutover is E16-B02's.
 

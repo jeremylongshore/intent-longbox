@@ -622,6 +622,54 @@ this person's record" is deliberately unanswerable from this table** (060 §5.1)
 belongs to the break-glass read path, whose 7-day employee notice is what makes
 asking it legitimate.
 
+### E03-D22 (`longbox-e5b.3.32`) — the install claims the store domain (000-docs/061)
+
+Six rows, added when the install began CLAIMING `shop.shopify_domain` inside the
+transaction that introduces the token version. They are keyed on the BEAD, on the
+E03-D19 precedent and for its reason: 056 and 053 are amended by rows, so each
+gains an amendment and a residual rather than invariants their reviews never saw.
+
+| ID          | Source   | Requirement                                                                                                                                                                                                                                                                                      | 019 line                      | Evidence                                                                                                                                          |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E03-D22 (a) | 056 R10  | The install claims the store on the shop's own row, first, inside the transaction that introduces the token version — so the one-shop rule is enforced by a constraint and not by a read                                                                                                         | **T24**                       | ✓ tests/integration/connector-oauth.test.ts — _"completes an install and seals the token…"_, extended with the claim assertion                    |
+| E03-D22 (b) | 056 R10  | Two concurrent installs of one store produce ONE winner; the loser writes no claim, no token version and no use row, and its install state is still unspent (053 §5.2 H4)                                                                                                                        | **T24**                       | ✓ same file — a DETERMINISTIC race (the first claim held open on its own connection) plus an undirected two-callback race                         |
+| E03-D22 (c) | 048 §9.3 | The loser is answered with the SAME internal member the fast path raises and the SAME wire code as an unknown state, and its message names no shop. **Byte-identity with a never-installed store is impossible** — that callback succeeds — and no artifact may say otherwise                    | **T24**                       | ✓ same file (the message and the serialised error contain neither shop's id) + tests/integration/connector-http.test.ts (one code, empty details) |
+| E03-D22 (d) | 061 §4   | An uninstall retires every live token for that store and does **NOT** release the claim; a second shop is then refused and the original may re-install                                                                                                                                           | — (a ruling, not a threshold) | ✓ same file — _"REFUSES a second shop after every token for that store is RETIRED"_                                                               |
+| E03-D22 (e) | 053 §5.5 | The uninstall's tenant resolution stays independent of `shop.shopify_domain`, proved on a shop where the two disagree (a token version introduced with no install) rather than by asserting a NULL this bead makes false                                                                         | **T24**                       | ✓ same file — _"resolves an uninstall for a shop whose claim is ABSENT"_                                                                          |
+| E03-D22 (f) | 042 I22  | The store claim is the **fifth position in 042 §5.3(b)'s order and the sixth added to it**, checked over every pair — and the lint matches the lock's SHAPE (`SELECT … FROM shop … FOR [NO KEY] UPDATE`) as well as its name, so the plausible wrong refactor cannot take the position invisibly | — (a deadlock rule)           | ✓ tests/contract/architecture-gate.test.ts — four fixtures (one positive, three negative) + `checkLockOrder` over the real tree                   |
+| E03-D22 (g) | 061 §3.5 | `mintInstallState` REFUSES when another shop already holds the store, writing no state row — so an owner never spends a single-use authorization code to learn what the CLI knew — and the shop's OWN store still mints                                                                          | **T24**                       | ✓ tests/integration/connector-oauth.test.ts — _"REFUSES AT MINT TIME…"_ (security lens F6)                                                        |
+| E03-D22 (h) | 061 §3.6 | A `23505` on `connector_install_state_use`'s `UNIQUE (state_id)` is a `state_replayed` REFUSAL and not a 500; the path is reached by racing two callbacks over one state, which is why no test had reached it before                                                                             | — (an error class)            | ✓ same file — _"two callbacks racing ONE state reach the CONSTRAINT…"_, proved able to fail by removing the mapping (security lens F8)            |
+| E03-D22 (i) | 061 §5   | An uncommitted claim blocks neither a READ of that shop nor a `scan_session` INSERT at it — a non-key `UPDATE` takes `FOR NO KEY UPDATE`, which does not conflict with a foreign key's `FOR KEY SHARE`                                                                                           | — (a latency property)        | ✓ same file — _"an uncommitted claim blocks neither…"_ (security lens F9, positive)                                                               |
+
+**One row above is restated rather than replaced.** **053 I16** — _"the uninstall
+resolves its tenant WITHOUT `shop.shopify_domain`, and two shops sharing one store
+domain are unrepresentable"_ — is unchanged in what it asserts and changed in how
+it is proved: the column now has a value for an installed shop, so the case that
+used to assert a NULL asserts the CLAIM, and the independence moved to the new
+case (e) where no claim exists at all. A fixture that supplies the condition a bug
+needs to be absent tests the fixture; so does an assertion that only holds while
+nothing writes a column.
+
+**What this section does NOT claim — and the first item is the security lens's F1.**
+**The guarantee is ROUTE-SCOPED.** These rows prove what the INSTALL CALLBACK
+does. `introduceTokenVersion` writes a token version, consults no claim and
+takes a NULL install state by design (053 §5.3), so a live token does not imply
+a claim and two shops can hold one store with no race at all; it is un-exported
+from the public barrel, which is a barrier and not a proof of unreachability
+(061 §9 R5). No row here may be read as _the schema guarantees one shop per
+store_ — the callback does.
+
+The oracle 056 §6.3 named is **not removed**
+— it becomes reachable and bounded (061 §6): the index is still not tenant-prefixed,
+and a `23505` is still distinguishable from an `UPDATE 1` to anyone who can execute
+both. What changed is that executing them costs a completed OAuth grant at the store
+being asked about, so the one bit learnable is about a store the caller administers.
+Two further limits no row here softens: this defends a RACE and not a compromised
+process (056 R1 unchanged), and moving a store to a DIFFERENT Longbox shop needs a
+schema-owner act — a missing CODE PATH, not a missing privilege — until winding
+a shop down lands: **`longbox-e5b.16.1`** (alias of record E17-B01) with
+**E03-B09** `longbox-e5b.3.9` (061 §9 R2), not E15.
+
 ## Summary (rebuilt 2026-09-02, v0.3.1)
 
 | Tier   | Total | Covered | Partial | Pilot-manual | Uncovered   | Excluded |

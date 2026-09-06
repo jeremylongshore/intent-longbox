@@ -158,7 +158,25 @@ export type CallbackRefusal =
   // token. A separate member from `domain_mismatch`, which is about the state row
   // rather than about the estate — the handler maps both to one registry code, and
   // the distinction is for this server's own reasoning.
+  //
+  // **E03-D22 gives this member a SECOND raise site, and the second is the
+  // guarantee.** The first is the fast-path `SELECT` above, which refuses before
+  // the code is exchanged and can be raced; the second is a `23505` on
+  // `shop_shopify_domain_is_one_store` inside the install's own transaction,
+  // which cannot be. They are ONE member deliberately: a caller must not be able
+  // to tell a store claimed a second ago from one claimed a month ago, and this
+  // server's own reasoning about which fired is in its log, not on the wire.
   | "domain_claimed"
+  // E03-D22 (the security lens's F4): the claim's `UPDATE` matched NO row.
+  //
+  // A SEPARATE member from `domain_claimed` even though both answer the same
+  // wire code, because they mean opposite things about this server. A claim
+  // conflict is the mechanism WORKING — somebody else holds the store. A claim
+  // that matched nothing means the transaction's tenant context does not name a
+  // shop that exists, which is a BROKEN SERVER and should page, not a merchant
+  // who lost a race. Collapsing them would bury the second inside the first's
+  // volume, which is exactly how an operational alarm becomes noise.
+  | "claim_unreachable"
   | "scope_insufficient"
   | "scope_excessive"
   | "rate_limited"
@@ -217,6 +235,37 @@ export async function mintInstallState(
         `POST this app's client secret to it (000-docs/053 §8.1).`
     );
   }
+  // ⚠ **REFUSE AT MINT TIME IF ANOTHER SHOP ALREADY HOLDS THIS STORE (E03-D22,
+  // the security lens's F6). IT IS AN EARLY REFUSAL AND NOT A CONTROL.**
+  //
+  // The claim in `completeInstall` is the guarantee; this is a courtesy one act
+  // earlier. Without it the owner is sent to Shopify, approves a consent screen,
+  // and the callback refuses AFTER the authorization code has been exchanged —
+  // so the merchant burns a single-use code to learn something this system
+  // already knew when the CLI was run.
+  //
+  // **It runs on the caller's connection, which for this act is the SCHEMA
+  // OWNER** (`pnpm connector-install` uses `resolveMigrateUrl`), so it can see
+  // every shop's row — and for the schema owner the index was never an oracle
+  // anyway, because the owner can read those rows directly (056 §6.3). That is
+  // precisely why this check may live here and NOT in `completeInstall`, whose
+  // transaction runs under a tenant context that would hide the rows and make
+  // the guard FAIL OPEN (056 §6.1).
+  //
+  // **A caller with a tenant context sees nothing here and is refused nothing**,
+  // which is correct: the refusal that matters is the claim, and this one is
+  // allowed to be silently unhelpful rather than silently wrong.
+  const heldElsewhere = await db.query(`SELECT 1 FROM shop WHERE shopify_domain = $1 AND id <> $2 LIMIT 1`, [
+    args.shopDomain,
+    args.shopId,
+  ]);
+  if (heldElsewhere.rows.length > 0) {
+    throw new ConnectorCallbackError(
+      "domain_claimed",
+      "that store is already recorded against a different shop; nothing was written"
+    );
+  }
+
   const state = randomBytes(STATE_BYTES).toString("base64url");
   const expiresAt = new Date((args.now?.getTime() ?? Date.now()) + PROVISIONAL_INSTALL_STATE_TTL_MS);
   const res = await db.query(
@@ -377,6 +426,117 @@ interface StateRow {
 }
 
 /**
+ * The partial unique index that makes ONE STORE belong to at most ONE SHOP.
+ *
+ * `UNIQUE (shopify_domain) WHERE shopify_domain IS NOT NULL`, from
+ * `migrations/026`. It is named here because the refusal it raises has to be
+ * recognised by name: a `23505` from any other constraint in this transaction
+ * means something else entirely and must not be dressed up as a claim conflict.
+ */
+export const STORE_CLAIM_INDEX = "shop_shopify_domain_is_one_store";
+
+/**
+ * The UNIQUE that makes an install state single-use — 053 §5.2's "whole
+ * mechanism". Named for {@link STORE_CLAIM_INDEX}'s reason: the refusal it
+ * raises has to be recognised by name rather than by message.
+ */
+export const STATE_USE_INDEX = "connector_install_state_use_state_idx";
+
+/** A `23505` raised by {@link STATE_USE_INDEX} and by nothing else. */
+export function isStateUseConflict(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === "23505" && e.constraint === STATE_USE_INDEX;
+}
+
+/** A `23505` raised by {@link STORE_CLAIM_INDEX} and by nothing else. */
+export function isStoreClaimConflict(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === "23505" && e.constraint === STORE_CLAIM_INDEX;
+}
+
+/**
+ * CLAIM the store on the shop's own row — E03-D22, closing 056 §11 R10 and the
+ * latent one-bit oracle §6.3 named.
+ *
+ * ============================================================================
+ * WHY THE CLAIM IS THE GUARANTEE AND THE READ ABOVE IS NOT
+ * ============================================================================
+ *
+ * 053 §7.3 makes an `app/uninstalled` retire EVERY live token granted for a
+ * store, whichever Longbox shop holds it. So two shops holding live tokens for
+ * one store is a state in which one merchant's uninstall ends ANOTHER shop's
+ * authority. E03-B04 refused that with a `SELECT` (F8) — but that read runs
+ * outside the transaction that introduces the token, and it cannot be moved
+ * inside it, because inside it the tenant context hides the very rows it is
+ * looking for and the guard would fail OPEN (056 §6.1).
+ *
+ * **A unique index is checked with row-level security OFF, against every row in
+ * the table, including rows this caller cannot read.** That is exactly the
+ * property 056 §6.3 recorded as a DEFECT — an oracle — and it is exactly the
+ * property this needs. `shop.shopify_domain` already carries the index; nothing
+ * wrote the column; so one `UPDATE` turns two concurrent callbacks into one
+ * winner and one `23505` that the DATABASE decides, under no isolation
+ * assumption at all (041 §4.2(i): a constraint is the cheapest correct answer).
+ *
+ * **The oracle §6.3 named is not created by this; it is BOUNDED by it, and the
+ * bound is worth stating.** Before E03-D22 the column had no writer, so the
+ * oracle was unreachable. After it there is exactly one writer, and reaching it
+ * costs a completed OAuth grant: the caller must hold real merchant consent at
+ * the store it is asking about, minted through an install state an owner asked
+ * this system for. So the one bit a caller can learn is *"is MY store already a
+ * Longbox customer"* — about a store they administer — and never a probe over
+ * stores at large. The route cannot be turned into a scanner, because every
+ * probe needs a fresh state row and a real grant at the store being probed.
+ *
+ * **The RLS geometry, stated rather than assumed.** `shop` is policied on its
+ * own `id` (056 §4, `TENANT_COLUMNS`), so under this transaction's tenant
+ * context the statement can only ever touch THIS shop's row: `USING` and
+ * `WITH CHECK` are the same predicate and the row is the tenant. Nothing here
+ * widens a policy, and in particular nothing adds a `service_write` on
+ * `connector_token_version` — which is the widening 056 R10 rejected as the
+ * alternative fix (the security lens's F1).
+ *
+ * **An `UPDATE` that matches no row SUCCEEDS (056 §6.2), so the row count IS
+ * the authorization.** A shop id that names no visible row would silently write
+ * nothing and let the install proceed unclaimed; the check below is that rule
+ * applied, not defensive noise.
+ *
+ * **It overwrites a different store, deliberately.** A shop whose column names
+ * store Y and whose owner has just completed a grant at store X is a shop that
+ * asked for X: `mintInstallState` recorded the domain at issuance and the
+ * callback proved the same domain against it twice. Refusing here would strand
+ * a shop on a store it no longer sells into, recoverable only by a schema-owner
+ * `UPDATE`.
+ *
+ * **The claim is NOT released by an uninstall, and that is a ruling** (000-docs/
+ * 061 §4): the column says which store this shop sells into, which a third
+ * party's act at Shopify does not stop being true.
+ *
+ * It is deliberately NOT exported, on `retireEveryLiveTokenForDomain`'s
+ * precedent: it is correct only inside `completeInstall`'s transaction, under
+ * the tenant context of the shop the install state named. Reached from anywhere
+ * else it is an unguarded write to another tenant's configuration.
+ */
+async function claimStoreDomain(tx: Tx, shopId: string, shopDomain: string): Promise<void> {
+  const res = await tx.query(`UPDATE shop SET shopify_domain = $1 WHERE id = $2`, [shopDomain, shopId]);
+  if (res.rowCount !== 1) {
+    // 056 §6.2 — the statement matched nothing and raised nothing. Under this
+    // transaction's own tenant context that is unreachable; asserting it is what
+    // keeps it unreachable when somebody changes the context this runs under.
+    //
+    // ⚠ **`claim_unreachable`, NOT `domain_claimed`** (the security lens's F4).
+    // The merchant gets the same wire code either way, but this server must not
+    // record a broken tenant context as a lost race: one is a shop that exists
+    // and lost, the other is a shop id that resolves to no visible row, and the
+    // second is an operational alarm hiding inside the first's volume.
+    throw new ConnectorCallbackError(
+      "claim_unreachable",
+      "the install shop could not claim that store: the claim matched no row"
+    );
+  }
+}
+
+/**
  * Complete the install: verify, spend the state, introduce the token version.
  *
  * THE ORDER IS THE SECURITY PROPERTY, and it is the same argument the
@@ -393,14 +553,21 @@ interface StateRow {
  *   5. the state's store equals the callback's store;
  *   6. the code is exchanged (the one network call);
  *   7. the granted scopes are exactly what was asked for;
- *   8. the token version and the state's use row are written in ONE
- *      transaction, with `UNIQUE (state_id)` deciding a concurrent replay.
+ *   8. **the store is CLAIMED on the shop's own row**, the token version is
+ *      introduced and the state's use row is written — all in ONE transaction,
+ *      with two unique indexes deciding two different concurrent races.
  *
- * Step 8 is where a race is settled by the database rather than by step 4's
- * read: two callbacks with the same state can both pass step 4 and only one can
- * insert the use row. The loser's transaction rolls back whole, so it introduces
- * no token version either — which is why the two writes are one transaction and
- * not two.
+ * Step 8 is where BOTH races are settled by the database rather than by a read:
+ *
+ *   * **two callbacks with the same STATE** — both pass step 4, and
+ *     `UNIQUE (state_id)` lets only one insert the use row;
+ *   * **two callbacks for the same STORE at two different shops** (E03-D22,
+ *     056 §11 R10) — both pass the F8 fast path, and
+ *     `shop_shopify_domain_is_one_store` lets only one claim the domain.
+ *
+ * The loser of either rolls back whole, so it introduces no token version
+ * either — which is why all three writes are one transaction and not three, and
+ * why the claim is the FIRST of them.
  */
 export async function completeInstall(
   deps: ConnectorDeps,
@@ -480,6 +647,23 @@ export async function completeInstall(
   // not "at most one row". It is refused here rather than at the index, in the one
   // place a new authority is created, and the read runs in the same inbound scope
   // that found the state.
+  //
+  // ⚠ **THIS READ IS A FAST PATH SINCE E03-D22, AND IT IS NO LONGER THE
+  // GUARANTEE** (056 §11 R10). It runs OUTSIDE the transaction that introduces
+  // the token version, so two callbacks for one store can both pass it — the
+  // window is small and no network call falls inside it, but it is a real
+  // time-of-check-to-time-of-use gap, and the failure it admits is the one this
+  // check exists to prevent. It cannot be moved INTO that transaction and stay
+  // correct: the transaction runs under a TENANT context, under which another
+  // shop's `connector_token_version` rows are invisible, so the query would
+  // return zero rows every time and FAIL OPEN (056 §6.1's trap, one layer over).
+  //
+  // What closes the race is `claimStoreDomain` below — a serialisation point the
+  // database already owns. This read is kept for two reasons that are worth the
+  // round trip and are NOT the guarantee: it refuses BEFORE the authorization
+  // code is exchanged, so the common case costs the merchant no spent code; and
+  // it is the only place that can say WHY in this server's own log, since the
+  // claim's refusal arrives as a `23505` on an index.
   const claimed = await serviceDb(deps.pool, "connector-inbound").query(
     `SELECT DISTINCT v.shop_id FROM connector_token_version v
       WHERE v.connector = $1 AND v.shop_domain = $2 AND v.shop_id <> $3
@@ -498,29 +682,72 @@ export async function completeInstall(
   // The tenant is KNOWN from here: the state row named it. So the token version
   // and the use row commit under an ordinary tenant context rather than under the
   // scope that found them.
-  await withTransaction(
-    deps.pool,
-    async (tx: Tx) => {
-      const versionNo = await nextTokenVersionNo(tx, row.shop_id, CONNECTOR);
-      const versionId = await introduceTokenVersion(tx, ring, {
-        shopId: row.shop_id,
-        connector: CONNECTOR,
-        shopDomain,
-        installStateId: row.id,
-        grantedScopes: granted,
-        accessToken: exchanged.accessToken,
-        versionNo,
-      });
-      // `UNIQUE (state_id)` decides the replay race here, inside the same
-      // transaction as the version it names — so a loser writes neither.
-      await tx.query(
-        `INSERT INTO connector_install_state_use
-           (shop_id, state_id, connector_token_version_id) VALUES ($1, $2, $3)`,
-        [row.shop_id, row.id, versionId]
+  try {
+    await withTransaction(
+      deps.pool,
+      async (tx: Tx) => {
+        // THE CLAIM, FIRST — before the version, before the use row (E03-D22).
+        // It is the transaction's serialisation point and it is also its
+        // cheapest refusal: a loser rolls back having written no ciphertext.
+        await claimStoreDomain(tx, row.shop_id, shopDomain);
+        const versionNo = await nextTokenVersionNo(tx, row.shop_id, CONNECTOR);
+        const versionId = await introduceTokenVersion(tx, ring, {
+          shopId: row.shop_id,
+          connector: CONNECTOR,
+          shopDomain,
+          installStateId: row.id,
+          grantedScopes: granted,
+          accessToken: exchanged.accessToken,
+          versionNo,
+        });
+        // `UNIQUE (state_id)` decides the replay race here, inside the same
+        // transaction as the version it names — so a loser writes neither.
+        await tx.query(
+          `INSERT INTO connector_install_state_use
+             (shop_id, state_id, connector_token_version_id) VALUES ($1, $2, $3)`,
+          [row.shop_id, row.id, versionId]
+        );
+      },
+      { label: "connector-install", tenant: { shopId: row.shop_id } }
+    );
+  } catch (err) {
+    // ⚠ **THE `23505` ON THIS INDEX IS THE RACE BEING SETTLED, AND IT IS THE
+    // ONLY PLACE THE ONE-SHOP RULE IS ACTUALLY GUARANTEED** (E03-D22).
+    //
+    // It is mapped to the SAME refusal member the fast path raises, and both
+    // reach the wire as the SAME registry code as every other callback refusal
+    // (`CONNECTOR_CALLBACK_REFUSED`, `src/routes/connectors.ts`) — so a merchant
+    // completing OAuth for a store another Longbox shop holds is answered
+    // IDENTICALLY IN BYTES to one presenting an unknown state. Which shop holds
+    // the store is never named, here or on the wire.
+    //
+    // ⚠ The word is "identical in bytes" and not "byte-identical to every other
+    // refusal", because the pre-exchange refusals (bad signature, unknown state)
+    // and the post-exchange ones (scope, claim) differ by ONE OUTBOUND CALL to
+    // Shopify's token endpoint, which is observable to anyone watching this
+    // server's egress. That distinction is UNREACHABLE WITHOUT A VALID HMAC — a
+    // caller who cannot sign never passes step 3 — so it discloses nothing to the
+    // population the constant answer exists to defend against (000-docs/061 §3.3).
+    if (isStoreClaimConflict(err)) {
+      throw new ConnectorCallbackError(
+        "domain_claimed",
+        "another shop already holds that store; nothing was written"
       );
-    },
-    { label: "connector-install", tenant: { shopId: row.shop_id } }
-  );
+    }
+    // ⚠ **THE SIBLING UNIQUE, AND IT WAS ANSWERING 500** (the security lens's
+    // F8). `UNIQUE (state_id)` on `connector_install_state_use` is what settles
+    // the REPLAY race — 053 §5.2 calls it "the whole mechanism" — and it is
+    // reached inside this transaction exactly when two callbacks present the
+    // same state and only one may spend it. Before E03-D22 that raise had no
+    // handler, so the one refusal the schema is proudest of arrived as an
+    // unhandled `23505`: a 500 with a stack, where every other refusal on this
+    // route is one 4xx code. It is the same fact step 4's read already names, so
+    // it takes step 4's member.
+    if (isStateUseConflict(err)) {
+      throw new ConnectorCallbackError("state_replayed", "that install state is spent");
+    }
+    throw err;
+  }
 
   return { connector: CONNECTOR, shop_domain: shopDomain, granted_scopes: granted };
 }

@@ -52,12 +52,16 @@ import {
   CONNECTOR_OFFBOARDING_STEPS,
   RETIREMENT_MEANING,
   connectorResidual,
-  introduceTokenVersion,
   openTokenValue,
   renderConnectorReceipt,
   requireConnectorKey,
   revocationOutcome,
 } from "../../src/services/connectors/shopify/index.js";
+// The deep path, deliberately: `introduceTokenVersion` left the public barrel at
+// E03-D22 (the security lens's F1) because it writes a token version and consults
+// no store claim. This suite is asserting what the COLUMN holds, so it needs the
+// writer itself.
+import { introduceTokenVersion } from "../../src/services/connectors/shopify/custody.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const SHOP = "11111111-1111-1111-1111-111111111111";

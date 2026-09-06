@@ -12,8 +12,31 @@
 // and both halves alone are wrong.
 //
 // What is DELIBERATELY not exported: `retireEveryLiveToken` (it is only correct
-// inside `receiveWebhook`'s transaction, after the receipt exists) and the
-// module-internal query row shapes.
+// inside `receiveWebhook`'s transaction, after the receipt exists),
+// `claimStoreDomain` (E03-D22 — correct only inside `completeInstall`'s
+// transaction, under the tenant context of the shop the install state named;
+// anywhere else it is an unguarded write to another tenant's configuration),
+// `introduceTokenVersion` (see below) and the module-internal query row shapes.
+// What IS exported beside them are the PREDICATES over the two refusals those
+// paths raise, which are pure and safe.
+//
+// ⚠ **`introduceTokenVersion` WAS EXPORTED HERE AND IS NOT ANY MORE (E03-D22,
+// the security lens's F1), and the reason is the one this barrel exists for.**
+//
+// It writes a `connector_token_version` and NOTHING ELSE: no claim on `shop`, no
+// one-shop check, and `installStateId: string | null` because 053 §5.3 allows a
+// version with no OAuth grant behind it (the pilot's Dev Dashboard token). So a
+// caller reaching past this barrel could give shop B a live token for a store
+// shop A has claimed — **two shops holding one store with no race at all**,
+// which is the state 053 §7.3 makes dangerous and E03-D22 exists to prevent.
+// The claim is a route-scoped guarantee (000-docs/061 §9 R5); un-exporting the
+// one function that can bypass it is what keeps the scope honest instead of
+// leaving a hole beside the fix.
+//
+// **It stays exported from `custody.ts` and the tests import the deep path**, on
+// `claimStoreDomain`'s own precedent: this is a barrier against a casual caller
+// in `src/`, not a claim that the function is unreachable. `completeInstall` is
+// its only production caller.
 export {
   CONNECTOR,
   ConnectorCallbackError,
@@ -21,6 +44,10 @@ export {
   PROVISIONAL_INSTALL_STATE_TTL_MS,
   RECORDED_ONLY_TOPICS,
   SHOPIFY_APP_ENV,
+  STATE_USE_INDEX,
+  STORE_CLAIM_INDEX,
+  isStateUseConflict,
+  isStoreClaimConflict,
   WebhookRateLimitedError,
   WebhookRefusedError,
   completeInstall,
@@ -48,7 +75,6 @@ export {
   RETIREMENT_MEANING,
   connectorKeyEnv,
   connectorResidual,
-  introduceTokenVersion,
   isLive,
   loadTokenVersions,
   nextTokenVersionNo,

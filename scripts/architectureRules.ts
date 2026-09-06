@@ -1303,6 +1303,12 @@ export const SERVICE_SCOPE_SITES: readonly { scope: string; count: number }[] = 
   { scope: "code-redemption", count: 2 },
   // `myShops`, the one read whose correct answer spans tenants.
   { scope: "my-shops", count: 1 },
+  // ONE site: the invitation route's `upsertPerson` (E03-D21). An invitation names
+  // its addressee before any code is minted (048 §7.1), so the person is reached
+  // before any membership exists — the one moment `app_user`'s membership-EXISTS
+  // policy cannot serve. `scripts/issue-invitation.ts` does NOT enter it: a CLI
+  // runs as the schema owner, which bypasses every policy (056 §4).
+  { scope: "person-admission", count: 1 },
   // The three MFA CLIs, E03-D11's re-encryption CLI, and TWO route-side sites in
   // `api.ts`: the privileged sign-in, and the FRESH-factor check that inviting an
   // owner re-presents (057 §4.4b). Both are person-scoped reads that no tenant
@@ -1557,16 +1563,41 @@ export interface PersonJoinRow {
   /** How many violating literals this file is allowed. Exact, never a ceiling. */
   readonly count: number;
   readonly kind: ExemptionKind;
+  /**
+   * The column list the exempt statement may project, verbatim (E03-D21, the
+   * security lens's F5).
+   *
+   * ⚠ **WITHOUT THIS THE EXEMPTION IS FOR A FILE AND NOT FOR A STATEMENT.** Both
+   * rows below are exempt on the SAME ground — the read projects `u.id` ALONE and
+   * resolves a value the caller already supplied, so it discloses nothing about a
+   * person the caller did not already name. That ground is a claim about the
+   * PROJECTION, and until this field nothing checked it: `SELECT u.id,
+   * u.display_name FROM app_user u WHERE u.email = lower($1)` would have spent
+   * the same allowance and passed, turning a sign-in lookup into a name lookup
+   * with the gate green.
+   *
+   * The check is a substring over the SQL literal, which is coarse in the
+   * direction that costs a MISSED detection rather than a false one: an author
+   * who rewrites the statement gets a loud failure naming the declared text.
+   */
+  readonly projects: string;
   readonly reason: string;
   readonly closingBead?: string;
 }
 
 /**
- * **The declared exemptions, which is one row.**
+ * **The declared exemptions, which is two rows.**
  *
  * A short list is the control rather than a convenience: 022 P3's cheapest
  * satisfaction of 019 T35 is *"never to build a per-operator surface"*, and every
  * row here is a read that came close enough to need an argument.
+ *
+ * Both rows are the SAME statement — `SELECT u.id … WHERE u.email = lower($1)` —
+ * and that is worth noticing rather than folding: one is the first statement of an
+ * unauthenticated sign-in and the other is the second half of an authenticated
+ * admission, so they differ in who may reach them and in what a fact about them
+ * would cost. Merging them into one function would put an unauthenticated caller
+ * and a privileged one on one code path (000-docs/062 §3.3).
  */
 // ⚠⚠ **THIS FILE IS SCANNED BY ITS OWN RULE. NO BACKTICKED SQL SAMPLE BELOW.**
 //
@@ -1581,6 +1612,7 @@ export const PERSON_JOIN_ROWS: readonly PersonJoinRow[] = [
     path: "src/services/auth/credentials.ts",
     count: 1,
     kind: "exemption",
+    projects: "SELECT u.id FROM app_user u WHERE u.email = lower($1)",
     reason:
       // ⚠ NO BACKTICKS IN THIS STRING, AND THAT IS NOT A STYLE CHOICE. The rule
       // below scans backtick-delimited literals in every file it is handed,
@@ -1597,6 +1629,25 @@ export const PERSON_JOIN_ROWS: readonly PersonJoinRow[] = [
       "socket append to `identity_access` without holding a session — an audit table a stranger " +
       "can grow. 000-docs/060 §5.3 argues it; a failed sign-in is already recorded, as an " +
       "`auth_attempt` failure (048 §9.1).",
+  },
+  {
+    path: "src/services/auth/people.ts",
+    count: 1,
+    kind: "exemption",
+    projects: "SELECT u.id FROM app_user u WHERE u.email = lower($1)",
+    reason:
+      // ⚠ NO BACKTICKS IN THIS STRING, for the reason the row above gives.
+      "E03-D21's second half of `upsertPerson` — SELECT u.id FROM app_user u WHERE u.email = " +
+      "lower($1), reached only when the INSERT above it collided. It is the SAME shape as the " +
+      "sign-in lookup one row up and is exempt on the same ground: it projects u.id ALONE and " +
+      "resolves a value the CALLER supplied, so it discloses nothing about a person the caller " +
+      "did not already name — the caller is about to invite that exact address. It EXISTS because " +
+      "migrations/036 policies app_user on a live membership: the previous statement was ON " +
+      "CONFLICT DO UPDATE, whose conflict path is an UPDATE, and keeping it would have meant " +
+      "granting the person-admission scope the right to update any person's row cross-tenant. " +
+      "Routing it through the accessor is refused for the same reason as the row above and one " +
+      "more: it is a WRITE path, and 000-docs/060 §1 excludes writes from the accessor because a " +
+      "write carries a name INTO the database that the caller already holds. 000-docs/062 §3.3.",
   },
 ];
 
@@ -1703,7 +1754,23 @@ export function checkIdentityPersonJoins(files: readonly SourceFile[]): Finding[
       violations += 1;
     }
 
-    const allowed = declared.get(file.path)?.count ?? 0;
+    // F5: the exemption is for a STATEMENT, not for a file. A declared file must
+    // contain the exact projection its row claims to be exempt for — so widening
+    // `SELECT u.id` to `SELECT u.id, u.display_name` fails the gate rather than
+    // spending an allowance that was granted on the narrower text.
+    const row = declared.get(file.path);
+    if (row !== undefined && !text.includes(row.projects)) {
+      findings.push({
+        rule: "identity-is-the-only-person-join",
+        message:
+          `${file.path} is a declared person-join exemption whose exact projection is missing: the ` +
+          `row claims "${row.projects}" and the file does not contain it (019 T35(b), 000-docs/062 ` +
+          `§3.3). The exemption was granted for a statement that projects an id ALONE from a value ` +
+          `the caller supplied; a widened projection is a different read and needs its own argument.`,
+      });
+    }
+
+    const allowed = row?.count ?? 0;
     // AN EQUALITY, NOT A CEILING (`SELECT_STAR_ROWS`' discipline). A declared
     // file that stops holding its statement fails too, because a stale exemption
     // is a hole nobody is looking at. The check is per-SCANNED-file rather than a

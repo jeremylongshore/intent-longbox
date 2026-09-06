@@ -46,6 +46,7 @@ import {
 } from "./invitations.js";
 import { membershipAt, membershipsAt, shopsForSession, type ShopSummary } from "./memberships.js";
 import { upsertPerson } from "./people.js";
+import { mayIssueInvitation } from "./invitations.js";
 // E03-D17: the ONE door onto a person's attributes (034 §3.3, 019 T35(b)). Every
 // call below writes an `identity_access` fact; nothing in this file may read
 // `app_user` directly, and `pnpm arch` refuses it if anybody tries.
@@ -299,9 +300,14 @@ export async function openOperatorSession(
     { tenant: { shopId: device.shop_id } }
   );
 
-  // `app_user` carries no tenant column and therefore no policy (its reason, and
-  // the residual it leaves, are 056 §7 and §11 R9). `shop` DOES carry one now — on
-  // its own `id` — so the read that follows names the tenant it is about.
+  // ⚠ **`app_user` IS POLICIED SINCE E03-D21, AND THIS READ IS WHY THE TENANT
+  // CONTEXT IS LOAD-BEARING TWICE OVER** (000-docs/062; 056 §11 R9, discharged).
+  // The person table carries no tenant COLUMN and now carries a tenant PREDICATE:
+  // a live membership at `current_shop_id()`. The block above satisfies it by
+  // construction — `membershipAt` refused the session unless this person holds one
+  // right now, with the same liveness triple the policy uses — so the read below
+  // returns the person, and a person whose grant was revoked in between returns
+  // nothing rather than a name.
   //
   // ⚠ **AND IT RUNS ON A `tenantDb` HANDLE SINCE E03-D17, WHICH IS NOT COSMETIC.**
   // The accessor appends an `identity_access` fact on the SAME handle, and that
@@ -707,16 +713,74 @@ export async function createInvitation(
     await requireFreshSecondFactor(deps, appUserId, input.totpCode);
   }
 
+  // ⚠ **THE RANK CHECK RUNS BEFORE THE ADMISSION, AND THE ORDER IS THE FIX**
+  // (E03-D21, the security lens's F4). `mayGrantRole` used to be reached inside
+  // `issueInvitation`, inside the idempotent transaction — which is AFTER the
+  // person below has been committed. An authorization refusal that leaves a side
+  // effect behind is the wrong shape whatever the side effect is, and this one is
+  // not nothing: the first shop to type an address owns that person's display
+  // name estate-wide (000-docs/062 §6). A manager refused for naming an owner now
+  // creates no row at all.
+  //
+  // It costs one extra membership read on the SUCCESS path, because
+  // `issueInvitation` still runs the same gate inside the request transaction —
+  // deliberately: a grant revoked between the two must refuse the act, and only
+  // the in-transaction read can see that. The decision RECORD is unaffected: on
+  // this surface the hook already wrote the allowance, so a permitted call writes
+  // nothing from either site, and a refusal is written once, here, before the
+  // throw.
+  const mayInvite = await withTransaction(
+    deps.pool,
+    (tx) =>
+      mayIssueInvitation(tx, {
+        shopId: session.shop_id,
+        role: input.role,
+        invitedBy: appUserId,
+        now: new Date(),
+        audit: { routeMethod: "POST", routePath: `${API_PREFIX}/invitations`, recordAllowance: false },
+      }),
+    { tenant: { shopId: session.shop_id } }
+  );
+  if (!mayInvite) throw new LongboxError("PERMISSION_DENIED");
+
+  // ⚠ **THE PERSON IS ADMITTED IN A TRANSACTION OF ITS OWN, AND THE REASON IS THE
+  // POLICY THAT NOW STANDS OVER `app_user`** (E03-D21, 000-docs/062 §3.2).
+  // `migrations/036` policies the person table on a LIVE MEMBERSHIP, and this is
+  // the one act in the system that reaches a person before any grant exists: an
+  // invitation NAMES its addressee before any code is minted (048 §7.1), and that
+  // addressee may hold nothing anywhere — or may already work at ANOTHER shop,
+  // whose row this shop's tenant context cannot see and must still find by email
+  // (034 §2.6). A transaction carries ONE context, so the admission cannot borrow
+  // the request's: it runs in the declared `person-admission` scope, which may
+  // SELECT a person and INSERT an ACTIVE one and may do nothing else at all.
+  //
+  // **The cost is stated rather than hidden**: this commits before the idempotent
+  // transaction below, so an invitation refused by the shop's CEILING, or by any
+  // rolled-back request, still leaves an `app_user` row behind — and that row is
+  // not nothing, because the first shop to type an address owns that person's
+  // display name at every other shop (000-docs/062 §6). The largest class of
+  // orphan — an authorization refusal — is gone with the reordering above; what
+  // remains is bounded by the route's `ordinary` rate token and is routed to
+  // E03-B09. The alternative — a context that changes inside a transaction —
+  // would make "which tenant was this transaction about" a question with two
+  // answers, which is the property 056 §3 exists to keep single.
+  //
+  // **A REPLAY re-runs it.** For a non-`owner` role the replay check lives inside
+  // `runIdempotent`, so a retried key reaches this line again; `upsertPerson` is
+  // idempotent on the address, so the second pass finds the row it created and
+  // adds nothing.
+  const invitedPersonId = await withTransaction(
+    deps.pool,
+    (tx) => upsertPerson(tx, { email: input.email, displayName: input.displayName }),
+    { tenant: { service: "person-admission" } }
+  );
+
   let code: string | undefined;
   let expiresAt: Date | undefined;
   const outcome = await runIdempotent(deps.pool, req, async (tx) => {
     // `upsertPerson` returns an ID and no longer a row (E03-D17): a write that
     // handed back a display name was a person-read wearing a write's clothes,
     // and no caller ever used the name.
-    const invitedPersonId = await upsertPerson(tx, {
-      email: input.email,
-      displayName: input.displayName,
-    });
     const issued = await issueInvitation(tx, {
       shopId: session.shop_id,
       appUserId: invitedPersonId,

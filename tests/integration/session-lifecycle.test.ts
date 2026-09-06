@@ -22,7 +22,7 @@ import {
   type SessionRow,
 } from "../../src/services/auth/index.js";
 import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
-import { openDevice, openOperator, seedIdentity, type SeededIdentity } from "./authHelpers.js";
+import { insertUser, openDevice, openOperator, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 
 const dbUp = await probeDb();
 
@@ -418,11 +418,11 @@ describe.skipIf(!dbUp)("the session lifecycle (048 §3.3, I3)", () => {
   // -------------------------------------------------------------------------
 
   async function insertPerson(): Promise<string> {
-    const res = await shopQuery(
-      `INSERT INTO app_user (email, display_name) VALUES ($1,'Person') RETURNING id`,
-      [`person-${randomUUID()}@example.invalid`]
-    );
-    return (res.rows[0] as { id: string }).id;
+    // E03-D21: a person INSERT satisfies NO tenant predicate — the row being
+    // created is somebody who works nowhere yet, which is what admission MEANS —
+    // so it goes through `insertUser`, which enters the declared admission scope
+    // exactly as the invitation route does (000-docs/062 §3.2).
+    return insertUser(pool, `person-${randomUUID()}@example.invalid`, "Person");
   }
 
   async function grantShop(appUserId: string): Promise<void> {

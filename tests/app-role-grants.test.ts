@@ -18,6 +18,7 @@ describe("planAppRoleGrants", () => {
       noGrant: [],
       columnScoped: [],
       insertOnly: [],
+      readAppend: [],
     });
   });
 
@@ -28,6 +29,7 @@ describe("planAppRoleGrants", () => {
       noGrant: [],
       columnScoped: [],
       insertOnly: [],
+      readAppend: [],
     });
   });
 
@@ -42,6 +44,7 @@ describe("planAppRoleGrants", () => {
       noGrant: ["schema_migrations"],
       columnScoped: [],
       insertOnly: [],
+      readAppend: [],
     });
   });
 
@@ -69,6 +72,7 @@ describe("planAppRoleGrants", () => {
       noGrant: ["app_user_origin", "app_user_origin_retirement"],
       columnScoped: [],
       insertOnly: [],
+      readAppend: [],
     });
   });
 
@@ -134,6 +138,7 @@ describe("buildGrantStatements", () => {
     noGrant: ["schema_migrations"],
     columnScoped: [],
     insertOnly: [],
+    readAppend: [],
   };
 
   it("emits no GRANT at all for a no-grant table — the opening REVOKE ALL is its whole story", () => {
@@ -145,7 +150,14 @@ describe("buildGrantStatements", () => {
   it("still validates a no-grant identifier, so the class cannot smuggle one past the check", () => {
     expect(() =>
       buildGrantStatements(
-        { appendOnly: [], mutable: [], noGrant: ["bad name"], columnScoped: [], insertOnly: [] },
+        {
+          appendOnly: [],
+          mutable: [],
+          noGrant: ["bad name"],
+          columnScoped: [],
+          insertOnly: [],
+          readAppend: [],
+        },
         "app"
       )
     ).toThrow(/unsafe table/);
@@ -184,6 +196,7 @@ describe("buildGrantStatements", () => {
     noGrant: [],
     columnScoped: [{ table: "user_authenticator", columns: ["last_used_step", "updated_at"] }],
     insertOnly: [],
+    readAppend: [],
   };
 
   it("grants a column-scoped table SELECT+INSERT and UPDATE on the NAMED COLUMNS only", () => {
@@ -250,7 +263,7 @@ describe("buildGrantStatements", () => {
     expect(() => buildGrantStatements(plan, 'app"; DROP DATABASE x; --')).toThrow(/unsafe role/);
     expect(() =>
       buildGrantStatements(
-        { appendOnly: ["a b"], mutable: [], noGrant: [], columnScoped: [], insertOnly: [] },
+        { appendOnly: ["a b"], mutable: [], noGrant: [], columnScoped: [], insertOnly: [], readAppend: [] },
         "app"
       )
     ).toThrow(/unsafe table/);
@@ -279,6 +292,7 @@ describe("applyAppRoleGrants", () => {
       noGrant: [],
       columnScoped: [],
       insertOnly: [],
+      readAppend: [],
     });
     expect(executed).toContain("GRANT SELECT, INSERT ON cost_log TO longbox_app");
     expect(executed).toContain("GRANT SELECT ON shop_current TO longbox_app");

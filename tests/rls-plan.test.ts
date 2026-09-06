@@ -7,8 +7,12 @@
 // module is that such a table stops the grant step LOUDLY rather than landing
 // outside the boundary. That is asserted here, against fixtures, because the live
 // schema (by construction) contains no such table to test with.
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  POLICIED_WITHOUT_SHOP_ID,
   RLS_EXEMPTIONS,
   SERVICE_CONTEXT_TABLES,
   SERVICE_POLICY,
@@ -28,6 +32,17 @@ import {
 } from "../src/db/rowLevelSecurity.js";
 import { SERVICE_SCOPES } from "../src/db/tenantContext.js";
 
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Every `.ts` file under a directory, so a claim about the tree is about the TREE. */
+function walk(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) return walk(full);
+    return entry.isFile() && full.endsWith(".ts") ? [full] : [];
+  });
+}
+
 const scanSession = { name: "scan_session", relkind: "r", hasShopId: true };
 const appSession = { name: "app_session", relkind: "r", hasShopId: true };
 const shop = { name: "shop", relkind: "r", hasShopId: false };
@@ -46,12 +61,18 @@ describe("classifying the live schema", () => {
     const plan = planRowLevelSecurity([shop]);
     expect(plan.policied).toEqual(["shop"]);
     expect(plan.exempt).toEqual([]);
-    expect(tenantPredicate("shop")).toBe("id = current_shop_id()");
-    expect(tenantPredicate("scan_session")).toBe("shop_id = current_shop_id()");
+    // ⚠ **THE OUTER PARENTHESES ARE THE DEPARSER'S, AND THEY ARE LOAD-BEARING**
+    // (E03-D21). Postgres re-renders a policy fully parenthesised, and the boot
+    // assertion compares live against declared by depth-annotated tokens —
+    // because a comparison that erases parentheses erases precedence, which is
+    // how a relaxed policy booted green. So the declaration is written in the
+    // shape the catalog reports back.
+    expect(tenantPredicate("shop")).toBe("(id = current_shop_id())");
+    expect(tenantPredicate("scan_session")).toBe("(shop_id = current_shop_id())");
     const sql = buildRlsStatements(plan);
     expect(sql).toContain(
       `CREATE POLICY ${TENANT_POLICY} ON shop FOR ALL ` +
-        `USING (id = current_shop_id()) WITH CHECK (id = current_shop_id())`
+        `USING ((id = current_shop_id())) WITH CHECK ((id = current_shop_id()))`
     );
     // …and the consequence worth having: an INSERT can never satisfy it, so
     // creating a shop is a schema-owner act enforced by the database.
@@ -158,7 +179,7 @@ describe("the statements it emits", () => {
     const sql = buildRlsStatements(planRowLevelSecurity([appSession]));
     expect(sql).toContain(
       `CREATE POLICY ${SERVICE_POLICY} ON app_session FOR SELECT ` +
-        `USING (longbox_service_scope() = ANY (ARRAY['session-resolution']))`
+        `USING ((longbox_service_scope() = ANY (ARRAY['session-resolution'])))`
     );
     // …and NOT a write policy: `app_session` is written under the shop its row names.
     expect(sql.some((x) => x.startsWith(`CREATE POLICY ${SERVICE_WRITE_POLICY} ON app_session`))).toBe(false);
@@ -177,10 +198,98 @@ describe("the statements it emits", () => {
     // would be the `FOR ALL` boolean again, one policy narrower.
     expect(serviceWritePredicate(attempt)).toContain("shop_id IS NULL");
     expect(SERVICE_WRITE_TABLES).toEqual([
+      // E03-D21: `app_user` is the FOURTH, and the only one whose check is about
+      // a column rather than about a null — the admission may create an ACTIVE
+      // person and nothing else, which is what makes "the running server can
+      // never suspend or deactivate somebody" a property of the database.
+      "app_user",
       "auth_attempt",
       "connector_token_retirement",
       "connector_webhook_receipt",
     ]);
+  });
+
+  it("E03-D21: the admission's write check names the ROW, and the scope may not UPDATE", () => {
+    const person = SERVICE_TABLES.find((t) => t.table === "app_user")!;
+    expect(serviceWritePredicate(person)).toContain("status = 'active'");
+    expect(serviceWritePredicate(person)).toContain("person-admission");
+    const sql = buildRlsStatements(
+      planRowLevelSecurity([{ name: "app_user", relkind: "r", hasShopId: false }])
+    );
+    // FOR INSERT and FOR SELECT, and no third command anywhere: an `ON CONFLICT
+    // DO UPDATE` inside the scope would have been an UPDATE to row-level
+    // security, which is why `upsertPerson` stopped using one.
+    expect(sql).toContain(
+      `CREATE POLICY ${SERVICE_WRITE_POLICY} ON app_user FOR INSERT ` +
+        `WITH CHECK (${serviceWritePredicate(person)})`
+    );
+    expect(sql.some((s) => /POLICY .* ON app_user FOR UPDATE/.test(s))).toBe(false);
+    expect(sql.some((s) => /POLICY .* ON app_user FOR DELETE/.test(s))).toBe(false);
+  });
+
+  it("E03-D21: `app_user` is POLICIED, on a live membership one join away", () => {
+    // The parent-EXISTS idiom 056 §7 already names for `retention_hold_release`,
+    // and it does NOT encode "a person belongs to one shop": every shop where the
+    // person holds a live grant matches, and no other.
+    const plan = planRowLevelSecurity([{ name: "app_user", relkind: "r", hasShopId: false }]);
+    expect(plan.policied).toEqual(["app_user"]);
+    expect(plan.exempt).toEqual([]);
+    expect(POLICIED_WITHOUT_SHOP_ID).toEqual(["app_user", "shop"]);
+
+    const predicate = tenantPredicate("app_user");
+    expect(predicate).toContain("EXISTS (SELECT 1 FROM membership m");
+    expect(predicate).toContain("m.app_user_id = app_user.id");
+    expect(predicate).toContain("m.shop_id = current_shop_id()");
+    // ⚠ **THE TRIPLE IS NOT SPELLED HERE, AND THAT IS THE CONSISTENCY LENS'S K2.**
+    // Writing it out — even character-faithfully — would have made the BOUNDARY a
+    // second definition of *works here* beside the five the application already
+    // holds, and two definitions drift the first time either is corrected. There
+    // is ONE (`membership_is_live`, `migrations/036`) and six callers.
+    expect(predicate).toContain("membership_is_live(m.*)");
+    expect(predicate).not.toContain("effective_from");
+    expect(predicate).not.toContain("membership_revocation");
+    // Both halves of the tenant policy carry it — a `USING` without a matching
+    // `WITH CHECK` would read one shop's people and write anybody's.
+    const sql = buildRlsStatements(plan);
+    expect(sql).toContain(
+      `CREATE POLICY ${TENANT_POLICY} ON app_user FOR ALL USING (${predicate}) WITH CHECK (${predicate})`
+    );
+  });
+
+  it("E03-D21 / K2: ONE definition of a live grant, and SIX callers reach it", () => {
+    // The consistency lens's K2. Not "the same text as the application's" — the
+    // SAME DEFINITION, so a policy cannot admit somebody the application
+    // excludes. Asserted by grep across the tree rather than by claim, in both
+    // directions: every reader calls the function, and NO reader still carries a
+    // hand-written copy of the triple.
+    const migration = readFileSync(
+      join(repoRoot, "migrations/036_person_tables_behind_a_membership_policy.sql"),
+      "utf8"
+    );
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION membership_is_live(m membership)");
+    expect(migration).toContain("SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id");
+
+    // ⚠ **IT WALKS `src/` RATHER THAN A LIST OF FILES.** A named list is the shape
+    // this case exists to refuse: the claim is that NO reader spells the triple,
+    // and a list can only say that of the readers somebody remembered. Walking
+    // the tree makes a sixth hand copy — in a file nobody thought to name — a
+    // failure rather than an omission.
+    let calls = 0;
+    for (const file of walk(join(repoRoot, "src"))) {
+      const source = readFileSync(file, "utf8");
+      calls += (source.match(/membership_is_live\(m\)/g) ?? []).length;
+      // The half that keeps this honest: no reader may still spell the triple.
+      expect(source, `${file} still spells effective_from`).not.toContain("m.effective_from <= now()");
+      expect(source, `${file} still spells the revocation`).not.toContain(
+        "SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id"
+      );
+    }
+    // FIVE application call sites across the whole of `src/` (four in
+    // `memberships.ts`, one roster), plus the policy in `TENANT_PREDICATES`, is
+    // six readers of one definition. EXACT, never a ceiling: a new caller is a
+    // new place the predicate is relied on and belongs in this number.
+    expect(calls).toBe(5);
+    expect(tenantPredicate("app_user")).toContain("membership_is_live(m.*)");
   });
 
   it("makes every view security_invoker — the half that would have voided the rest", () => {
@@ -232,14 +341,21 @@ describe("the service declaration", () => {
 
   it("sorts the scope list, so a policy's text does not depend on declaration order", () => {
     expect(scopePredicate(["my-shops", "code-redemption"])).toBe(
-      "longbox_service_scope() = ANY (ARRAY['code-redemption', 'my-shops'])"
+      "(longbox_service_scope() = ANY (ARRAY['code-redemption', 'my-shops']))"
     );
   });
 
   it("keeps the read predicate SELECT-shaped and the write predicate a conjunction", () => {
     const receipt = SERVICE_TABLES.find((t) => t.table === "connector_webhook_receipt")!;
-    expect(serviceReadPredicate(receipt)).toBe("longbox_service_scope() = ANY (ARRAY['connector-inbound'])");
+    expect(serviceReadPredicate(receipt)).toBe(
+      "(longbox_service_scope() = ANY (ARRAY['connector-inbound']))"
+    );
     expect(serviceWritePredicate(receipt)).toContain(" AND (");
+    // The row condition is declared already parenthesised as the deparser
+    // renders it, so the conjunction adds its own pair and no more.
+    expect(serviceWritePredicate(receipt)).toBe(
+      "((longbox_service_scope() = ANY (ARRAY['connector-inbound'])) AND (topic IS NOT NULL))"
+    );
   });
 });
 
@@ -263,15 +379,44 @@ describe("the exemption rows are decisions, not a list", () => {
     for (const t of SERVICE_CONTEXT_TABLES) expect(names).not.toContain(t);
   });
 
-  it("no longer exempts `shop`, and says in `app_user`'s row why THAT one stays", () => {
-    // `shop` moved out of this list entirely (it is policied on its own `id`). The
-    // person tables stay, and their reason had to be repaired: an EXISTS-over-
-    // membership policy would not encode "a person belongs to one shop" — it would
-    // refuse a person during the transaction that admits them.
+  it("no longer exempts `shop` OR `app_user` — both are policied, by different predicates", () => {
+    // `shop` moved out at E03-B04 (its tenant is its own `id`). `app_user` moved
+    // out at E03-D21: 056 §11 R9 said the person table was bounded by CODE and not
+    // by the database, and it is now bounded by both.
     expect(RLS_EXEMPTIONS.find((e) => e.table === "shop")).toBeUndefined();
-    const user = RLS_EXEMPTIONS.find((e) => e.table === "app_user");
-    expect(user).toBeDefined();
-    expect(user!.reason).toContain("SAME transaction");
-    expect(user!.reason).toContain("R9");
+    expect(RLS_EXEMPTIONS.find((e) => e.table === "app_user")).toBeUndefined();
+  });
+
+  it("E03-D21: every remaining person-scoped row stands on its OWN ground, not `app_user`'s", () => {
+    // ⚠ THE POINT OF THIS CASE. Five rows used to say, in substance, "same reason
+    // as `app_user`" — and that row has moved, so a reason pointing at it is a
+    // reason nobody has checked. Each is re-decided in 000-docs/062 §4, and the
+    // assertion is that none of them delegates.
+    const person = [
+      "user_credential",
+      "user_authenticator",
+      "user_authenticator_retirement",
+      "recovery_code",
+      "recovery_code_use",
+      "app_user_origin",
+      "app_user_origin_retirement",
+    ];
+    for (const table of person) {
+      const row = RLS_EXEMPTIONS.find((e) => e.table === table);
+      // The row must EXIST and its reason must be substantive — a row with an
+      // empty reason would satisfy a "does not delegate" check vacuously.
+      expect(row?.table, table).toBe(table);
+      expect(row!.reason.length, table).toBeGreaterThan(80);
+      expect(row!.reason, table).not.toContain("Same reason as `app_user`");
+      expect(row!.reason, table).not.toContain("Person-scoped like `app_user`");
+    }
+    // The decisive one, which no other table shares: a policy over the statement
+    // whose AFFECTED-ROW COUNT is the authorization (048 R19) turns a
+    // misconfiguration into "this code was already used".
+    const totp = RLS_EXEMPTIONS.find((e) => e.table === "user_authenticator")!;
+    expect(totp.reason).toContain("AFFECTED-ROW COUNT IS THE AUTHORIZATION");
+    // And the origin tables did NOT move for the opposite reason to `app_user`'s:
+    // a per-tenant answer is exactly what 019 T35(c) must not get.
+    expect(RLS_EXEMPTIONS.find((e) => e.table === "app_user_origin")!.reason).toContain("T35(c)");
   });
 });

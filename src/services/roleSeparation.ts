@@ -43,12 +43,17 @@ import { APPEND_ONLY_TABLE_NAMES } from "../db/appendOnlyTables.js";
 // 058 F2: the tables the application role may not touch at all. Imported from
 // the SAME declaration the grant step reads, so the boot check and the grant
 // plan cannot disagree about which tables they are.
-import { INSERT_ONLY_TABLE_NAMES, NO_APP_GRANT_TABLE_NAMES } from "../db/appRoleGrants.js";
 import {
+  INSERT_ONLY_TABLE_NAMES,
+  NO_APP_GRANT_TABLE_NAMES,
+  READ_APPEND_TABLE_NAMES,
+} from "../db/appRoleGrants.js";
+import {
+  POLICIED_WITHOUT_SHOP_ID,
+  RLS_EXEMPT_TABLE_NAMES,
   SERVICE_POLICY,
   SERVICE_TABLES,
   SERVICE_WRITE_POLICY,
-  TENANT_COLUMNS,
   TENANT_POLICY,
   serviceReadPredicate,
   serviceWritePredicate,
@@ -262,6 +267,18 @@ export interface TenantIsolationResult {
    */
   unexpectedPolicies: string[];
   /**
+   * Tables this design declares EXEMPT that nevertheless carry row-level security
+   * or a policy — the security lens's F3 on 000-docs/062.
+   *
+   * The mirror of `unprotectedTables`, and its remedy is the opposite one: DROP
+   * the policy, do not add one. It exists because 062 §4's strongest argument —
+   * that a filter over `user_authenticator` would turn a misconfiguration into a
+   * refusal indistinguishable from a replay, since 048 R19 makes the affected-row
+   * count the authorization — rested entirely on nobody having written such a
+   * policy. An argument about harm that nothing enforces is a comment.
+   */
+  policiedExemptions: string[];
+  /**
    * Relations of a kind this boundary cannot protect — a materialized view, a
    * foreign table. Empty by construction today, because the migrate step refuses
    * to create the situation; carried here because a restored dump can.
@@ -281,10 +298,20 @@ export interface TenantIsolationResult {
    * `GRANT INSERT … TO longbox_app` after which the application role appended a
    * back-dated retirement while BOTH boot assertions reported green.
    *
-   * `has_table_privilege` rather than a `role_table_grants` read, deliberately:
+   * A privilege FUNCTION rather than a `role_table_grants` read, deliberately:
    * the question is not "was a GRANT statement issued" but "can this role, by any
    * path — a direct grant, PUBLIC, or a role it is a member of — touch the table",
    * and only the privilege function answers that one.
+   *
+   * ⚠ **AND IT IS `has_any_column_privilege`, NOT `has_table_privilege`**
+   * (E03-D21's re-verification). The table-level function is blind to a COLUMN
+   * grant: `GRANT UPDATE (email, display_name, status) ON app_user TO
+   * longbox_app` left it answering FALSE while a tenant-context UPDATE returned
+   * `UPDATE 1`. A column grant is a grant, and the column function subsumes the
+   * table-level answer, so all three classes ask it for `SELECT`, `INSERT` and
+   * `UPDATE`. **`DELETE` keeps `has_table_privilege`** because PostgreSQL has no
+   * column-level DELETE at all — there, the table-level function is the complete
+   * answer rather than a partial one.
    */
   forbiddenGrants: string[];
 }
@@ -293,11 +320,19 @@ interface IsolationRow {
   bypasses: boolean;
   owned: string[] | null;
   unprotected: string[] | null;
-  altered: string[] | null;
-  unexpected: string[] | null;
+  policied_exemptions: string[] | null;
   owner_views: string[] | null;
   unprotectable: string[] | null;
   forbidden_grants: string[] | null;
+}
+
+/** One policy as `pg_policies` reports it, before any comparison (E03-D21). */
+interface LivePolicyRow {
+  tablename: string;
+  policyname: string;
+  cmd: string;
+  qual: string;
+  with_check: string;
 }
 
 /**
@@ -335,27 +370,6 @@ const ISOLATION_SQL = `
              )
              OR c.relname = ANY ($1::text[])
            )
-  ),
-  -- Every policy that EXISTS on a policied table, normalised the way the
-  -- declaration is. coalesce() rather than a guard: a NULL qual is a policy with
-  -- no USING clause, which is a FACT about it and not an absence of one.
-  live AS (
-    SELECT pol.tablename, pol.policyname, pol.cmd,
-           replace(replace(replace(replace(coalesce(pol.qual, ''), ' ', ''), '(', ''), ')', ''), '::text', '')
-             AS using_expr,
-           replace(replace(replace(replace(coalesce(pol.with_check, ''), ' ', ''), '(', ''), ')', ''), '::text', '')
-             AS check_expr
-      FROM pg_policies pol
-      JOIN policied p ON p.relname = pol.tablename
-     WHERE pol.schemaname = 'public'
-  ),
-  expected AS (
-    -- Columns named rather than starred: unnest() has no schema to drift, but 042
-    -- I5(b)'s lint is a rule about the TREE, and an exemption row for a
-    -- five-column set-returning function would cost more than typing them.
-    SELECT t.tablename, t.policyname, t.cmd, t.using_expr, t.check_expr
-      FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
-        AS t(tablename, policyname, cmd, using_expr, check_expr)
   )
   SELECT
     COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user), false) AS bypasses,
@@ -365,25 +379,28 @@ const ISOLATION_SQL = `
     (SELECT array_agg(p.relname::text ORDER BY p.relname) FROM policied p
       JOIN pg_class c ON c.oid = p.oid
       WHERE NOT c.relrowsecurity
-         OR NOT EXISTS (SELECT 1 FROM live l
-                         WHERE l.tablename = p.relname AND l.policyname = $7)) AS unprotected,
-    -- A policy whose NAME this design emits, but whose command or predicate is not
-    -- the declared one: a relaxed tenant_isolation, a reshaped one, a service
-    -- policy widened from SELECT to ALL, or one on a table nothing declares.
-    (SELECT array_agg((l.tablename::text || ':' || l.policyname::text || ' ' || l.cmd::text)
-                      ORDER BY l.tablename, l.policyname)
-       FROM live l
-      WHERE l.policyname = ANY ($8::text[])
-        AND NOT EXISTS (
-              SELECT 1 FROM expected e
-               WHERE e.tablename = l.tablename AND e.policyname = l.policyname
-                 AND e.cmd = l.cmd AND e.using_expr = l.using_expr AND e.check_expr = l.check_expr
-            )) AS altered,
-    -- A policy this design never emits at all. Postgres OR-combines permissive
-    -- policies, so an ADDED one is a grant with the declared boundary intact.
-    (SELECT array_agg((l.tablename::text || ':' || l.policyname::text || ' ' || l.cmd::text)
-                      ORDER BY l.tablename, l.policyname)
-       FROM live l WHERE l.policyname <> ALL ($8::text[])) AS unexpected,
+         OR NOT EXISTS (SELECT 1 FROM pg_policies l
+                         WHERE l.schemaname = 'public'
+                           AND l.tablename = p.relname AND l.policyname = $2)) AS unprotected,
+    -- E03-D21 (security lens F3): A DECLARED EXEMPTION THAT IS NOT ONE.
+    --
+    -- 000-docs/062 §4 keeps five person-scoped tables outside the boundary, and
+    -- its strongest argument is that a policy over user_authenticator would be
+    -- HARMFUL: 048 R19 makes the affected-row count of its replay guard the
+    -- authorization, so a filter turns a misconfiguration into a refusal
+    -- indistinguishable from a replay. That argument rested on nobody having
+    -- written such a policy. This branch is what turns it into enforcement: a
+    -- table this design declares exempt must have row-level security OFF and no
+    -- policy of any kind. Reported as its own array because the remedy is the
+    -- opposite of every other one here -- DROP the policy, do not add one.
+    (SELECT array_agg(t ORDER BY t) FROM unnest($3::text[]) AS t
+      WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
+        AND (
+              (SELECT c.relrowsecurity FROM pg_class c
+                WHERE c.oid = to_regclass('public.' || quote_ident(t)))
+              OR EXISTS (SELECT 1 FROM pg_policies p
+                          WHERE p.schemaname = 'public' AND p.tablename = t)
+            )) AS policied_exemptions,
     (SELECT array_agg(c.relname::text ORDER BY c.relname)
        FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
       WHERE ns.nspname = 'public' AND c.relkind = 'v'
@@ -402,6 +419,27 @@ const ISOLATION_SQL = `
     -- a SELECT is a read of who is watched, an INSERT is the back-dated
     -- retirement itself.
     --
+    -- ⚠ has_any_column_privilege AND NOT has_table_privilege, IN ALL THREE
+    -- BLOCKS BELOW — E03-D21's re-verification, and it closed a real hole rather
+    -- than tightening a nicety. has_table_privilege answers about the TABLE-LEVEL
+    -- grant alone, so after a COLUMN-level UPDATE grant on the person table —
+    -- three of its columns named, the table itself never mentioned —
+    -- it answered FALSE, this check passed, and a tenant-context UPDATE returned
+    -- UPDATE 1. **A column grant is a grant.** has_any_column_privilege SUBSUMES
+    -- the table-level answer — true when the privilege is held on the table OR on
+    -- any column of it — so widening the function closes the hole with no second
+    -- question to keep in step. It applies to all three classes, because none is
+    -- safer against a column grant than the others: an insert-only table's SELECT
+    -- and a no-grant table's INSERT are as reachable one column at a time as an
+    -- UPDATE is.
+    --
+    -- DELETE KEEPS has_table_privilege, AND THAT IS NOT AN OVERSIGHT: PostgreSQL
+    -- has no column-level DELETE — the column privileges are SELECT, INSERT,
+    -- UPDATE and REFERENCES — so has_any_column_privilege REJECTS the word
+    -- outright ("unrecognized privilege type"). For DELETE the table-level
+    -- function is the COMPLETE answer rather than a partial one, which is why
+    -- the two functions sit side by side here instead of one being preferred.
+    --
     -- ⚠ BOTH HALVES ARE COALESCEd TO AN EMPTY ARRAY BEFORE THE ||, AND THAT
     -- IS LOAD-BEARING (E03-D17): array_agg over zero rows returns NULL, and in
     -- Postgres NULL || anything is NULL — so a concatenation without the two
@@ -409,11 +447,11 @@ const ISOLATION_SQL = `
     -- is a check that goes quietly green rather than red. The same failure shape
     -- 058 F2 exists to prevent, arriving through an operator.
     COALESCE(
-      (SELECT array_agg(t ORDER BY t) FROM unnest($9::text[]) AS t
+      (SELECT array_agg(t ORDER BY t) FROM unnest($4::text[]) AS t
         WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
-          AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
-            OR has_table_privilege(current_user, quote_ident(t), 'INSERT')
-            OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
+          AND (has_any_column_privilege(current_user, quote_ident(t), 'SELECT')
+            OR has_any_column_privilege(current_user, quote_ident(t), 'INSERT')
+            OR has_any_column_privilege(current_user, quote_ident(t), 'UPDATE')
             OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))),
       '{}'::text[])
       ||
@@ -435,28 +473,129 @@ const ISOLATION_SQL = `
     -- boot on a correct grant. to_regclass guards the pending case for the same
     -- reason it does above.
     COALESCE(
-      (SELECT array_agg(t ORDER BY t) FROM unnest($10::text[]) AS t
+      (SELECT array_agg(t ORDER BY t) FROM unnest($5::text[]) AS t
         WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
-          AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
-            OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
+          AND (has_any_column_privilege(current_user, quote_ident(t), 'SELECT')
+            OR has_any_column_privilege(current_user, quote_ident(t), 'UPDATE')
+            OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))),
+      '{}'::text[])
+      ||
+    -- E03-D21, the security lens's F1. THE SAME SHAPE, ONE PRIVILEGE CLASS OVER
+    -- AGAIN, and here because 000-docs/062 claimed "the running server can admit
+    -- a person and can never rename, suspend or deactivate one" while the
+    -- application role held table-level DML on app_user.
+    --
+    -- appGrant: "read-append" gives SELECT and INSERT and withholds UPDATE and
+    -- DELETE, because tenant_isolation on that table is FOR ALL and the rows it
+    -- admits are co-workers -- so a table-level UPDATE was a one-statement rewrite
+    -- of any of them, login identifier included, on a person who may be shared
+    -- with another shop. The POLICY cannot narrow that (the row is one this shop
+    -- legitimately sees); only the grant can, which is what makes the grant the
+    -- whole control and this check its runtime half.
+    --
+    -- SELECT and INSERT are deliberately ABSENT from the two asked: they are the
+    -- privileges this class is supposed to hold.
+    COALESCE(
+      (SELECT array_agg(t ORDER BY t) FROM unnest($6::text[]) AS t
+        WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
+          AND (has_any_column_privilege(current_user, quote_ident(t), 'UPDATE')
             OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))),
       '{}'::text[])
       AS forbidden_grants
 `;
 
 /**
- * Normalise a predicate the way the catalog query does: no whitespace, no
- * parentheses, no `::text` casts.
+ * Every policy that exists on a table this database policies, RAW.
  *
- * Postgres re-renders a policy expression rather than storing the author's text —
- * `= ANY (ARRAY['a'::text])` comes back with casts and its own spacing — so the
- * comparison has to be over a shape both sides can agree on. The stripping is
- * coarse and that is the right direction: a false MATCH would need two predicates
- * differing only in punctuation, while a false MISMATCH is a loud boot failure
- * somebody investigates.
+ * ⚠ **RAW IS THE WHOLE POINT, AND IT REPLACES A SECOND NORMALISER** (E03-D21;
+ * security lens F2 = consistency lens K3). Until this bead the comparison was
+ * done IN SQL against a predicate the query itself normalised, and
+ * `normalisePredicate()` did the same job again in TypeScript for the declared
+ * side. Two hand-rolled string-strippers cannot be kept in step — E03-D21's first
+ * attempt proved it in the direction of a FALSE POSITIVE (they disagreed about
+ * newlines, and a correct policy refused a port) — and the cannon proved it in
+ * the direction that matters: **both stripped parentheses**, so a predicate
+ * relaxed only by removing the grouping around this bead's own `effective_until`
+ * disjunction normalised to the declared string CHARACTER FOR CHARACTER, booted
+ * green, and returned every person in the estate to any shop holding one
+ * time-bounded grant.
+ *
+ * So there is now ONE comparison, in ONE language, over `policyTokens()`. This
+ * query fetches; it does not judge.
  */
-export function normalisePredicate(expr: string): string {
-  return expr.replace(/[\s()]/g, "").replace(/::text/g, "");
+const LIVE_POLICIES_SQL = `
+  SELECT p.tablename, p.policyname, p.cmd::text AS cmd,
+         COALESCE(p.qual, '') AS qual, COALESCE(p.with_check, '') AS with_check
+    FROM pg_policies p
+   WHERE p.schemaname = 'public' AND p.tablename = ANY ($1::text[])
+   ORDER BY p.tablename, p.policyname
+`;
+
+/**
+ * A predicate as a DEPTH-ANNOTATED TOKEN SEQUENCE — the one comparison, in one
+ * language (E03-D21; security lens F2 = consistency lens K3).
+ *
+ * ⚠ **WHAT THIS REPLACES, AND WHY THE REPLACEMENT IS NOT A REFINEMENT.** Until
+ * this bead there were TWO normalisers — this one in TypeScript, and four
+ * `replace()` calls inside `ISOLATION_SQL` — and BOTH of them **deleted
+ * parentheses**. Deleting a parenthesis deletes operator precedence, and the
+ * cannon reproduced what that costs on this bead's own policy: removing only the
+ * grouping around
+ *
+ *     AND (m.effective_until IS NULL OR m.effective_until > now())
+ *
+ * turns a conjunction into `… AND m.effective_until IS NULL OR m.effective_until
+ * > now()`, which Postgres reads as `(… AND … IS NULL) OR (… > now())` — a policy
+ * that returns **every person in the estate** to any shop holding one
+ * time-bounded grant. Both string-strippers normalised the relaxed text to the
+ * declared text **character for character**, so the boot assertion passed and the
+ * boundary was gone. *A comparison that erases operator precedence is not a
+ * boundary check.*
+ *
+ * **The fix is to keep the parentheses and make them count.** Each token is
+ * tagged with the parenthesis DEPTH it sits at, so two predicates match only when
+ * every token appears at the same nesting level in the same order. Whitespace is
+ * still irrelevant (Postgres wraps a long predicate across lines, which is the
+ * false POSITIVE this file hit first), `::text` casts are still dropped (the
+ * deparser adds them and the declaration does not), and the COUNT of parentheses
+ * is deliberately not compared — only the depth each token sits at — so a
+ * redundant pair the deparser adds around a whole expression does not fail a boot.
+ *
+ * **The declared side goes through the same function**, which is the property
+ * that makes this sound: there is no second rule to keep in step. The smallest
+ * sound repair the consistency lens asked for — comparing both sides as
+ * Postgres's own deparser renders them, by round-tripping the declaration through
+ * the database — is STRONGER still and is FILED rather than built here
+ * (000-docs/062 §8 A3, PROPOSED alias **E03-D32**): it needs a round trip at boot
+ * on a connection that may not hold `CREATE POLICY`, which is a decision about
+ * the boot path rather than an edit to this function.
+ */
+export function policyTokens(expr: string): string {
+  const out: string[] = [];
+  let depth = 0;
+  let token = "";
+  const flush = (): void => {
+    if (token.length > 0) {
+      out.push(`${String(depth)}:${token}`);
+      token = "";
+    }
+  };
+  const cleaned = expr.replace(/::text/g, "");
+  for (const ch of cleaned) {
+    if (ch === "(") {
+      flush();
+      depth += 1;
+    } else if (ch === ")") {
+      flush();
+      depth -= 1;
+    } else if (/\s/.test(ch)) {
+      flush();
+    } else {
+      token += ch;
+    }
+  }
+  flush();
+  return out.join(" ");
 }
 
 /** One policy this design emits, as the catalog will report it back. */
@@ -465,16 +604,16 @@ export interface ExpectedPolicy {
   readonly policy: string;
   /** `pg_policies.cmd`: `ALL`, `SELECT`, `INSERT`. */
   readonly cmd: string;
-  /** Normalised `qual`; `''` when the policy has none (an INSERT-only policy). */
+  /** `qual` as a depth-annotated token sequence; `''` when the policy has none (an INSERT-only policy). */
   readonly using: string;
-  /** Normalised `with_check`; `''` when the policy has none (a SELECT-only policy). */
+  /** `with_check` as a depth-annotated token sequence; `''` when the policy has none (a SELECT-only policy). */
   readonly check: string;
 }
 
 /**
  * EVERY policy this design emits, for every policied table — the tenant policy on
  * each, the scope-scoped read on the declared ones, and the INSERT-only write on
- * the three that have one.
+ * the FOUR that have one (`app_user` joined them at E03-D21).
  *
  * ⚠ **THIS IS THE WHOLE OF THE BOOT CHECK'S POLICY HALF, AND THE REASON IT IS A
  * SET RATHER THAN A LIST OF ASSERTIONS** is a defect the invariant review
@@ -498,7 +637,7 @@ export interface ExpectedPolicy {
 export function expectedPolicies(policiedTables: readonly string[]): ExpectedPolicy[] {
   const expected: ExpectedPolicy[] = [];
   for (const table of policiedTables) {
-    const tenant = normalisePredicate(tenantPredicate(table));
+    const tenant = policyTokens(tenantPredicate(table));
     expected.push({ table, policy: TENANT_POLICY, cmd: "ALL", using: tenant, check: tenant });
   }
   for (const table of SERVICE_TABLES) {
@@ -507,7 +646,7 @@ export function expectedPolicies(policiedTables: readonly string[]): ExpectedPol
       table: table.table,
       policy: SERVICE_POLICY,
       cmd: "SELECT",
-      using: normalisePredicate(serviceReadPredicate(table)),
+      using: policyTokens(serviceReadPredicate(table)),
       check: "",
     });
     if (table.write !== undefined) {
@@ -516,7 +655,7 @@ export function expectedPolicies(policiedTables: readonly string[]): ExpectedPol
         policy: SERVICE_WRITE_POLICY,
         cmd: "INSERT",
         using: "",
-        check: normalisePredicate(serviceWritePredicate(table)),
+        check: policyTokens(serviceWritePredicate(table)),
       });
     }
   }
@@ -533,33 +672,59 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
   // THE DECLARATION IS HANDED TO THE QUERY, never restated in it. Two round trips:
   // one to learn which tables this database policies, one to compare every policy
   // that exists on them against every policy this design emits for them.
-  const overrides = Object.keys(TENANT_COLUMNS);
+  const overrides = [...POLICIED_WITHOUT_SHOP_ID];
   const policiedRows = (await pool.query(POLICIED_TABLES_SQL, [overrides])).rows as Array<{
     name: string;
   }>;
-  const expected = expectedPolicies(policiedRows.map((r) => r.name));
+  const policied = policiedRows.map((r) => r.name);
+  const expected = expectedPolicies(policied);
   const row = (
     await pool.query(ISOLATION_SQL, [
       overrides,
-      expected.map((e) => e.table),
-      expected.map((e) => e.policy),
-      expected.map((e) => e.cmd),
-      expected.map((e) => e.using),
-      expected.map((e) => e.check),
       TENANT_POLICY,
-      [TENANT_POLICY, SERVICE_POLICY, SERVICE_WRITE_POLICY],
+      // E03-D21 (security F3): the declared exemptions, asked whether they are
+      // exempt IN THE DATABASE and not merely on a row in a TypeScript list.
+      [...RLS_EXEMPT_TABLE_NAMES],
       [...NO_APP_GRANT_TABLE_NAMES],
       // E03-D17 (security F2): the insert-only class, asked about SELECT, UPDATE
       // and DELETE — never INSERT, which is the privilege the class holds.
       [...INSERT_ONLY_TABLE_NAMES],
+      // E03-D21 (security F1): the read-append class, asked about UPDATE and
+      // DELETE — never SELECT or INSERT, which are the privileges it holds.
+      [...READ_APPEND_TABLE_NAMES],
     ])
   ).rows[0] as IsolationRow | undefined;
   if (!row) throw new Error("tenant-isolation check: the catalog query returned no row");
 
+  // ⚠ **THE POLICY COMPARISON HAPPENS HERE, IN ONE LANGUAGE, OVER ONE FUNCTION**
+  // (E03-D21; security F2 = consistency K3). It used to happen in SQL against a
+  // predicate the query normalised itself, with `normalisePredicate()` doing the
+  // same job again for the declared side — and BOTH stripped parentheses, so a
+  // policy relaxed by removing one pair of them compared EQUAL to the declared
+  // text and booted green. `policyTokens()` is now the only rule, and both sides
+  // go through it.
+  const live = (await pool.query(LIVE_POLICIES_SQL, [policied])).rows as LivePolicyRow[];
+  const emitted = [TENANT_POLICY, SERVICE_POLICY, SERVICE_WRITE_POLICY];
+  const label = (l: LivePolicyRow): string => `${l.tablename}:${l.policyname} ${l.cmd}`;
+  const alteredPolicies = live
+    .filter((l) => emitted.includes(l.policyname))
+    .filter(
+      (l) =>
+        !expected.some(
+          (e) =>
+            e.table === l.tablename &&
+            e.policy === l.policyname &&
+            e.cmd === l.cmd &&
+            e.using === policyTokens(l.qual) &&
+            e.check === policyTokens(l.with_check)
+        )
+    )
+    .map(label);
+  const unexpectedPolicies = live.filter((l) => !emitted.includes(l.policyname)).map(label);
+
   const ownedPoliciedTables = row.owned ?? [];
   const unprotectedTables = row.unprotected ?? [];
-  const alteredPolicies = row.altered ?? [];
-  const unexpectedPolicies = row.unexpected ?? [];
+  const policiedExemptions = row.policied_exemptions ?? [];
   const unprotectableRelations = row.unprotectable ?? [];
   const ownerReadingViews = row.owner_views ?? [];
   const forbiddenGrants = row.forbidden_grants ?? [];
@@ -568,6 +733,7 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
       !row.bypasses &&
       ownedPoliciedTables.length === 0 &&
       unprotectedTables.length === 0 &&
+      policiedExemptions.length === 0 &&
       alteredPolicies.length === 0 &&
       unexpectedPolicies.length === 0 &&
       unprotectableRelations.length === 0 &&
@@ -577,6 +743,7 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
     bypassesPolicies: row.bypasses,
     ownedPoliciedTables,
     unprotectedTables,
+    policiedExemptions,
     alteredPolicies,
     unexpectedPolicies,
     unprotectableRelations,
@@ -603,11 +770,21 @@ export function describeTenantIsolationFailure(result: TenantIsolationResult): s
         `${TENANT_POLICY} policy: ${result.unprotectedTables.join(", ")}`
     );
   }
+  if (result.policiedExemptions.length > 0) {
+    parts.push(
+      `${String(result.policiedExemptions.length)} table(s) are DECLARED EXEMPT and carry row-level ` +
+        `security or a policy anyway — the boundary is claimed in one place and applied in another, ` +
+        `and on \`user_authenticator\` a row filter would turn a misconfiguration into a refusal ` +
+        `indistinguishable from a replay (048 R19, 000-docs/062 §4): ${result.policiedExemptions.join(", ")}`
+    );
+  }
   if (result.alteredPolicies.length > 0) {
     parts.push(
       `${String(result.alteredPolicies.length)} policy/policies carry a command or a predicate that is ` +
         `not the declared one — a relaxed predicate, a reshaped command, or a policy on a table the ` +
-        `declaration does not name: ${result.alteredPolicies.join(", ")}`
+        `declaration does not name. The comparison is over a DEPTH-ANNOTATED TOKEN SEQUENCE, so a ` +
+        `predicate that differs only in where its parentheses fall is a MISMATCH rather than a match ` +
+        `(E03-D21): ${result.alteredPolicies.join(", ")}`
     );
   }
   if (result.unexpectedPolicies.length > 0) {
@@ -636,7 +813,10 @@ export function describeTenantIsolationFailure(result: TenantIsolationResult): s
         `(no tenant column, so no policy stands behind the grant and the grant is the whole ` +
         `mechanism), or a READ, UPDATE or DELETE on a table declared \`appGrant: "insert-only"\` ` +
         `(E03-D17 — a process that can read its own access log can shape what an audit sees before ` +
-        `the audit runs): ${result.forbiddenGrants.join(", ")}`
+        `the audit runs), or an UPDATE or DELETE on a table declared \`appGrant: "read-append"\` ` +
+        `(E03-D21 — \`app_user\` is policied FOR ALL over rows this shop legitimately sees, so a ` +
+        `table-level UPDATE was a one-statement rewrite of a co-worker's login email): ` +
+        `${result.forbiddenGrants.join(", ")}`
     );
   }
   return parts.join("; ");

@@ -458,6 +458,16 @@ describe("createInvitation / createEnrollmentCode (057 §4.8)", () => {
       })
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
 
+    // ⚠ **AND THE REFUSAL LEAVES NOTHING BEHIND — E03-D21, the security lens's
+    // F4.** `mayGrantRole` used to be reached inside `issueInvitation`, inside
+    // the idempotent transaction, which is AFTER the invited person has been
+    // committed under the `person-admission` scope: an AUTHORIZATION REFUSAL with
+    // a side effect. It is not nothing, either — the first shop to type an
+    // address owns that person's display name at every other shop (000-docs/062
+    // §6). The gate is extracted (`mayIssueInvitation`) and the route calls it
+    // FIRST, so a manager refused for naming an owner creates no row at all.
+    expect(ranked.calls.filter((c) => c.text.includes("INSERT INTO app_user"))).toHaveLength(0);
+
     const full = issuancePool((text) => (text.includes("count(*)") ? { rows: [{ n: 99 }] } : undefined));
     await expect(
       createInvitation(deps(full.pool), privilegedSession(), {

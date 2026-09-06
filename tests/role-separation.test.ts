@@ -10,6 +10,7 @@ import {
   assertSchemaOwnerOrThrow,
   checkRoleSeparation,
   describeRoleSeparationFailure,
+  policyTokens,
 } from "../src/services/roleSeparation.js";
 
 function fakePool(role: string, isSuperuser: boolean, ownedTables: string[]) {
@@ -136,5 +137,59 @@ describe("assertSchemaOwnerOrThrow — the mirror, for operator scripts (E04-B04
       })
     ).rejects.toThrow();
     expect(logged[0]).toMatch(/schema-owner check FAILED/);
+  });
+});
+
+// ============================================================================
+// THE POLICY COMPARISON (E03-D21; the security lens's F2 = the consistency
+// lens's K3)
+// ============================================================================
+//
+// The DB-backed halves are `tests/integration/rls-tenant-isolation.test.ts`: a
+// relaxed policy must refuse the boot and a wrapped one must not. These are the
+// properties of the FUNCTION, where a fixture is a string rather than a cluster.
+describe("policyTokens — the one predicate comparison, in one language", () => {
+  it("is insensitive to whitespace, including the newlines the deparser inserts", () => {
+    // The FALSE POSITIVE that started this: Postgres wraps a long predicate
+    // across lines, and one of the two old normalisers stripped only the SPACE
+    // character — so a correct policy was reported ALTERED and refused a port.
+    expect(policyTokens("a = b AND c = d")).toBe(policyTokens("a = b\n   AND\tc = d"));
+  });
+
+  it("drops the `::text` casts the deparser adds and the declaration does not", () => {
+    expect(policyTokens("x = ANY (ARRAY['a', 'b'])")).toBe(
+      policyTokens("x = ANY (ARRAY['a'::text, 'b'::text])")
+    );
+  });
+
+  it("REFUSES to call two predicates equal when only a parenthesis moved", () => {
+    // ⚠ **THE FALSE NEGATIVE, AND THE REASON THIS FUNCTION EXISTS.** Both old
+    // normalisers deleted parentheses, so these two normalised to the identical
+    // string — and they are not the same predicate at all: without the grouping,
+    // `AND … OR …` associates as `(… AND …) OR (…)`, which on this bead's own
+    // policy returns every person in the estate. A comparison that erases
+    // operator precedence is not a boundary check.
+    const declared = "a AND b AND (c IS NULL OR d > now())";
+    const relaxed = "a AND b AND c IS NULL OR d > now()";
+    expect(policyTokens(declared)).not.toBe(policyTokens(relaxed));
+    // …and the old rule really did call them equal, which is what makes this a
+    // regression test rather than a preference: same tokens, different meaning.
+    const stripped = (x: string): string => x.replace(/[\s()]/g, "");
+    expect(stripped(declared)).toBe(stripped(relaxed));
+  });
+
+  it("tags every token with the depth it sits at, and compares order as well", () => {
+    expect(policyTokens("a AND (b OR c)")).toBe("0:a 0:AND 1:b 1:OR 1:c");
+    // Order matters: two predicates with the same tokens at the same depths in a
+    // different order are different predicates.
+    expect(policyTokens("a AND (b OR c)")).not.toBe(policyTokens("a AND (c OR b)"));
+  });
+
+  it("returns an empty sequence for a policy half that has none", () => {
+    // A `FOR SELECT` policy has no `with_check` and a `FOR INSERT` policy has no
+    // `qual`; both arrive as the empty string and must compare equal to the
+    // empty declaration rather than to anything else.
+    expect(policyTokens("")).toBe("");
+    expect(policyTokens("   ")).toBe("");
   });
 });

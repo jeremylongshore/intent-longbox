@@ -176,6 +176,22 @@ const SNAPSHOTS = [
   // said otherwise. Thirty-two files up to and including `033` are what a
   // database at that schema has applied.
   { name: "033", file: "tests/fixtures/schema/after-033.sql", applied: 32 },
+  // E03-D21 shipped `036` and added this one. ⚠ **AND THE ARITHMETIC IS NOT WHY**
+  // — 36 files against `033`'s 32 is 4, which is exactly the limit and not past
+  // it, so the assertion at the foot of this file would have stayed green with no
+  // new fixture. Two things made it owed anyway. First, the prose of the last two
+  // beads promised it twice ("the next bead to push head past `034` adds the next
+  // one"), and a promise a suite keeps deferring is a rule nobody is following.
+  // Second, `036` is the FIRST migration whose whole content is a tenant
+  // BOUNDARY: a policy plus a function plus a privilege class, none of which the
+  // other snapshots exercise. Restoring a schema that predates it and migrating
+  // INTO it is the only test that proves an operator upgrading a running database
+  // ends up behind the boundary rather than merely that a fresh one starts there.
+  //
+  // `applied: 34` and not 35: the ledger counts FILES, and `027` is absent —
+  // reserved by E03-B06 and never written. Thirty-four files up to and including
+  // `035` are what a database at that schema has applied.
+  { name: "035", file: "tests/fixtures/schema/after-035.sql", applied: 34 },
 ] as const;
 
 const HEAD_COUNT = readMigrations().length;
@@ -456,8 +472,12 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // E03-D19 shipped `034` and added `033` — not because the limit forced it
     // either, but because `034`'s whole content is a constraint VALIDATED over
     // existing rows, and the snapshot immediately before it is the only fixture
-    // that tests that on the shape an operator actually upgrades from. The next
-    // bead to push head past `034` adds the next one.
+    // that tests that on the shape an operator actually upgrades from; and
+    // E03-D21 shipped `036` and added `035` — this time not because the limit
+    // forced it either (36 against 32 is exactly 4), but because `036` is the
+    // first migration that is ENTIRELY a tenant boundary, and the only way to
+    // show that an operator's RUNNING database ends up behind it is to restore
+    // one that predates it and migrate in.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

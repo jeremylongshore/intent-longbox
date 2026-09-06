@@ -875,14 +875,24 @@ describe("the non-graph rules, against fixtures that violate them", () => {
   });
 
   it("E03-D17: RETURNING a display_name IS a violation — a write that hands one back is a read", () => {
-    // The exact edit this bead made to `upsertPerson`: `RETURNING id,
+    // The exact edit E03-D17 made to `upsertPerson`: `RETURNING id,
     // display_name` became `RETURNING id`. The projection walker reads the
     // RETURNING tail as well as every SELECT list, which is what makes this
     // distinguishable from the case above.
+    //
+    // ⚠ **THE FIXTURE CARRIES TWO STATEMENTS SINCE E03-D21, AND IT HAS TO.**
+    // `people.ts` is now a DECLARED row with `count: 1` — the admission's
+    // `SELECT u.id … WHERE u.email = lower($1)`, which exists because
+    // `migrations/036` policies `app_user` — so a fixture holding only the
+    // offending write would spend the declared allowance on it and report
+    // nothing. Both statements together are two violations against one
+    // allowance, which is the arithmetic the real file has.
     const findings = checkIdentityPersonJoins([
       {
         path: "src/services/auth/people.ts",
-        text: "`INSERT INTO app_user (email, display_name) VALUES (lower($1), $2) RETURNING id, display_name`",
+        text:
+          "`SELECT u.id FROM app_user u WHERE u.email = lower($1)`\n" +
+          "`INSERT INTO app_user (email, display_name) VALUES (lower($1), $2) RETURNING id, display_name`",
       },
     ]);
     expect(findings).toHaveLength(1);
@@ -908,9 +918,15 @@ describe("the non-graph rules, against fixtures that violate them", () => {
     const findings = checkIdentityPersonJoins([
       { path: PERSON_JOIN_ROWS[0]!.path, text: "// nothing at all" },
     ]);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]!.message).toContain("0 statement(s)");
-    expect(findings[0]!.message).toContain("1 declared");
+    // TWO findings since E03-D21: the count is wrong (0 against 1 declared) AND
+    // the declared PROJECTION is absent, which is the F5 half — an exemption is
+    // for a STATEMENT, so a file that no longer contains the exact text its row
+    // claims to be exempt for fails on its own.
+    expect(findings).toHaveLength(2);
+    const message = findings.map((f) => f.message).join("\n");
+    expect(message).toContain("0 statement(s)");
+    expect(message).toContain("1 declared");
+    expect(message).toContain("exact projection is missing");
   });
 
   it("E03-D17: the projection walker reads SELECT lists and RETURNING tails, not WHERE clauses", () => {

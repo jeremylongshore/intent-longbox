@@ -26,6 +26,7 @@ import {
   grant,
   openDevice,
   openOperator,
+  insertUser,
   seedIdentity,
   writeHeaders,
   type SeededIdentity,
@@ -356,11 +357,11 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
   });
 
   it("refuses the moment the membership is revoked, without waiting for an expiry", async () => {
-    const person = await shopQuery(
-      `INSERT INTO app_user (email, display_name) VALUES ($1,'Leaver') RETURNING id`,
-      [`leaver-${randomUUID()}@example.invalid`]
-    );
-    const appUserId = (person.rows[0] as { id: string }).id;
+    // E03-D21: a person INSERT satisfies NO tenant predicate — the row being
+    // created is somebody who works nowhere yet, which is what admission MEANS —
+    // so it goes through `insertUser`, which enters the declared admission scope
+    // exactly as the invitation route does (000-docs/062 §3.2).
+    const appUserId = await insertUser(pool, `leaver-${randomUUID()}@example.invalid`, "Leaver");
     const membership = await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
        VALUES ($1,$2,'shop','operator') RETURNING id`,
@@ -473,11 +474,7 @@ describe.skipIf(!dbUp)("the session is the only source of shop_id (048 §6, I1/I
     // the 19% with a second storefront), which is exactly why it is the role an
     // implementation drops silently and a second shop discovers by being unable
     // to express its own staffing.
-    const manager = await shopQuery(
-      `INSERT INTO app_user (email, display_name) VALUES ($1,'Manager') RETURNING id`,
-      [`manager-${randomUUID()}@example.invalid`]
-    );
-    const managerId = (manager.rows[0] as { id: string }).id;
+    const managerId = await insertUser(pool, `manager-${randomUUID()}@example.invalid`, "Manager");
     await shopQuery(
       `INSERT INTO membership (app_user_id, shop_id, scope_kind, location_id, role)
        VALUES ($1,$2,'location',$3,'manager')`,

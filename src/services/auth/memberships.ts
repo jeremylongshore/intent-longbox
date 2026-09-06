@@ -109,10 +109,7 @@ export async function membershipsAt(
        JOIN shop s ON s.id = m.shop_id
       WHERE m.app_user_id = $1
         AND m.shop_id = $2
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)`,
+        AND membership_is_live(m)`,
     [appUserId, shopId]
   );
   return (
@@ -216,10 +213,7 @@ export async function shopsForSession(
        JOIN shop s ON s.id = m.shop_id
       WHERE m.app_user_id = $1
         AND m.shop_id = $2
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
+        AND membership_is_live(m)
       ORDER BY s.name, s.id`,
     [session.appUserId, session.shopId]
   );
@@ -232,10 +226,7 @@ export async function liveMembershipShopIds(db: Queryable, appUserId: string): P
     `SELECT DISTINCT m.shop_id
        FROM membership m
       WHERE m.app_user_id = $1
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)`,
+        AND membership_is_live(m)`,
     [appUserId]
   );
   return (res.rows as Array<{ shop_id: string }>).map((r) => r.shop_id);
@@ -258,10 +249,7 @@ export async function liveRolesOf(db: Queryable, appUserId: string): Promise<Rol
     `SELECT DISTINCT m.role
        FROM membership m
       WHERE m.app_user_id = $1
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)`,
+        AND membership_is_live(m)`,
     [appUserId]
   );
   return (res.rows as Array<{ role: Role }>).map((r) => r.role);

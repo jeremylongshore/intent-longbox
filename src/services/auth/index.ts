@@ -185,6 +185,7 @@ export {
   countOutstandingInvitations,
   grantInvitation,
   issueInvitation,
+  mayIssueInvitation,
   redemptionWait,
   verifyInvitation,
 } from "./invitations.js";

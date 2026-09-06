@@ -112,6 +112,12 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // up, and it KEEPS its number for the same reason: `034` merged first and
       // slotted in above without renumbering anything here.
       "035_identity_access.sql",
+      // `036` (E03-D21) was cut against a tree whose highest number was `035`, and
+      // it is the first file in a while with no in-flight neighbour to dodge:
+      // E03-D22's branch carries no migration at all. It moves a TENANT BOUNDARY
+      // (044 §2 A1's fifth contracting shape), so it carries a
+      // `-- contract: deploy unit …` header rather than a `retires` one.
+      "036_person_tables_behind_a_membership_policy.sql",
     ]);
 
     const tables = await pool.query(
@@ -195,13 +201,13 @@ describe.skipIf(!dbUp)("migration runner", () => {
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
     // (E03-B06 reserved `027` and never wrote it), plus E02-D11's `030`,
-    // E03-D11's `031`, E03-D14's `032`/`033`, E03-D19's `034` and E03-D17's
-    // `035`, is 34 — while the highest number is 035. **ONE gap, not two**:
-    // `027` is the only one, reserved by E03-B06 and never written. `031` closed
-    // the second gap when it landed, and `034` closed the third when E03-D19
-    // merged ahead of this branch. The runner reads no contiguity, and this is
-    // the assertion that keeps saying so.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(34);
+    // E03-D11's `031`, E03-D14's `032`/`033`, E03-D19's `034`, E03-D17's `035`
+    // and E03-D21's `036`, is 35 — while the highest number is 036. **ONE gap,
+    // not two**: `027` is the only one, reserved by E03-B06 and never written.
+    // `031` closed the second gap when it landed, and `034` closed the third when
+    // E03-D19 merged ahead of that branch. The runner reads no contiguity, and
+    // this is the assertion that keeps saying so.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(35);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

@@ -20,13 +20,23 @@
 // directions against the live database so the two cannot drift apart in silence.
 //
 // EXEMPTIONS ARE ROWS WITH A REASON, NEVER ABSENCES (041 §9.2 item 4's rule,
-// applied to a second property). A table with no `shop_id` column CANNOT carry a
-// tenant policy — there is nothing to compare — so the interesting question is
-// not "which tables are exempt" but "did anyone decide". Every table without a
-// `shop_id` is therefore listed below with the sentence that justifies it, and a
-// live table that appears in neither class fails the step LOUDLY. An absence is
+// applied to a second property). The interesting question is not "which tables
+// are exempt" but "did anyone decide". Every table without a `shop_id` is
+// therefore listed below with the sentence that justifies it, and a live table
+// that appears in neither class fails the step LOUDLY. An absence is
 // indistinguishable from an oversight; a declared exemption is a decision a
 // reviewer can argue with.
+//
+// ⚠ **"NO `shop_id` COLUMN" AND "NO TENANT" ARE DIFFERENT THINGS, AND THIS FILE
+// USED TO CONFLATE THEM.** Until E03-D21 this paragraph read *"a table with no
+// `shop_id` column CANNOT carry a tenant policy — there is nothing to compare"*,
+// and that sentence is false: a predicate can reach the tenant through a join.
+// `shop` was already the first counter-example (its tenant is its own `id`) and
+// `app_user` is now the second (its tenant is a LIVE MEMBERSHIP one join away —
+// `TENANT_PREDICATES`, 000-docs/062). So a shop-less table has THREE possible
+// answers rather than two: a tenant column of another name, a predicate that
+// joins, or a declared exemption. What has not changed is that the third is a
+// decision somebody writes down.
 
 import type { ServiceScope } from "./tenantContext.js";
 
@@ -39,8 +49,30 @@ export const SERVICE_POLICY = "service_context";
 /** The policy that lets a declared scope WRITE — narrower, and on fewer tables. */
 export const SERVICE_WRITE_POLICY = "service_write";
 
-/** The predicate both halves of `TENANT_POLICY` use on an ordinary shop-scoped table. */
-export const TENANT_PREDICATE = "shop_id = current_shop_id()";
+/**
+ * The predicate both halves of `TENANT_POLICY` use on an ordinary shop-scoped table.
+ *
+ * ⚠ **THE OUTER PARENTHESES ARE NOT DECORATION — THEY ARE THE DEPARSER'S, AND
+ * MATCHING THEM IS WHAT MAKES THE BOOT CHECK SOUND** (E03-D21; security lens F2 =
+ * consistency lens K3). Postgres does not store a policy's text: it stores a
+ * parse tree and re-renders it, FULLY PARENTHESISED, when `pg_policies` is read.
+ * The boot assertion compares the live rendering against this declaration through
+ * `policyTokens()`, which tags every token with its parenthesis DEPTH — because a
+ * comparison that erases parentheses erases operator precedence, and the cannon
+ * reproduced a policy relaxed by removing ONE pair of brackets that compared
+ * EQUAL to the declared text and booted green while returning every person in the
+ * estate.
+ *
+ * Depth only compares if both sides are shaped alike, so **every predicate in
+ * this file is written the way the deparser renders it**. That is a real cost and
+ * it is stated rather than hidden: it is a hand-kept shape, and the thing that
+ * stops it going stale is that the integration lane compares EVERY live policy
+ * against EVERY declared one — a mis-shaped declaration fails the lane and the
+ * boot immediately, loudly, on the first run. The repair that removes the hand
+ * work entirely is to round-trip the declaration through Postgres's own deparser
+ * (000-docs/062 §8 A3, PROPOSED alias **E03-D32**).
+ */
+export const TENANT_PREDICATE = "(shop_id = current_shop_id())";
 
 /**
  * Tables whose tenant column is NOT `shop_id`.
@@ -62,6 +94,95 @@ export const TENANT_PREDICATE = "shop_id = current_shop_id()";
  */
 export const TENANT_COLUMNS: Readonly<Record<string, string>> = { shop: "id" };
 
+/**
+ * *Works here*, as ONE definition rather than a sixth hand copy.
+ *
+ * ⚠ **THIS USED TO BE THE TRIPLE SPELLED OUT, AND THE CONSISTENCY LENS WAS RIGHT
+ * TO REFUSE THAT (K2).** Four copies of `effective_from <= now() AND
+ * (effective_until IS NULL OR …) AND NOT EXISTS (… membership_revocation …)` live
+ * in `src/services/auth/memberships.ts` and a fifth in
+ * `src/identity/accessors.ts`; writing a sixth here — even a character-faithful
+ * one — would make the BOUNDARY a second definition of the predicate the
+ * application already believes, and the two would drift the first time either was
+ * corrected. `migrations/036` creates `membership_is_live(membership)` and every
+ * one of those readers now calls it, so there is one definition and six callers.
+ *
+ * **The rendering is `m.*` and not `m`**, because that is how Postgres deparses a
+ * whole-row argument back out of `pg_policies`, and the declared side of the boot
+ * assertion is compared against exactly that text.
+ *
+ * **It is not a per-row cost, and that was REPRODUCED rather than predicted.**
+ * The planner turns the correlated `EXISTS` into a hashed SubPlan: the set of
+ * people who work at `current_shop_id()` is built ONCE PER QUERY through a bitmap
+ * index scan on `membership_shop_idx`, and this function is a filter inside that
+ * one scan. The first version of this comment guessed `membership_user_shop_idx`
+ * and the invariant review corrected it; the lane now asserts the plan positively
+ * on a scaled fixture rather than asserting the absence of a seq scan on an empty
+ * table.
+ *
+ * `membership_revocation` is inside the function's `NOT EXISTS` and it is itself
+ * policied, which is 056 §6.1's trap read one table over: a guard expressed as an
+ * ABSENCE over a table the caller cannot see PASSES, so a revoked grant would keep
+ * answering with the shop it no longer reaches. Under an ordinary tenant context
+ * both tables carry `shop_id = current_shop_id()` and both are visible, which is
+ * what makes the revocation half real rather than decorative.
+ */
+export const LIVE_MEMBERSHIP = "membership_is_live(m.*)";
+
+/**
+ * Tables policied by a predicate that is NOT a column comparison at all.
+ *
+ * ⚠ **`app_user` IS THE ONLY ONE, AND IT USED TO BE AN EXEMPTION** (E03-D21,
+ * 000-docs/062; 056 §11 R9). 056 §7 left the person table outside the boundary and
+ * its stated ground was that *the grant and the read happen in the SAME
+ * transaction* — `grantInvitation` writes the membership and then reads the
+ * person, so a newcomer would be refused during the act of admitting them. Half of
+ * that turned out to be about code this repository does not have: redemption
+ * INSERTs the membership FIRST, so the row the policy looks for is already there
+ * when it looks. The other half is real and is answered by a declared scope rather
+ * than by a hole — an invitation NAMES its person before any code is minted
+ * (048 §7.1), which is what `person-admission` exists for.
+ *
+ * **The tenant is one join away because there must be no tenant column here.**
+ * 034 §2.6 makes a person able to hold memberships at more than one shop; a
+ * `shop_id` on `app_user` would make that two people with two passwords. So the
+ * predicate is the parent-EXISTS shape 056 §7 already names for
+ * `retention_hold_release`, and the invariant review of E03-B04 was right that it
+ * does NOT encode *a person belongs to one shop*: it admits every shop the person
+ * holds a live grant at, and no other.
+ *
+ * **It is deliberately blind to `scope_kind` and to `role`** (the security lens's
+ * F6): a location-scoped grant and a `support_break_glass` grant both admit the
+ * person to the shop's roster, because row-level security is the TENANT boundary
+ * and 054 is the location-and-permission boundary — a policy that narrowed by
+ * location would be a second authorization system in SQL, which 056 §13 already
+ * refused once. Break-glass being VISIBLE here is the correct direction for
+ * 022 P7: the roster query excludes that role itself, and a holder who could not
+ * be resolved to a name at all would be an invisible super-admin.
+ */
+export const TENANT_PREDICATES: Readonly<Record<string, string>> = {
+  // Written in the deparser's shape (see `TENANT_PREDICATE`): every conjunct
+  // parenthesised, the whole `EXISTS` wrapped, `m.*` rather than `m`.
+  app_user:
+    "(EXISTS (SELECT 1 FROM membership m WHERE ((m.app_user_id = app_user.id) " +
+    `AND (m.shop_id = current_shop_id()) AND ${LIVE_MEMBERSHIP})))`,
+};
+
+/**
+ * Every table policied despite carrying no `shop_id` column — the tenant-column
+ * overrides and the predicate overrides together.
+ *
+ * One export rather than two `Object.keys` calls at four call sites: the boot
+ * assertion, the migrate-time plan and two lane assertions all ask the same
+ * question ("which shop-less tables are nevertheless inside the boundary?"), and
+ * a second answer is how `029`'s hardcoded list came to disagree with this
+ * module's in the first place (056 §4, F4/K6).
+ */
+export const POLICIED_WITHOUT_SHOP_ID: readonly string[] = [
+  ...Object.keys(TENANT_COLUMNS),
+  ...Object.keys(TENANT_PREDICATES),
+].sort();
+
 /** The tenant column for a table: `shop_id` unless it is one of the overrides. */
 export function tenantColumn(table: string): string {
   return TENANT_COLUMNS[table] ?? "shop_id";
@@ -69,7 +190,7 @@ export function tenantColumn(table: string): string {
 
 /** The `tenant_isolation` predicate for one table. */
 export function tenantPredicate(table: string): string {
-  return `${tenantColumn(table)} = current_shop_id()`;
+  return TENANT_PREDICATES[table] ?? `(${tenantColumn(table)} = current_shop_id())`;
 }
 
 /**
@@ -91,7 +212,7 @@ export function tenantPredicate(table: string): string {
  *     only, over `longbox_service_scope() = ANY (…)` rather than a boolean;
  *   * **whether any scope may WRITE it, and under what predicate** — emitted as a
  *     separate `service_write`, `FOR INSERT` only, whose check is the scope list
- *     AND a condition about the row itself. Three tables have one; the other
+ *     AND a condition about the row itself. FOUR tables have one; the other
  *     fifteen are readable and not writable inside any scope;
  *   * **why**, in a sentence a reviewer can disagree with.
  *
@@ -112,7 +233,12 @@ export interface ServiceTable {
    */
   readonly write?: {
     readonly scopes: readonly ServiceScope[];
-    /** SQL over the NEW row. `AND`-ed with the scope list; never `true`. */
+    /**
+     * SQL over the NEW row. `AND`-ed with the scope list; never `true`.
+     *
+     * Written PARENTHESISED as Postgres's deparser renders it — see
+     * `TENANT_PREDICATE` for why the shape and not just the tokens has to match.
+     */
     readonly check: string;
     readonly reason: string;
   };
@@ -120,7 +246,7 @@ export interface ServiceTable {
 }
 
 /**
- * The eighteen tables reached inside a scope, with what each scope may do to them.
+ * The NINETEEN tables reached inside a scope, with what each scope may do to them.
  *
  * ⚠ **THIS LIST IS THE ONLY ONE.** `migrations/029` used to carry a hardcoded
  * copy of it, and the two had already drifted — the migration's array named ten
@@ -134,6 +260,33 @@ export interface ServiceTable {
  * no migration file names one.
  */
 export const SERVICE_TABLES: readonly ServiceTable[] = [
+  {
+    table: "app_user",
+    readScopes: ["person-admission", "second-factor"],
+    write: {
+      scopes: ["person-admission"],
+      // NOT `true`, and the difference is a property worth having. The admission
+      // may create an ACTIVE person and nothing else; combined with the absence of
+      // any UPDATE or DELETE reachable inside the scope, **the running server can
+      // admit a person and can never rename, suspend or deactivate one** — those
+      // are schema-owner acts, enforced rather than conventional.
+      check: "(status = 'active')",
+      reason:
+        "An invitation NAMES its person before any code is minted (048 §7.1), so `upsertPerson` " +
+        "runs for somebody who may hold no grant anywhere yet. That is the one moment the " +
+        "membership-EXISTS policy cannot serve, and 056 §7 gave it as the reason for having no " +
+        "policy at all (§11 R9). E03-D21 answers it with a declared scope: the INSERT happens " +
+        "inside `person-admission` and nowhere else.",
+    },
+    reason:
+      "THE PERSON TABLE, policied on a live membership since E03-D21 (000-docs/062) — so these are " +
+      "the two reads that legitimately precede a membership. **`person-admission`**: the invitation " +
+      "route must find, by email, a person who may already work at ANOTHER shop (034 §2.6), and no " +
+      "tenant context can see them. **`second-factor`**: `findPersonIdByEmail` is the FIRST " +
+      "statement of an unauthenticated sign-in (048 §4.1), so no shop is known yet — the same shape " +
+      "as a cookie's digest lookup. Everything else that resolves a person does so under an " +
+      "ordinary tenant context, through `src/identity/`'s audited accessor (060 §3).",
+  },
   {
     table: "shop",
     readScopes: ["my-shops", "outbox-sweep"],
@@ -170,7 +323,7 @@ export const SERVICE_TABLES: readonly ServiceTable[] = [
       // match. `code-redemption` is the one scope that knows a shop (the device's,
       // 048 R15) and records the per-shop delay against it, so it is named
       // explicitly rather than covered by widening the NULL case for everyone.
-      check: "shop_id IS NULL OR longbox_service_scope() = 'code-redemption'",
+      check: "((shop_id IS NULL) OR (longbox_service_scope() = 'code-redemption'))",
       reason:
         "A refusal recorded before a tenant exists. 048 §9.1 derives the growing delay from these " +
         "rows, so a scope that could not write one would hand a flooder an unbounded budget.",
@@ -271,7 +424,7 @@ export const SERVICE_TABLES: readonly ServiceTable[] = [
       // message that caused it. Requiring the citation IN THE POLICY means the
       // scope can only write the ending a webhook actually reported — a
       // deliberate `--reason rotation` retirement runs as the owner, elsewhere.
-      check: "webhook_receipt_id IS NOT NULL",
+      check: "(webhook_receipt_id IS NOT NULL)",
       reason:
         "An uninstall ends EVERY live token granted for that store, whichever shop holds it " +
         "(053 §7.3), so the write cannot name one tenant — but it can be required to cite the " +
@@ -288,7 +441,7 @@ export const SERVICE_TABLES: readonly ServiceTable[] = [
       // be NULL after the write (053 §5.5): a webhook matching no install, or
       // matching two, names no tenant. `topic` is required so a scope cannot
       // write a receipt for an act nobody reported.
-      check: "topic IS NOT NULL",
+      check: "(topic IS NOT NULL)",
       reason:
         "A webhook that matches no install writes a receipt with a NULL `shop_id` (053 §5.5), which " +
         "matches no tenant policy at all — so this write has nowhere else to happen.",
@@ -305,13 +458,18 @@ export const SERVICE_WRITE_TABLES: readonly string[] = SERVICE_TABLES.filter(
   (t) => t.write !== undefined
 ).map((t) => t.table);
 
-/** `longbox_service_scope() = ANY (ARRAY['a','b'])`, built from a scope list. */
+/**
+ * `(longbox_service_scope() = ANY (ARRAY['a', 'b']))`, built from a scope list.
+ *
+ * Parenthesised for `TENANT_PREDICATE`'s reason: the boot check compares
+ * depth-annotated tokens, and this is the shape Postgres renders back.
+ */
 export function scopePredicate(scopes: readonly ServiceScope[]): string {
   const list = [...scopes]
     .sort()
     .map((s) => `'${s}'`)
     .join(", ");
-  return `longbox_service_scope() = ANY (ARRAY[${list}])`;
+  return `(longbox_service_scope() = ANY (ARRAY[${list}]))`;
 }
 
 /** The `service_context` (read) predicate for one declared table. */
@@ -322,7 +480,9 @@ export function serviceReadPredicate(table: ServiceTable): string {
 /** The `service_write` (INSERT) predicate for one declared table. */
 export function serviceWritePredicate(table: ServiceTable): string {
   if (table.write === undefined) throw new Error(`${table.table} declares no service write`);
-  return `${scopePredicate(table.write.scopes)} AND (${table.write.check})`;
+  // The row condition is declared ALREADY PARENTHESISED as the deparser renders
+  // it, so this adds the `AND`'s own pair and no more.
+  return `(${scopePredicate(table.write.scopes)} AND ${table.write.check})`;
 }
 
 /** A table with no `shop_id` column, and the reason it has none. */
@@ -337,8 +497,11 @@ export interface RlsExemption {
  *
  * Read the classes rather than the rows: **the catalog** (a corpus is the same
  * facts for every shop — 030 §7 says so explicitly and gives them no `shop_id`),
- * **the parties above a shop** (`organization`, `shop` itself), **the person**
- * (`app_user` and the two authentication factors hanging off them), **a child of
+ * **the party above a shop** (`organization`), **a person's CREDENTIALS** (the
+ * two authentication factors and the recovery codes — the person themself is
+ * policied since E03-D21, and each of these now stands on its own ground rather
+ * than on `app_user`'s), **the origin facts** (`appGrant: "none"`, and a
+ * tenant-keyed policy would hide the row 019 T35(c) exists to find), **a child of
  * a policied parent**, and **the runner's own bookkeeping**.
  */
 export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
@@ -349,54 +512,56 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
       "`shop_id` by design — it is what a `shop` points AT — and carries a name and a billing email, " +
       "not a shop's data.",
   },
-  {
-    table: "app_user",
-    reason:
-      "A PERSON, not a tenant's row — and the reason is NARROWER than this row first claimed. An " +
-      "`EXISTS (SELECT 1 FROM membership …)` policy would not encode `a person belongs to one shop` " +
-      "(the invariant review was right to reject that argument; §7 uses exactly that parent-EXISTS " +
-      "shape for `retention_hold_release`). It is rejected on a different ground: the grant and the " +
-      "read happen in the SAME transaction — `grantInvitation` writes the membership and then reads " +
-      "the person — and a newcomer being invited holds no grant anywhere yet, so the policy would " +
-      "refuse the person during the act of admitting them. What bounds this table meanwhile is the " +
-      "module graph (only `identity` may read it), 034 §3.3's audited accessor for the attribution " +
-      "columns, and every read being by the authenticated person's own id or by a digest. **The " +
-      "residual is stated rather than argued away: 056 §11 R9.**",
-  },
+  // ⚠ **`app_user` IS NO LONGER HERE — E03-D21, 000-docs/062.** It is policied on
+  // a live membership (`TENANT_PREDICATES`), which is why every row below had to
+  // be RE-DECIDED rather than left saying "same reason as `app_user`". A reason
+  // that points at a row which has moved is a reason nobody has checked.
   {
     table: "user_credential",
     reason:
-      "The FIRST factor, keyed on `app_user_id` (048 §4.1, E03-D11). Same reason as `app_user` and " +
-      "the same reason as the second factor one row down: a password belongs to a PERSON, who may " +
-      "hold memberships at more than one shop (034 §2.6), so there is no tenant to key a policy on " +
-      "and inventing one would mean a person with two shops needing two passwords. What bounds it " +
-      "is that every read is by the authenticated person's own id or by a lowercased email in the " +
-      "same statement, the digest is argon2id over `password ‖ pepper` so a cross-tenant read " +
-      "returns something that opens nothing without a value this database does not hold, and the " +
-      "module graph lets only `identity` reach it. **The residual is `app_user`'s and is stated " +
-      "there rather than restated here: 056 §11 R9, owned by E03-D21 (`longbox-e5b.3.31`).**",
+      "The FIRST factor, keyed on `app_user_id` (048 §4.1, E03-D11). ⚠ **This row used to say " +
+      "`same reason as app_user`, and that reason has moved** (E03-D21): the ground now stands on " +
+      "its own, and it is two things. **(1) It holds no attribute of a person** — one argon2id " +
+      "digest over `password ‖ pepper`, so a row read cross-tenant returns something that opens " +
+      "nothing without a value this database does not hold. **(2) Every application-role path to " +
+      "it is INSIDE the `second-factor` scope**, where a tenant predicate is vacuous by " +
+      "construction (no shop is known: it is the first statement of an unauthenticated sign-in). " +
+      "A policy here would therefore be in force on no path the running server takes — decoration " +
+      "on a boundary, which is worse than a declared absence because it makes the boundary look " +
+      "denser than it is. What bounds it is the pepper, the module graph, and every read being by " +
+      "the authenticated person's own id or by a lowercased email in the same statement.",
   },
   {
     table: "user_authenticator",
     reason:
-      "The second factor, keyed on `app_user_id` (048 §4). Same reason as `app_user`, plus one more: " +
-      "the sealed secret is AEAD-bound to the row's own id, so a row read cross-tenant is not a " +
-      "usable factor. E03-D17's accessor gates are the layer that narrows who may read it at all.",
+      "The second factor (048 §4). Everything `user_credential` says applies, plus ONE that is " +
+      "specific to this table and is the decisive one (E03-D21): 048 R19 consumes a TOTP step " +
+      "exactly once by `UPDATE … WHERE last_used_step < $2`, and **THE AFFECTED-ROW COUNT IS THE " +
+      "AUTHORIZATION**. A policy over that statement turns any misconfiguration into a zero-row " +
+      "UPDATE, which this system reads as `this code was already used` — a refusal " +
+      "indistinguishable from a replay, on the path a person uses to get in. A row filter does not " +
+      "belong over a statement whose row count is a verdict. The sealed secret is additionally " +
+      "AEAD-bound to the row's own id, so a row read cross-tenant is not a usable factor.",
   },
   {
     table: "user_authenticator_retirement",
     reason:
-      "The retirement fact for the row above; it carries no tenant for the same reason its subject does.",
+      "The retirement fact for the row above; it carries no tenant for the same reason its subject " +
+      "does, and it is appended inside the same `second-factor` scope.",
   },
   {
     table: "recovery_code",
     reason:
-      "Issued per person, hashed with argon2id and the pepper, single-use by constraint (048 §8). " +
-      "Person-scoped like `app_user`; a cross-tenant read returns a hash that opens nothing.",
+      "Issued per person, hashed argon2id with the pepper, single-use by constraint (048 §8). " +
+      "Re-decided at E03-D21 on `user_credential`'s two grounds and not on `app_user`'s: it holds " +
+      "no attribute of a person, and its only application-role reader is inside `second-factor`. " +
+      "A cross-tenant read returns a hash that opens nothing.",
   },
   {
     table: "recovery_code_use",
-    reason: "The use fact for the row above; same scope, same reason.",
+    reason:
+      "The use fact for the row above; same grounds. Single use is `UNIQUE (code_id)` — a " +
+      "constraint the database decides — and not a row a policy filters.",
   },
   {
     table: "app_user_origin",
@@ -404,13 +569,18 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
       "E03-D14 / 000-docs/058: whether a person is LONGBOX-ORIGIN is a fact about them and follows " +
       "them to every shop — which is the property 019 T35(c)'s reconciliation needs, since the " +
       "session worth finding is the one at a shop the person holds nothing at. A `shop_id` here " +
-      "would make the predicate answer per tenant and hide exactly that row. Same class as " +
-      "`app_user` (the person), and bounded more tightly than it: the app role holds NO privilege " +
-      'on this table at all (`appGrant: "none"`), so the only reader is the schema-owner audit.',
+      "would make the predicate answer per tenant and hide exactly that row. ⚠ **AND THAT IS WHY " +
+      "IT DID NOT MOVE WITH `app_user` AT E03-D21**: a membership-EXISTS policy is exactly a " +
+      "per-tenant answer, so it would hide the origin fact for the one session 019 T35(c) is " +
+      "looking for. It is bounded more tightly than a policy anyway: the app role holds NO " +
+      'privilege on this table at all (`appGrant: "none"`, 058 §3(c)), so the only reader is the ' +
+      "schema-owner audit and the boot assertion refuses a port on any stray grant.",
   },
   {
     table: "app_user_origin_retirement",
-    reason: "The ending fact for the row above; it carries no tenant for the same reason its subject does.",
+    reason:
+      "The ending fact for the row above; it carries no tenant for the same reason its subject " +
+      'does, and it is `appGrant: "none"` for the same reason too.',
   },
   {
     table: "retention_hold_release",
@@ -461,6 +631,16 @@ export const RLS_EXEMPTIONS: readonly RlsExemption[] = [
 ];
 
 const EXEMPT_TABLE_NAMES: readonly string[] = RLS_EXEMPTIONS.map((e) => e.table);
+
+/**
+ * The declared exemptions, for the boot assertion (E03-D21, security lens F3).
+ *
+ * Exported so `roleSeparation.ts` can ask the DATABASE whether each of them is
+ * actually exempt — row-level security off, no policy of any kind — rather than
+ * trusting that the list here and the schema agree. §4's argument that a policy
+ * over `user_authenticator` would be HARMFUL rested on nobody having written one.
+ */
+export const RLS_EXEMPT_TABLE_NAMES: readonly string[] = [...EXEMPT_TABLE_NAMES].sort();
 
 /** The classification of the live schema into policy tables and declared exemptions. */
 export interface RlsPlan {
@@ -556,9 +736,10 @@ export function planRowLevelSecurity(
       unsupported.push({ name: rel.name, relkind: rel.relkind });
       continue;
     }
-    // A table with a `shop_id`, OR one whose tenant column this module overrides
-    // (`shop`, whose tenant is its own `id`).
-    if (rel.hasShopId || TENANT_COLUMNS[rel.name] !== undefined) policied.push(rel.name);
+    // A table with a `shop_id`, OR one this module policies anyway: `shop`, whose
+    // tenant is its own `id`, and `app_user`, whose tenant is a live membership
+    // one join away (E03-D21 — `TENANT_PREDICATES`).
+    if (rel.hasShopId || POLICIED_WITHOUT_SHOP_ID.includes(rel.name)) policied.push(rel.name);
     else if (EXEMPT_TABLE_NAMES.includes(rel.name)) exempt.push(rel.name);
     else undeclared.push(rel.name);
   }

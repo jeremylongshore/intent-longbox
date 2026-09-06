@@ -42,7 +42,7 @@ import {
   SERVICE_POLICY,
   SERVICE_TABLES,
   SERVICE_WRITE_POLICY,
-  TENANT_COLUMNS,
+  POLICIED_WITHOUT_SHOP_ID,
   TENANT_POLICY,
   serviceReadPredicate,
   serviceWritePredicate,
@@ -162,7 +162,7 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
                        WHERE a.attrelid = c.oid AND a.attname = 'shop_id' AND NOT a.attisdropped)
               OR c.relname = ANY ($1::text[]))
        ORDER BY 1`,
-        [Object.keys(TENANT_COLUMNS)]
+        [[...POLICIED_WITHOUT_SHOP_ID]]
       )
     ).rows.map((r) => (r as { name: string }).name);
   }, 180_000);
@@ -501,7 +501,7 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
     expect(rows.map((r) => r.tablename)).toEqual([...SERVICE_CONTEXT_TABLES].sort());
   });
 
-  it("the WRITE policy exists on exactly THREE tables, and each check names the row", async () => {
+  it("the WRITE policy exists on exactly FOUR tables, and each check names the row", async () => {
     const rows = (
       await ownerPool.query(
         `SELECT tablename, with_check FROM pg_policies
@@ -510,6 +510,11 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
       )
     ).rows as Array<{ tablename: string; with_check: string }>;
     expect(rows.map((r) => r.tablename)).toEqual([
+      // E03-D21's admission. The only one of the four whose row condition is
+      // about a COLUMN rather than about a null or a citation: the scope may
+      // create an ACTIVE person and nothing else, so the running server can
+      // admit somebody and can never suspend or deactivate them.
+      "app_user",
       "auth_attempt",
       "connector_token_retirement",
       "connector_webhook_receipt",
@@ -599,9 +604,12 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
                           WHERE a.attrelid = c.oid AND a.attname = 'shop_id' AND NOT a.attisdropped)
        ORDER BY 1`)
     ).rows as Array<{ name: string }>;
-    // `shop` is NOT here: it carries no `shop_id` and is policied anyway, on its
-    // own `id` (TENANT_COLUMNS). It is the one table whose tenant is itself.
-    const declared = [...RLS_EXEMPTIONS.map((e) => e.table), ...Object.keys(TENANT_COLUMNS)].sort();
+    // TWO tables here carry no `shop_id` and are policied anyway, and they are
+    // policied by DIFFERENT SHAPES: `shop` on its own `id` (TENANT_COLUMNS), and
+    // `app_user` on a live membership one join away (TENANT_PREDICATES, E03-D21).
+    // `POLICIED_WITHOUT_SHOP_ID` is the union, and it exists so that this
+    // assertion and the boot assertion cannot answer the question differently.
+    const declared = [...RLS_EXEMPTIONS.map((e) => e.table), ...POLICIED_WITHOUT_SHOP_ID].sort();
     expect(rows.map((r) => r.name)).toEqual(declared);
   });
 
@@ -896,6 +904,401 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
     } finally {
       await single.end();
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // 8. The PERSON, behind a membership (E03-D21, 000-docs/062).
+  //
+  // `app_user` carries no `shop_id` and is policied anyway, on a predicate that
+  // joins: a person is visible to a shop that holds a LIVE grant for them. These
+  // cases are the ones 056 §11 R9 could not have, because until this bead the
+  // person table was bounded by the module graph and by nothing in the database.
+  // -------------------------------------------------------------------------
+
+  /** A person, admitted the way production admits one — inside the scope. */
+  async function admit(label: string): Promise<string> {
+    const res = await serviceDb(appPool, "person-admission").query(
+      `INSERT INTO app_user (email, display_name) VALUES ($1,$2) RETURNING id`,
+      [`${label}-${randomUUID()}@example.invalid`, "A Person"]
+    );
+    return (res.rows[0] as { id: string }).id;
+  }
+
+  /** A live shop-scoped grant, written as the shop that grants it. */
+  async function grantAt(appUserId: string, shopId: string): Promise<string> {
+    const res = await asShop(appPool, shopId).query(
+      `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
+       VALUES ($1,$2,'shop','operator') RETURNING id`,
+      [appUserId, shopId]
+    );
+    return (res.rows[0] as { id: string }).id;
+  }
+
+  it("PERSON: a grant at shop A only is ZERO rows under every other shop's context", async () => {
+    // The generated form of the property, over every ordered pair of the four
+    // shops: the read is by PRIMARY KEY, which is the shape a forgotten predicate
+    // actually produces (a handler that already holds an id and joins to get a
+    // name). 019 T24's answer for a wrong tenant is the same as for an id that
+    // never existed, and that is what this asserts.
+    const person = await admit("one-shop");
+    await grantAt(person, shops[0]!);
+    let checked = 0;
+    for (const reader of shuffled(shops, 31)) {
+      const rows = await asShop(appPool, reader).query(`SELECT id FROM app_user WHERE id = $1`, [person]);
+      expect(rows.rows, `reader ${reader}`).toEqual(reader === shops[0] ? [{ id: person }] : []);
+      checked += 1;
+    }
+    expect(checked).toBe(shops.length);
+    // …and the unqualified read, which is the other half: no predicate at all.
+    for (const reader of shops.slice(1)) {
+      const all = (await asShop(appPool, reader).query(`SELECT id FROM app_user`)).rows as Array<{
+        id: string;
+      }>;
+      expect(all.map((r) => r.id)).not.toContain(person);
+    }
+  });
+
+  it("PERSON: a grant at A and B is visible under BOTH — the policy is not `one shop per person`", async () => {
+    // 034 §2.6 in one assertion. This is the case 056 v1.0.0 said an
+    // EXISTS-over-membership policy would break, and the invariant review of
+    // E03-B04 was right that it does not.
+    const person = await admit("two-shops");
+    await grantAt(person, shops[0]!);
+    await grantAt(person, shops[1]!);
+    for (const reader of [shops[0]!, shops[1]!]) {
+      const rows = await asShop(appPool, reader).query(`SELECT id FROM app_user WHERE id = $1`, [person]);
+      expect(rows.rows, `reader ${reader}`).toEqual([{ id: person }]);
+    }
+    const stranger = await asShop(appPool, shops[2]!).query(`SELECT id FROM app_user WHERE id = $1`, [
+      person,
+    ]);
+    expect(stranger.rows).toEqual([]);
+  });
+
+  it("PERSON: a REVOKED membership hides them from that shop and nowhere else", async () => {
+    // ⚠ 056 §6.1's trap, one table over, and the reason `membership_revocation`
+    // is inside the predicate's `NOT EXISTS` rather than beside it: a guard
+    // expressed as an ABSENCE over a table the caller cannot see PASSES, so a
+    // revoked grant would go on answering with the shop it no longer reaches.
+    const person = await admit("revoked");
+    const grantA = await grantAt(person, shops[0]!);
+    await grantAt(person, shops[1]!);
+    const before = await asShop(appPool, shops[0]!).query(`SELECT id FROM app_user WHERE id = $1`, [person]);
+    expect(before.rows).toEqual([{ id: person }]);
+
+    await asShop(appPool, shops[0]!).query(
+      `INSERT INTO membership_revocation (shop_id, membership_id, reason) VALUES ($1,$2,'test')`,
+      [shops[0], grantA]
+    );
+
+    const after = await asShop(appPool, shops[0]!).query(`SELECT id FROM app_user WHERE id = $1`, [person]);
+    expect(after.rows).toEqual([]);
+    // …and the OTHER shop still sees them, which is what makes this a revocation
+    // rather than a deletion.
+    const elsewhere = await asShop(appPool, shops[1]!).query(`SELECT id FROM app_user WHERE id = $1`, [
+      person,
+    ]);
+    expect(elsewhere.rows).toEqual([{ id: person }]);
+  });
+
+  it("PERSON: an EXPIRED grant stops admitting, because the liveness triple is the policy's", async () => {
+    const person = await admit("expired");
+    await asShop(appPool, shops[3]!).query(
+      `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until)
+       VALUES ($1,$2,'shop','operator', now() - interval '1 hour')`,
+      [person, shops[3]]
+    );
+    const rows = await asShop(appPool, shops[3]!).query(`SELECT id FROM app_user WHERE id = $1`, [person]);
+    expect(rows.rows).toEqual([]);
+  });
+
+  it("PERSON: the app role cannot CREATE one under a tenant context, and cannot UPDATE one at all", async () => {
+    // The INSERT half of the tenant policy can never be satisfied — the row being
+    // created is a person who works nowhere yet, which is what admission MEANS —
+    // so a person INSERT outside the declared scope is refused by `WITH CHECK`.
+    await expect(
+      asShop(appPool, shops[0]!).query(`INSERT INTO app_user (email, display_name) VALUES ($1,'X')`, [
+        `no-scope-${randomUUID()}@example.invalid`,
+      ])
+    ).rejects.toThrow(/row-level security/);
+
+    // ⚠ **AND THE UPDATE IS REFUSED BY THE GRANT, WHICH IS THE ONLY THING THAT
+    // COULD REFUSE IT** (E03-D21, the security lens's F1). The record claimed
+    // "the running server can admit a person and can never rename, suspend or
+    // deactivate one" while `tenant_isolation` was `FOR ALL` and the application
+    // role held table-level DML — so under an ORDINARY tenant context a single
+    // statement rewrote any co-worker's display name, status or login identifier,
+    // on a person who may be shared with another shop. The POLICY cannot stop
+    // that: the row is one this shop legitimately sees. The GRANT can, and
+    // `appGrant: "read-append"` is it.
+    const person = await admit("no-update");
+    await grantAt(person, shops[0]!);
+    for (const statement of [
+      `UPDATE app_user SET display_name = 'Renamed' WHERE id = $1`,
+      `UPDATE app_user SET email = 'stolen@example.invalid' WHERE id = $1`,
+      `UPDATE app_user SET status = 'suspended' WHERE id = $1`,
+      `DELETE FROM app_user WHERE id = $1`,
+    ]) {
+      await expect(asShop(appPool, shops[0]!).query(statement, [person]), statement).rejects.toThrow(
+        /permission denied/i
+      );
+    }
+    // …and the same inside the admission scope, which holds SELECT and INSERT and
+    // nothing else.
+    await expect(
+      withTransaction(
+        appPool,
+        (tx) => tx.query(`UPDATE app_user SET display_name = 'Renamed' WHERE id = $1`, [person]),
+        { tenant: { service: "person-admission" } }
+      )
+    ).rejects.toThrow(/permission denied/i);
+
+    const name = await asShop(appPool, shops[0]!).query(`SELECT display_name FROM app_user WHERE id = $1`, [
+      person,
+    ]);
+    expect(name.rows).toEqual([{ display_name: "A Person" }]);
+
+    // The privilege is asserted directly too, so the refusals above cannot pass
+    // for the wrong reason (a policy filtering rows would return zero, not throw).
+    const privs = await ownerPool.query(
+      `SELECT privilege_type FROM information_schema.role_table_grants
+        WHERE table_name = 'app_user' AND grantee = $1 ORDER BY privilege_type`,
+      [APP_ROLE]
+    );
+    expect((privs.rows as Array<{ privilege_type: string }>).map((r) => r.privilege_type)).toEqual([
+      "INSERT",
+      "SELECT",
+    ]);
+  });
+
+  it("PERSON: the BOOT ASSERTION FAILS when the app role is handed UPDATE on the person table", async () => {
+    // The runtime half of the class, and the proof it can fail. The grant plan is
+    // re-applied on every `pnpm migrate`; a hand-run GRANT between two runs is the
+    // drift 058 F2 added this check for, and E03-D21 is the third privilege class
+    // to join it.
+    await ownerPool.query(`GRANT UPDATE ON app_user TO ${APP_ROLE}`);
+    try {
+      const broken = await checkTenantIsolation(appPool);
+      expect(broken.ok).toBe(false);
+      expect(broken.forbiddenGrants).toContain("app_user");
+      expect(describeTenantIsolationFailure(broken)).toContain("read-append");
+      await expect(assertTenantIsolationOrThrow(appPool, silent())).rejects.toThrow(/refusing to serve/);
+    } finally {
+      await ownerPool.query(`REVOKE UPDATE ON app_user FROM ${APP_ROLE}`);
+    }
+    expect((await checkTenantIsolation(appPool)).ok).toBe(true);
+  });
+
+  it("PERSON: …and when it is handed UPDATE on COLUMNS, which the check used to miss", async () => {
+    // ⚠ **THE HOLE THE RE-VERIFICATION FOUND, AS A FIXTURE.** The check asked
+    // `has_table_privilege`, which answers about the TABLE-LEVEL grant alone — so
+    // after the statement below it answered FALSE, the boot passed, and a
+    // tenant-context UPDATE returned `UPDATE 1`. A column grant is a grant.
+    // `has_any_column_privilege` subsumes the table-level answer, so one function
+    // covers both and there is no second question to keep in step.
+    const person = await admit("column-grant");
+    await grantAt(person, shops[0]!);
+    await ownerPool.query(`GRANT UPDATE (email, display_name, status) ON app_user TO ${APP_ROLE}`);
+    try {
+      // First: the grant really is reachable, and the claim is the ROW COUNT
+      // rather than "it did not throw" — this is the statement that used to
+      // return `UPDATE 1` with the boot reporting green.
+      const wrote = await asShop(appPool, shops[0]!).query(
+        `UPDATE app_user SET display_name = 'Renamed' WHERE id = $1 RETURNING id`,
+        [person]
+      );
+      expect(wrote.rows).toEqual([{ id: person }]);
+      // …and now the boot refuses it.
+      const broken = await checkTenantIsolation(appPool);
+      expect(broken.ok).toBe(false);
+      expect(broken.forbiddenGrants).toContain("app_user");
+      await expect(assertTenantIsolationOrThrow(appPool, silent())).rejects.toThrow(/refusing to serve/);
+    } finally {
+      await ownerPool.query(`REVOKE UPDATE (email, display_name, status) ON app_user FROM ${APP_ROLE}`);
+      await ownerPool.query(`UPDATE app_user SET display_name = 'A Person' WHERE id = $1`, [person]);
+    }
+    expect((await checkTenantIsolation(appPool)).ok).toBe(true);
+  });
+
+  it("PERSON: the BOOT ASSERTION FAILS on a policy planted on a DECLARED EXEMPT table (F3)", async () => {
+    // ⚠ **THE ARGUMENT THIS TURNS INTO ENFORCEMENT.** 000-docs/062 §4 keeps
+    // `user_authenticator` exempt on the ground that a policy there would be
+    // HARMFUL — 048 R19 makes the affected-row count of its replay guard the
+    // authorization, so a row filter turns a misconfiguration into a refusal
+    // indistinguishable from a replay. Until this branch that argument rested
+    // entirely on nobody having written such a policy.
+    await ownerPool.query(`ALTER TABLE user_credential ENABLE ROW LEVEL SECURITY`);
+    await ownerPool.query(`CREATE POLICY oops ON user_credential USING (false)`);
+    try {
+      const broken = await checkTenantIsolation(appPool);
+      expect(broken.ok).toBe(false);
+      expect(broken.policiedExemptions).toContain("user_credential");
+      expect(describeTenantIsolationFailure(broken)).toContain("DECLARED EXEMPT");
+      await expect(assertTenantIsolationOrThrow(appPool, silent())).rejects.toThrow(/refusing to serve/);
+    } finally {
+      await ownerPool.query(`DROP POLICY IF EXISTS oops ON user_credential`);
+      await ownerPool.query(`ALTER TABLE user_credential DISABLE ROW LEVEL SECURITY`);
+    }
+    expect((await checkTenantIsolation(appPool)).ok).toBe(true);
+  });
+
+  it("PERSON: the BOOT ASSERTION FAILS on a policy RELAXED only by removing parentheses (F2/K3)", async () => {
+    // ⚠ **THE CANNON'S SHARPEST FINDING, AS A FIXTURE.** Both normalisers used to
+    // strip parentheses, so the predicate below — this bead's own policy with ONE
+    // pair of brackets removed — normalised to the declared text CHARACTER FOR
+    // CHARACTER and booted green. It is not a cosmetic difference: without the
+    // grouping, `AND … OR …` associates as `(… AND …) OR (…)`, and the policy
+    // returns every person in the estate to any shop holding one time-bounded
+    // grant. `policyTokens()` tags each token with its paren DEPTH, so the two
+    // cannot compare equal.
+    const relaxed =
+      `EXISTS (SELECT 1 FROM membership m WHERE m.app_user_id = app_user.id ` +
+      `AND m.shop_id = current_shop_id() AND m.effective_from <= now() ` +
+      `AND m.effective_until IS NULL OR m.effective_until > now())`;
+    // ONE time-bounded grant anywhere in the estate is all it takes, and that is
+    // the point: the OR breaks the correlation to `app_user.id` as well as the
+    // conjunction, so the EXISTS becomes true for EVERY person.
+    // The grant is at the READER's shop, because `membership` carries its own
+    // tenant policy: the subquery only ever sees this shop's grants. One
+    // time-bounded row here is enough, and it is the ordinary case — every
+    // break-glass grant is time-bounded by 034 §2.7's CHECK.
+    const bounded = await admit("time-bounded");
+    await asShop(appPool, shops[2]!).query(
+      `INSERT INTO membership (app_user_id, shop_id, scope_kind, role, effective_until)
+       VALUES ($1,$2,'shop','operator', now() + interval '1 day')`,
+      [bounded, shops[2]]
+    );
+    const before = (await asShop(appPool, shops[2]!).query(`SELECT count(*)::int AS n FROM app_user`))
+      .rows[0] as { n: number };
+
+    await ownerPool.query(`DROP POLICY tenant_isolation ON app_user`);
+    await ownerPool.query(
+      `CREATE POLICY tenant_isolation ON app_user FOR ALL USING (${relaxed}) WITH CHECK (${relaxed})`
+    );
+    try {
+      const broken = await checkTenantIsolation(appPool);
+      expect(broken.ok).toBe(false);
+      expect(broken.alteredPolicies).toContain("app_user:tenant_isolation ALL");
+      // …and the relaxation is REAL, not merely different: shop 2 holds a grant
+      // for NOBODY seeded here, and now reads people it must not.
+      const leaked = (await asShop(appPool, shops[2]!).query(`SELECT count(*)::int AS n FROM app_user`))
+        .rows[0] as { n: number };
+      expect(leaked.n).toBeGreaterThan(before.n);
+    } finally {
+      await applyRowLevelSecurity(ownerPool);
+    }
+    expect((await checkTenantIsolation(appPool)).ok).toBe(true);
+  });
+
+  it("PERSON: the admission scope may only create an ACTIVE person", async () => {
+    // The `service_write` check is about the ROW and not only about the scope —
+    // 056 §5.0's rule, and here it is what makes suspending somebody a
+    // schema-owner act rather than something a request can do.
+    await expect(
+      serviceDb(appPool, "person-admission").query(
+        `INSERT INTO app_user (email, display_name, status) VALUES ($1,'X','suspended')`,
+        [`suspended-${randomUUID()}@example.invalid`]
+      )
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("PERSON: `second-factor` may read the person table, because a sign-in precedes every shop", async () => {
+    // `findPersonIdByEmail` is the FIRST statement of an unauthenticated sign-in
+    // (057 §4.5): no shop is known, so no membership can be asked about. Without
+    // this scope on this table the policy would have closed the front door.
+    const person = await admit("sign-in");
+    const rows = await serviceDb(appPool, "second-factor").query(
+      `SELECT u.id FROM app_user u WHERE u.id = $1`,
+      [person]
+    );
+    expect(rows.rows).toEqual([{ id: person }]);
+    // …and it may not WRITE one: only the admission scope has a write policy.
+    await expect(
+      serviceDb(appPool, "second-factor").query(
+        `INSERT INTO app_user (email, display_name) VALUES ($1,'X')`,
+        [`wrong-scope-${randomUUID()}@example.invalid`]
+      )
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("PERSON: the policy is a HASHED SUBPLAN over an index, once per query — at scale", async () => {
+    // ⚠ **POSITIVE, AND ON A POPULATED TABLE** (the consistency lens's K6). The
+    // first version of this case asserted the ABSENCE of a sequential scan on a
+    // table holding a handful of rows, which any plan satisfies. This one seeds
+    // hundreds of memberships across dozens of shops, ANALYZEs, and asserts what
+    // the plan must SHOW.
+    //
+    // And what it shows is not what 000-docs/062 first predicted — the invariant
+    // review caught that, and the reproduction is better than the guess: the
+    // correlated `EXISTS` becomes a **hashed SubPlan**, so the set of people who
+    // work at this shop is built ONCE PER QUERY through `membership_shop_idx`,
+    // and `membership_is_live(m.*)` is a filter inside that single scan rather
+    // than a call per person in the estate. That is 056 I8's *the policy folds
+    // into a one-time filter*, in its strongest form.
+    const org = (
+      await ownerPool.query(
+        `INSERT INTO organization (name, billing_email) VALUES ('Scale Org','scale@example.invalid')
+         RETURNING id`
+      )
+    ).rows[0] as { id: string };
+    const scaleShops: string[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      const row = (
+        await ownerPool.query(
+          `INSERT INTO shop (name, slug, organization_id) VALUES ($1,$2,$3) RETURNING id`,
+          [`Scale Shop ${String(i)}`, `scale-${randomUUID()}`, org.id]
+        )
+      ).rows[0] as { id: string };
+      scaleShops.push(row.id);
+    }
+    for (let i = 0; i < 300; i += 1) {
+      const who = (
+        await ownerPool.query(
+          `INSERT INTO app_user (email, display_name) VALUES ($1,'Scale Person') RETURNING id`,
+          [`scale-${randomUUID()}@example.invalid`]
+        )
+      ).rows[0] as { id: string };
+      await ownerPool.query(
+        `INSERT INTO membership (app_user_id, shop_id, scope_kind, role)
+         VALUES ($1,$2,'shop','operator')`,
+        [who.id, scaleShops[i % scaleShops.length]]
+      );
+    }
+    await ownerPool.query(`ANALYZE membership`);
+    await ownerPool.query(`ANALYZE app_user`);
+
+    // ⚠ **UNFILTERED, AND DELIBERATELY.** The first version of this case bound a
+    // SHOP id to `app_user.id` — a uuid that matches nothing, which makes the
+    // outer node an index probe over an empty result and the plan unrepresentative
+    // of anything the system runs. The read that matters is the one a forgotten
+    // predicate produces: no predicate at all.
+    const plan = (await asShop(appPool, scaleShops[0]!).query(`EXPLAIN (COSTS OFF) SELECT id FROM app_user`))
+      .rows as Array<Record<string, string>>;
+    const text = plan.map((r) => Object.values(r)[0] ?? "").join("\n");
+    expect(text).toContain("hashed SubPlan");
+    expect(text).toMatch(/Index Scan on membership_shop_idx|Index Scan using membership_shop_idx/);
+    expect(text).not.toMatch(/Seq Scan on membership\b/);
+  });
+
+  it("PERSON: the boot assertion accepts a WRAPPED policy predicate (000-docs/062 §5)", async () => {
+    // ⚠ THE REGRESSION THIS CASE EXISTS FOR. The boot check normalises policy
+    // predicates TWICE — once in SQL, once in TypeScript — and the SQL half used
+    // to strip the SPACE character alone while the TypeScript half stripped every
+    // whitespace character. They agreed on every predicate that had ever existed
+    // here, because Postgres deparses a short one onto a single line, and
+    // disagreed the moment one was long enough for the deparser to WRAP it. The
+    // boot assertion then reported this bead's policy ALTERED and refused to bind
+    // a port, on a policy byte-identical to the declared one.
+    const rendered = (
+      await ownerPool.query(`SELECT qual FROM pg_policies WHERE tablename = 'app_user' AND policyname = $1`, [
+        TENANT_POLICY,
+      ])
+    ).rows[0] as { qual: string };
+    // The predicate really is multi-line, so this case is testing what it claims.
+    expect(rendered.qual).toContain("\n");
+    const result = await checkTenantIsolation(appPool);
+    expect(result.alteredPolicies).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   it("a declared SERVICE scope sees across tenants on ITS tables, and nowhere else", async () => {

@@ -49,7 +49,7 @@ import {
   verifyOperatorPin,
 } from "../../src/services/auth/index.js";
 import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
-import { TEST_PIN, seedIdentity, type SeededIdentity } from "./authHelpers.js";
+import { TEST_PIN, insertUser, seedIdentity, type SeededIdentity } from "./authHelpers.js";
 import { TEST_PIN_PEPPER } from "../testConfig.js";
 
 const dbUp = await probeDb();
@@ -117,12 +117,12 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'phone','phone') RETURNING id`,
       [shopId, identity.locationId]
     );
-    const person = await shopQuery(
-      `INSERT INTO app_user (email, display_name) VALUES ($1,'Person') RETURNING id`,
-      [`pin-${randomUUID()}@example.invalid`]
-    );
+    // E03-D21: a person INSERT satisfies NO tenant predicate — the row being
+    // created is somebody who works nowhere yet, which is what admission MEANS —
+    // so it goes through `insertUser`, which enters the declared admission scope
+    // exactly as the invitation route does (000-docs/062 §3.2).
+    const appUserId = await insertUser(pool, `pin-${randomUUID()}@example.invalid`, "Person");
     const deviceId = (device.rows[0] as { id: string }).id;
-    const appUserId = (person.rows[0] as { id: string }).id;
     await shopTx((tx) => setOperatorPin(tx, { shopId, deviceId, appUserId, pin, pepper: TEST_PIN_PEPPER }));
     return { deviceId, appUserId };
   }
@@ -398,11 +398,7 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
     const deviceId = (device.rows[0] as { id: string }).id;
     const people: string[] = [];
     for (let i = 0; i < 6; i += 1) {
-      const person = await shopQuery(
-        `INSERT INTO app_user (email, display_name) VALUES ($1,'Roster') RETURNING id`,
-        [`roster-${randomUUID()}@example.invalid`]
-      );
-      const appUserId = (person.rows[0] as { id: string }).id;
+      const appUserId = await insertUser(pool, `roster-${randomUUID()}@example.invalid`, "Roster");
       people.push(appUserId);
       await shopTx((tx) =>
         setOperatorPin(tx, { shopId, deviceId, appUserId, pin: TEST_PIN, pepper: TEST_PIN_PEPPER })
@@ -581,15 +577,12 @@ describe.skipIf(!dbUp)("the operator PIN and its lockout (048 §3.5, §9.1, I10)
       `INSERT INTO device (shop_id, location_id, label, kind) VALUES ($1,$2,'p','phone') RETURNING id`,
       [shopId, identity.locationId]
     );
-    const person = await shopQuery(
-      `INSERT INTO app_user (email, display_name) VALUES ($1,'P') RETURNING id`,
-      [`trivial-${randomUUID()}@example.invalid`]
-    );
+    const trivialPerson = await insertUser(pool, `trivial-${randomUUID()}@example.invalid`, "P");
     const set = await shopTx((tx) =>
       setOperatorPin(tx, {
         shopId,
         deviceId: (device.rows[0] as { id: string }).id,
-        appUserId: (person.rows[0] as { id: string }).id,
+        appUserId: trivialPerson,
         pin: "123456",
         pepper: TEST_PIN_PEPPER,
       })

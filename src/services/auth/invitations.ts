@@ -76,6 +76,91 @@ export interface IssuedInvitation {
   expiresAt: Date;
 }
 
+/** What the rank gate needs to know. A subset of `issueInvitation`'s own arguments. */
+export interface InvitationRankCheck {
+  readonly shopId: string;
+  readonly role: InvitableRole;
+  readonly invitedBy: string;
+  readonly now: Date;
+  readonly audit?: { routeMethod: string; routePath: string; recordAllowance: boolean };
+}
+
+/**
+ * **MAY THIS PERSON HAND OUT THIS ROLE AT THIS SHOP?** — the gate, extracted so
+ * it can run BEFORE anything with a side effect (E03-D21, the security lens's
+ * F4).
+ *
+ * ⚠ **THE EXTRACTION IS THE FIX, NOT A TIDY-UP.** `POST /api/v1/invitations`
+ * creates the invited PERSON before it issues the invitation, and since E03-D21
+ * that person is created in a transaction of its own under the `person-admission`
+ * scope. With this check where it used to be — inside `issueInvitation`, inside
+ * the idempotent transaction — an authorization REFUSAL arrived *after* an
+ * `app_user` row had already been committed for an address the refused caller
+ * chose. An authorization refusal that leaves a side effect behind is the wrong
+ * shape whatever the side effect is, and 000-docs/062 §6 records what this one
+ * costs: the first shop to type an address owns that person's display name
+ * estate-wide.
+ *
+ * So the route calls this FIRST, on its own transaction, and only admits a person
+ * once the answer is yes. `issueInvitation` still calls it — the CLI has no
+ * caller that would, and a gate the service does not enforce is a gate one
+ * refactor from being absent.
+ *
+ * **Two rules, both read off the matrix (054 §3, §5):** `membership.invite` is
+ * SHOP-scoped, so a location-scoped manager cannot staff the shop from one
+ * storefront; and `mayGrantRole` refuses handing out a role above the caller's
+ * own rank — an owner may name a second owner (048 §8.2's recovery nomination
+ * needs it), a manager may invite operators and nothing else.
+ *
+ * **The decision record is written HERE**, which keeps the count right at either
+ * surface. On the route the hook has already recorded the ALLOWANCE
+ * (`recordAllowance: false`), so a permitted call writes nothing and the second
+ * call from inside `issueInvitation` writes nothing either; a REFUSAL is recorded
+ * once, by whichever call reaches it first, and the route throws before the
+ * second. On the CLI there is one call and it records as it always did.
+ *
+ * **What it costs, stated:** on the route's SUCCESS path the memberships are now
+ * read twice — once here and once inside the request transaction. The second read
+ * is the authoritative one and is deliberately kept: a grant revoked between the
+ * two must refuse the act, and only the in-transaction read can see that.
+ */
+export async function mayIssueInvitation(tx: Tx, args: InvitationRankCheck): Promise<boolean> {
+  // ⚠ **THIS CHECK WAS A MEMBERSHIP CHECK AND NOT A ROLE CHECK, AND E03-B03
+  // FOUND IT.** It asked only whether the inviter held SOME live membership at
+  // the shop — so an `operator` could invite an `owner`, reachable today from
+  // `scripts/issue-invitation.ts` by anyone who can run it, and the route
+  // table's own comment claimed this service "checks the role". It did not.
+  const memberships = await membershipsAt(tx, args.invitedBy, args.shopId);
+  const verdict = authorize(memberships, "membership.invite", { atLocation: null, now: args.now });
+  const permitted = verdict.kind === "allowed" && mayGrantRole(verdict.role, args.role);
+
+  // 054 §4.3 (S5′): a PRIVILEGED act records its decision whatever surface it
+  // was reached from. On the CLI there is no route and no session — the surface
+  // is the script and the chain is null — and the record rides this transaction
+  // rather than a second connection. That is the one place the record's own
+  // "outside the request transaction" rule does not hold, and 054 §4.5 states it:
+  // a CLI has no request transaction to be outside of, and writing the decision
+  // beside the grant makes the pair atomic.
+  if (!permitted || (args.audit?.recordAllowance ?? true)) {
+    await recordAuthorizationDecision(tx, {
+      shopId: args.shopId,
+      routeMethod: args.audit?.routeMethod ?? "CLI",
+      routePath: args.audit?.routePath ?? "scripts/issue-invitation.ts",
+      permission: "membership.invite",
+      matrixVersion: PERMISSION_MATRIX_VERSION,
+      matrixCommit: buildCommit(),
+      membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
+      role: verdict.role ?? null,
+      sessionChainId: null,
+      decision: permitted ? "allowed" : "refused",
+      // A rank refusal is a ROLE refusal: the caller's role may not hand out the
+      // role asked for. It is not a scope refusal, which is about WHERE.
+      refusalReason: permitted ? null : verdict.kind === "refused_scope" ? "scope" : "role",
+    });
+  }
+  return permitted;
+}
+
 /**
  * `not_permitted` REPLACES `not_a_member` (E03-B03), and the rename is the
  * finding: the old name described the check that was actually there — *do you
@@ -148,36 +233,7 @@ export async function issueInvitation(
   //   * `mayGrantRole` — nobody hands out a role above their own rank. An owner
   //     may name a second owner (048 §8.2's recovery nomination needs it); a
   //     manager may invite operators and nothing else.
-  const memberships = await membershipsAt(tx, args.invitedBy, args.shopId);
-  const verdict = authorize(memberships, "membership.invite", { atLocation: null, now: args.now });
-  const permitted = verdict.kind === "allowed" && mayGrantRole(verdict.role, args.role);
-
-  // 054 §4.3 (S5′): a PRIVILEGED act records its decision whatever surface it
-  // was reached from. This one has no route and no session — it is an operator
-  // script — so the surface is the script and the chain is null, and the record
-  // is written on the ISSUANCE transaction rather than on a second connection.
-  // That is the one place the record's own "outside the request transaction"
-  // rule does not hold, and 054 §4.5 states it: a CLI has no request
-  // transaction to be outside of, and writing the decision beside the grant
-  // makes the pair atomic, which is the stronger property when it is available.
-  if (!permitted || (args.audit?.recordAllowance ?? true)) {
-    await recordAuthorizationDecision(tx, {
-      shopId: args.shopId,
-      routeMethod: args.audit?.routeMethod ?? "CLI",
-      routePath: args.audit?.routePath ?? "scripts/issue-invitation.ts",
-      permission: "membership.invite",
-      matrixVersion: PERMISSION_MATRIX_VERSION,
-      matrixCommit: buildCommit(),
-      membershipId: verdict.kind === "allowed" ? verdict.membershipId : null,
-      role: verdict.role ?? null,
-      sessionChainId: null,
-      decision: permitted ? "allowed" : "refused",
-      // A rank refusal is a ROLE refusal: the caller's role may not hand out the
-      // role asked for. It is not a scope refusal, which is about WHERE.
-      refusalReason: permitted ? null : verdict.kind === "refused_scope" ? "scope" : "role",
-    });
-  }
-  if (!permitted) return { ok: false, refusal: "not_permitted" };
+  if (!(await mayIssueInvitation(tx, args))) return { ok: false, refusal: "not_permitted" };
 
   const outstanding = await countOutstandingInvitations(tx, args.shopId);
   if (outstanding >= MAX_OUTSTANDING_INVITATIONS_PER_SHOP) {

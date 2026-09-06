@@ -96,6 +96,20 @@ export const INSERT_ONLY_PRIVILEGES = "INSERT";
  */
 export const COLUMN_SCOPED_PRIVILEGES = "SELECT, INSERT";
 
+/**
+ * Privileges a `appGrant: "read-append"` exemption grants (E03-D21).
+ *
+ * The same two words as `APPEND_ONLY_PRIVILEGES` and a DIFFERENT reason, which is
+ * why it is its own constant rather than a reuse: an append-only table is held to
+ * `SELECT, INSERT` by a trigger and the grant is defence in depth, while a
+ * read-append table has NO trigger and the grant is the whole control. `app_user`
+ * is the only member: it is policied `FOR ALL` on a live membership, so a
+ * table-level UPDATE let the application rewrite any co-worker's login email
+ * under an ordinary tenant context (security lens F1 on 000-docs/062). Nothing in
+ * the tree updates or deletes a person; correcting one is a schema-owner act.
+ */
+export const READ_APPEND_PRIVILEGES = "SELECT, INSERT";
+
 /** Default role name; overridable so a deployment may name its roles differently. */
 export const DEFAULT_APP_ROLE = "longbox_app";
 
@@ -131,6 +145,16 @@ export interface GrantPlan {
    * append-only list.
    */
   readonly insertOnly: readonly string[];
+  /**
+   * Declared exemptions the app role may read and append and may not change
+   * (`appGrant: "read-append"`, E03-D21).
+   *
+   * A SIXTH class for `noGrant`'s reason: the grant step's output and its test
+   * should be able to say "this table's rows are not the application's to edit"
+   * rather than leaving a reader to infer it from a table missing from the
+   * full-DML list.
+   */
+  readonly readAppend: readonly string[];
 }
 
 /**
@@ -201,6 +225,19 @@ export const INSERT_ONLY_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.fil
   .sort();
 
 /**
+ * Declared exemptions the app role may read and append and may NOT change
+ * (`appGrant: "read-append"`, E03-D21).
+ *
+ * Derived from the same declaration list as every other class, so a table cannot
+ * enter or leave it by being edited here.
+ */
+export const READ_APPEND_TABLE_NAMES: readonly string[] = APPEND_ONLY_EXEMPTIONS.filter(
+  (e) => e.appGrant === "read-append"
+)
+  .map((e) => e.table)
+  .sort();
+
+/**
  * Classify the live base tables into the three privilege classes.
  *
  * @param liveTables base-table names present in schema `public`.
@@ -211,6 +248,7 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
   const mutable: string[] = [];
   const noGrant: string[] = [];
   const insertOnly: string[] = [];
+  const readAppend: string[] = [];
   const columnScoped: Array<{ table: string; columns: readonly string[] }> = [];
   const undeclared: string[] = [];
 
@@ -230,12 +268,16 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
     // narrower class, and reaching the wider one first would silently restore
     // the table-level DML this class exists to remove.
     else if (scoped) columnScoped.push({ table, columns: scoped.columns });
+    // BEFORE the plain-exempt branch, for the same reason every narrower class is
+    // (E03-D21): reaching the wider one first would silently restore the
+    // table-level UPDATE and DELETE this class exists to remove.
+    else if (READ_APPEND_TABLE_NAMES.includes(table)) readAppend.push(table);
     else if (EXEMPT_TABLE_NAMES.includes(table)) mutable.push(table);
     else undeclared.push(table);
   }
 
   if (undeclared.length > 0) throw new UndeclaredTableError(undeclared);
-  return { appendOnly, mutable, noGrant, columnScoped, insertOnly };
+  return { appendOnly, mutable, noGrant, columnScoped, insertOnly, readAppend };
 }
 
 /** Postgres identifiers we are willing to interpolate: lowercase, unquoted, no injection surface. */
@@ -264,6 +306,7 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
     ...plan.mutable,
     ...plan.noGrant,
     ...plan.insertOnly,
+    ...plan.readAppend,
     ...plan.columnScoped.map((c) => c.table),
     ...views,
   ]) {
@@ -293,6 +336,14 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
   // is correct: nothing in the running system reads or waits on these rows.
   if (plan.insertOnly.length > 0) {
     statements.push(`GRANT ${INSERT_ONLY_PRIVILEGES} ON ${plan.insertOnly.join(", ")} TO ${role}`);
+  }
+  // READ AND APPEND, NEVER CHANGE (E03-D21). No UPDATE and no DELETE: the table
+  // is exempt from the append-only TRIGGER and is still not the application's to
+  // edit, because its policy is `FOR ALL` over rows this shop legitimately sees
+  // and a table-level UPDATE was therefore a cross-tenant write on a person
+  // shared with another shop.
+  if (plan.readAppend.length > 0) {
+    statements.push(`GRANT ${READ_APPEND_PRIVILEGES} ON ${plan.readAppend.join(", ")} TO ${role}`);
   }
   // THE COLUMN-SCOPED CLASS (E03-D06). `SELECT, INSERT` at the table, `UPDATE` on
   // the named columns only, and NO DELETE — so a table exempted because ONE column

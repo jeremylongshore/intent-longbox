@@ -827,7 +827,20 @@ export interface AppendOnlyExemption {
    * table is one more column on the same row, and it stays visible next to the
    * reason it was exempted.
    */
-  readonly appGrant?: "full" | "none";
+  readonly appGrant?: "full" | "none" | "read-append";
+  /*
+   * `"read-append"` (E03-D21, 000-docs/062 §3.2) — the app role gets
+   * `SELECT, INSERT` and **no UPDATE and no DELETE**. It is not a narrowing of
+   * `"full"` for tidiness: it is what makes a SENTENCE TRUE. `app_user` carries a
+   * `tenant_isolation` policy that is `FOR ALL`, so with table-level DML the
+   * application role could — under an ordinary tenant context, in one statement —
+   * rewrite the display name, the status or the LOGIN EMAIL of any co-worker at
+   * that shop, including a person shared with another shop. The security lens
+   * reproduced it and called it the first cross-tenant WRITE effect in the
+   * design. The policy cannot narrow it, because the row being rewritten is a
+   * person this shop legitimately sees; the GRANT can, and nothing in `src/` or
+   * `scripts/` updates or deletes a person.
+   */
   /**
    * The columns the application may UPDATE — a FOURTH privilege class (E03-D06,
    * from the invariant review of `faf105f`).
@@ -948,10 +961,19 @@ export const APPEND_ONLY_EXEMPTIONS: readonly AppendOnlyExemption[] = [
   {
     table: "app_user",
     kind: "permanent",
+    appGrant: "read-append",
     reason:
       "034 §2.5 / §4.2: configuration. A person changes their name and their email. It holds NO " +
       "credential — the password hash, the MFA secret and the session token are separate tables " +
-      "(019, and E03-D06) — so nothing immutable is lost by correcting a row here.",
+      "(019, and E03-D06) — so nothing immutable is lost by correcting a row here. ⚠ **BUT THE " +
+      "APPLICATION IS NOT WHO CORRECTS IT** (E03-D21, security lens F1): the exemption is from the " +
+      "append-only TRIGGER, and it was silently also a table-level DML GRANT. With `app_user` " +
+      "policied `FOR ALL` on a live membership, that grant let the app role rewrite any co-worker's " +
+      "display name, status or LOGIN EMAIL in one statement — the first cross-tenant WRITE effect " +
+      "in the tenant design, reproduced by the lens. Nothing in `src/` or `scripts/` updates or " +
+      "deletes a person, so the class is `read-append`: SELECT and INSERT, no UPDATE, no DELETE. " +
+      "Correcting a person's row is a schema-owner act, and the boot assertion refuses a port if " +
+      "the serving role holds either privilege.",
   },
   {
     table: "device",

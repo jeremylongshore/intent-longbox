@@ -393,7 +393,15 @@ describe("tenancy resolution is MEMBERSHIP-FIRST (048 §6.1, R13)", () => {
     // never loads — so there is no timing difference between "exists but not
     // yours" and "does not exist".
     expect(sql.indexOf("FROM membership")).toBeLessThan(sql.indexOf("JOIN shop"));
-    expect(sql).toContain("membership_revocation");
+    // ⚠ **THE REVOCATION IS NO LONGER SPELLED HERE — E03-D21.** The liveness
+    // triple, `membership_revocation` included, was written out by hand at four
+    // sites in this file and a fifth in the roster, and `migrations/036` needed a
+    // sixth for `app_user`'s policy. The consistency lens's K2 refused that: a
+    // boundary spelling its own copy of *works here* is a second definition, and
+    // the two drift the first time either is corrected. There is now ONE —
+    // `membership_is_live(membership)` — and the assertion moves with it.
+    expect(sql).toContain("membership_is_live(m)");
+    expect(sql).not.toContain("membership_revocation");
   });
 
   it("returns the HIGHEST role held at the scope, and grants nothing by returning it", async () => {

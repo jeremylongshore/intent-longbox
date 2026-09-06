@@ -128,10 +128,7 @@ export async function resolveShopRoster(
       WHERE m.shop_id = $1
         AND u.status = 'active'
         AND m.role <> 'support_break_glass'
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
+        AND membership_is_live(m)
       ORDER BY u.display_name, u.id`,
     [shopId]
   );

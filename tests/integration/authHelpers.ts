@@ -12,7 +12,7 @@
 // example becomes somebody's name in a repository.
 import type pg from "pg";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
-import { tenantDb, withTransaction } from "../../src/db.js";
+import { serviceDb, tenantDb, withTransaction } from "../../src/db.js";
 import {
   DEVICE_COOKIE,
   OPERATOR_COOKIE,
@@ -103,11 +103,27 @@ export async function seedIdentity(
   };
 }
 
+/**
+ * Create a person, the way production creates one.
+ *
+ * ⚠ **IT GOES THROUGH THE ADMISSION SCOPE SINCE E03-D21, AND THAT IS THE POINT
+ * RATHER THAN A WORKAROUND** (000-docs/062 §3.2). `migrations/036` policies
+ * `app_user` on a LIVE MEMBERSHIP, so a person INSERT satisfies no tenant
+ * predicate: the row being created is a person who works nowhere yet, which is
+ * what admission MEANS. A suite holding an app-role pool would otherwise be
+ * refused by `WITH CHECK` — and the right repair is the one `seedIdentity` above
+ * already applies one table over: seed the way the system writes, so the helper
+ * cannot quietly hold a privilege the running server does not.
+ *
+ * A SCHEMA-OWNER pool passes through unchanged, because the owner bypasses every
+ * policy (056 §4) and the scope is simply ignored — which keeps every fixture,
+ * CLI test and `register-shop` path working exactly as it did.
+ */
 export async function insertUser(pool: pg.Pool, email: string, displayName: string): Promise<string> {
-  const res = await pool.query(`INSERT INTO app_user (email, display_name) VALUES ($1,$2) RETURNING id`, [
-    email.toLowerCase(),
-    displayName,
-  ]);
+  const res = await serviceDb(pool, "person-admission").query(
+    `INSERT INTO app_user (email, display_name) VALUES ($1,$2) RETURNING id`,
+    [email.toLowerCase(), displayName]
+  );
   return (res.rows[0] as { id: string }).id;
 }
 

@@ -305,20 +305,56 @@ describe("readCredential / personIdForEmail / upsertPerson", () => {
     expect(calls[0]!.text).toContain("c.password_hash");
   });
 
-  it("does not overwrite an existing person's display name", async () => {
-    let insert: Call | undefined;
+  it("does not overwrite an existing person's display name — and no longer UPDATES at all", async () => {
+    // ⚠ **E03-D21 CHANGED THE MECHANISM AND KEPT THE PROPERTY.** The statement was
+    // `ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email`, a no-op UPDATE
+    // whose only job was to make `RETURNING id` produce a row on the conflicting
+    // path. `migrations/036` policies `app_user`, and an `ON CONFLICT DO UPDATE`
+    // is an UPDATE to row-level security — so keeping it would have meant granting
+    // the admission scope the right to update ANY person's row, cross-tenant,
+    // including their login identifier. `DO NOTHING` plus a read leaves the scope
+    // holding SELECT and INSERT and nothing more, and the display name is now
+    // preserved by construction. 000-docs/062 §3.2.
+    const calls: Call[] = [];
     const { db } = fakeDb((text, values) => {
-      if (text.includes("INSERT INTO app_user")) {
-        insert = { text, values };
-        return [{ id: PERSON, display_name: "Somebody" }];
-      }
-      return [];
+      calls.push({ text, values });
+      // The address is already there: the INSERT returns nothing and the read
+      // beside it resolves the id.
+      if (text.includes("INSERT INTO app_user")) return [];
+      return [{ id: PERSON }];
     });
-    await upsertPerson(db, { email: EMAIL, displayName: "Somebody Else" });
-    // A second invitation for an address that already exists must not let the
-    // inviter rename somebody who already works somewhere (034 §2.5).
-    expect(insert?.text).toContain("DO UPDATE SET email = EXCLUDED.email");
+    expect(await upsertPerson(db, { email: EMAIL, displayName: "Somebody Else" })).toBe(PERSON);
+    const insert = calls.find((c) => c.text.includes("INSERT INTO app_user"));
+    expect(insert?.text).toContain("ON CONFLICT (email) DO NOTHING");
+    expect(insert?.text).not.toContain("DO UPDATE");
     expect(insert?.text).not.toContain("display_name = EXCLUDED");
+    // The fallback projects the id ALONE — the declared `pnpm arch` exemption's
+    // whole ground (000-docs/062 §3.3).
+    const read = calls.find((c) => c.text.includes("SELECT u.id FROM app_user"));
+    expect(read?.text).toBe("SELECT u.id FROM app_user u WHERE u.email = lower($1)");
+    expect(read?.text).not.toContain("display_name");
+  });
+
+  it("returns the INSERTED id without a second read when the address is new", async () => {
+    // The ordinary path costs one statement, exactly as it did before.
+    const calls: Call[] = [];
+    const { db } = fakeDb((text, values) => {
+      calls.push({ text, values });
+      return [{ id: PERSON }];
+    });
+    expect(await upsertPerson(db, { email: EMAIL, displayName: "Somebody" })).toBe(PERSON);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("REFUSES loudly when the address collided and the read came back empty", async () => {
+    // Unreachable inside the admission scope, where the read spans tenants; it is
+    // exactly what an ordinary tenant context produces, because the policy hides
+    // the person the INSERT just collided with. A silent `undefined` there would
+    // have become an invitation naming nobody.
+    const { db } = fakeDb(() => []);
+    await expect(upsertPerson(db, { email: EMAIL, displayName: "Somebody" })).rejects.toThrow(
+      /could not be read back/
+    );
   });
 
   it("lowercases on the way in, matching the sign-in lookup", async () => {
@@ -326,7 +362,7 @@ describe("readCredential / personIdForEmail / upsertPerson", () => {
     const { db } = fakeDb((text, values) => {
       if (text.includes("INSERT INTO app_user")) {
         insert = { text, values };
-        return [{ id: PERSON, display_name: "Somebody" }];
+        return [{ id: PERSON }];
       }
       return [];
     });

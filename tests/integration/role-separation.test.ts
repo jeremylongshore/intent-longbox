@@ -12,6 +12,7 @@
 // control is doing the work, and a test that accepts any throw would pass if the
 // statement failed for an unrelated reason (a typo'd table name, a closed pool).
 import { randomUUID } from "node:crypto";
+import { READ_APPEND_TABLE_NAMES } from "../../src/db/appRoleGrants.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import {
@@ -336,10 +337,52 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
       // table that fell out of it would show up here as a full-DML row, which is
       // the drift these two assertions bracket between them.
       if (COLUMN_SCOPED.some((c) => c.table === table)) continue;
+      // ⚠ SO IS A READ-APPEND ONE (E03-D21), and the same bracketing applies: a
+      // table that fell out of `read-append` would appear here as full DML.
+      if (READ_APPEND_TABLE_NAMES.includes(table)) continue;
       expect({ table, privileges: grants.get(table) }).toEqual({
         table,
         privileges: ["DELETE", "INSERT", "SELECT", "UPDATE"],
       });
+    }
+  });
+
+  it("the READ-APPEND class grants SELECT and INSERT and withholds UPDATE and DELETE", async () => {
+    // ⚠ **WHY THIS CLASS EXISTS, AS THE REPRODUCTION IT WAS** (E03-D21, the
+    // security lens's F1 on 000-docs/062). `app_user` is exempt from the
+    // append-only TRIGGER — a person changes their name — and that exemption was
+    // silently also a table-level DML GRANT. Since `migrations/036` the table
+    // carries a `tenant_isolation` policy that is `FOR ALL` over rows the shop
+    // legitimately sees, so the POLICY cannot refuse an UPDATE of a co-worker's
+    // row: one statement rewrote any of them, login identifier included, on a
+    // person who may be shared with another shop. The exemption was for the
+    // trigger and the grant was for the table — the same shape `updateColumns`
+    // was added to close one class over.
+    expect(READ_APPEND_TABLE_NAMES).toEqual(["app_user"]);
+    const grants = await privilegesByTable(ownerPool);
+    for (const table of READ_APPEND_TABLE_NAMES) {
+      expect({ table, privileges: grants.get(table) }).toEqual({
+        table,
+        privileges: ["INSERT", "SELECT"],
+      });
+    }
+  });
+
+  it("REFUSES an UPDATE and a DELETE on a read-append table, as the app role", async () => {
+    // The privilege above, as behaviour. There is no trigger on this table — that
+    // is what "exempt" means — so the grant is the whole control, which is why
+    // the boot assertion checks it too.
+    const person = (
+      await ownerPool.query(
+        `INSERT INTO app_user (email, display_name) VALUES ($1,'Read Append') RETURNING id`,
+        [`read-append-${randomUUID()}@example.invalid`]
+      )
+    ).rows[0] as { id: string };
+    for (const statement of [
+      `UPDATE app_user SET display_name = 'Renamed' WHERE id = $1`,
+      `DELETE FROM app_user WHERE id = $1`,
+    ]) {
+      await expect(appPool.query(statement, [person.id]), statement).rejects.toThrow(/permission denied/i);
     }
   });
 

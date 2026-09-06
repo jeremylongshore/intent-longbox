@@ -101,11 +101,29 @@ export const SERVICE_SCOPES = [
       "(053 §5.5), which matches no tenant policy at all and is the second reason the scope exists.",
   },
   {
+    scope: "person-admission",
+    reason:
+      "AN INVITATION NAMES ITS PERSON BEFORE ANY CODE IS MINTED (048 §7.1), so `upsertPerson` runs " +
+      "for somebody who may hold no grant anywhere — including the ordinary case of a person who " +
+      "already works at ANOTHER shop, whose row this shop must find by email and may not read " +
+      "(034 §2.6). That is the one moment `app_user`'s membership-EXISTS policy cannot serve, and " +
+      "056 §7 gave it as the reason for having no policy at all. E03-D21 answers it with a scope " +
+      "instead of a hole: this one may SELECT a person and may INSERT an ACTIVE one, and may not " +
+      "UPDATE or DELETE anything — so the running server can admit a person and can never rename, " +
+      "suspend or deactivate one. 000-docs/062 §3. **Redemption does NOT use it**: `grantInvitation` " +
+      "writes the membership before the person is read, so the ordinary tenant context already " +
+      "carries that transaction.",
+  },
+  {
     scope: "second-factor",
     reason:
       "TOTP enrollment, TOTP verification and recovery-code redemption are acts of a PERSON, not " +
       "of a shop (048 §4, §8): `app_user` and `user_authenticator` carry no `shop_id` at all, and " +
       "the `auth_attempt` row a failure appends carries a NULL one, which matches no tenant policy. " +
+      "**`app_user` IS policied since E03-D21, and this scope is why the sign-in still works**: " +
+      "`findPersonIdByEmail` is the FIRST statement of an unauthenticated sign-in, so no shop is " +
+      "known and no membership can be asked about — the same shape as a cookie's digest lookup " +
+      "one scope up. It reads the person table and projects `u.id` alone (000-docs/062 §3.3). " +
       "Its callers today are the three CLIs, which run as the schema owner and would bypass the " +
       "policies anyway; the scope is named there so the transaction says what it is, and so the " +
       "route E03-D11 turns them into inherits a context that is already correct.",

@@ -267,45 +267,15 @@ export async function liveRolesOf(db: Queryable, appUserId: string): Promise<Rol
   return (res.rows as Array<{ role: Role }>).map((r) => r.role);
 }
 
-export interface RosterEntry {
-  id: string;
-  display_name: string;
-}
-
-/**
- * **The operator picker's payload, and the line 022 P3 is easiest to breach by
- * accident** (048 §3.5, I7).
- *
- * The picker is an AUTHENTICATION AFFORDANCE. It may show the roster of display
- * names for the shop. It may **not** be ordered by recency or activity, carry a
- * count, a "last used", a badge, a streak or any per-person datum whatsoever.
- *
- * Stated plainly, because the difference is one line of SQL: **a roster is a list
- * of who could be holding the phone; a leaderboard is a list of what they did.**
- * So the projection is two columns and the sort is `display_name, id` — stable,
- * activity-independent, and unable to become an ordering by anything a person
- * did even if a later reader adds a join.
- *
- * The roster renders only to a live device session (048 R8): "who works here" is
- * a per-shop datum a passer-by on the same Wi-Fi has no claim on.
- */
-export async function shopRoster(db: Queryable, shopId: string): Promise<RosterEntry[]> {
-  const res = await db.query(
-    `SELECT DISTINCT u.id, u.display_name
-       FROM membership m
-       JOIN app_user u ON u.id = m.app_user_id
-      WHERE m.shop_id = $1
-        AND u.status = 'active'
-        AND m.role <> 'support_break_glass'
-        AND m.effective_from <= now()
-        AND (m.effective_until IS NULL OR m.effective_until > now())
-        AND NOT EXISTS (
-              SELECT 1 FROM membership_revocation r WHERE r.membership_id = m.id)
-      ORDER BY u.display_name, u.id`,
-    [shopId]
-  );
-  return res.rows as RosterEntry[];
-}
+// ⚠ **THE OPERATOR PICKER'S ROSTER MOVED OUT — E03-D17.** `shopRoster` and its
+// `RosterEntry` lived here and were the only `JOIN app_user` in the tree. They
+// are now `resolveShopRoster` in `src/identity/`, where 034 §3.3 puts every read
+// that turns a key into a person, so the picker's payload writes an
+// `identity_access` fact with `key_kind = 'shop_roster'` and cannot be assembled
+// anywhere else (019 T35(b)). The SQL is unchanged, including the sort — a
+// roster is a list of who could be holding the phone; a leaderboard is a list of
+// what they did, and the difference is one `ORDER BY`. This module keeps the
+// GRANTS; the people they name are the accessor's to resolve.
 
 /**
  * **Revoking a membership, with everything 048 requires it to drag with it**

@@ -14,6 +14,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny } from "zod";
 import { LongboxError } from "../contracts/v1/errors.js";
 import * as contract from "../contracts/v1/schemas.js";
+import type { ObservedRoute } from "../identity/index.js";
 import {
   createEnrollmentCode,
   createInvitation,
@@ -47,6 +48,25 @@ async function send(req: FastifyRequest, reply: FastifyReply, result: AuthResult
   return reply.code(result.status).send(result.body);
 }
 
+/**
+ * **The accessor pair, OBSERVED rather than declared** (E03-D17, the security
+ * lens's F3).
+ *
+ * `req.routeOptions.url` is the TEMPLATE Fastify matched — the same value the
+ * authentication hook reads at its first line and the same one
+ * `authorization_decision` stores, never `req.url`, which carries ids. Handing
+ * this to `httpAccessor` is what stops a route recording a pair it invented: at
+ * v1.0.0 both halves were a string literal in the service, so the audit's two
+ * findings could only ever have caught an author who declared honestly.
+ *
+ * The `??` branch is unreachable on a registered route and is not a fallback: it
+ * is a value that cannot match any `DECLARED_ACCESSORS` row, so an unrouted
+ * caller REFUSES rather than resolving a person under a blank template.
+ */
+function observedRoute(req: FastifyRequest): ObservedRoute {
+  return { method: req.method, path: req.routeOptions.url ?? "<unrouted>" };
+}
+
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   const P = contract.API_PREFIX;
 
@@ -60,7 +80,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   // The picker. Behind a live device session, because "who works here" is a
   // per-shop datum a passer-by on the same Wi-Fi has no claim on (048 R8).
   app.get(`${P}/operators`, async (req, reply) => {
-    return send(req, reply, await operatorRoster(deps, requireDevice(req)));
+    return send(req, reply, await operatorRoster(deps, requireDevice(req), observedRoute(req)));
   });
 
   // ***MY SHOPS*** (048 §6.4, E03-D08). Registered HERE, with the other three
@@ -77,10 +97,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
 
   app.post(`${P}/operator-sessions`, async (req, reply) => {
     const body = parse(contract.operatorSessionRequest, req.body ?? {});
-    const result = await openOperatorSession(deps, requireDevice(req), {
-      appUserId: body.app_user_id,
-      pin: body.pin,
-    });
+    const result = await openOperatorSession(
+      deps,
+      requireDevice(req),
+      { appUserId: body.app_user_id, pin: body.pin },
+      observedRoute(req)
+    );
     return send(req, reply, result);
   });
 
@@ -97,11 +119,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     // day somebody edits a row, and a thrown code is cheaper than a 500.
     const key = headerValue(req.headers["idempotency-key"]);
     if (key === undefined) throw new LongboxError("IDEMPOTENCY_KEY_REQUIRED");
-    const result = await redeemInvitation(deps, requireDevice(req), {
-      code: body.code,
-      pin: body.pin,
-      idempotencyKey: key,
-    });
+    const result = await redeemInvitation(
+      deps,
+      requireDevice(req),
+      { code: body.code, pin: body.pin, idempotencyKey: key },
+      observedRoute(req)
+    );
     return send(req, reply, result);
   });
 
@@ -123,14 +146,18 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   // (048 §9.3), so the wire cannot tell an unknown address from a wrong code.
   app.post(`${P}/privileged-sessions`, async (req, reply) => {
     const body = parse(contract.privilegedSessionRequest, req.body ?? {});
-    const result = await openPrivilegedSession(deps, {
-      email: body.email,
-      password: body.password,
-      ...(body.totp_code !== undefined ? { totpCode: body.totp_code } : {}),
-      ...(body.recovery_code !== undefined ? { recoveryCode: body.recovery_code } : {}),
-      shopId: body.shop_id,
-      ...(body.location_id !== undefined ? { locationId: body.location_id } : {}),
-    });
+    const result = await openPrivilegedSession(
+      deps,
+      {
+        email: body.email,
+        password: body.password,
+        ...(body.totp_code !== undefined ? { totpCode: body.totp_code } : {}),
+        ...(body.recovery_code !== undefined ? { recoveryCode: body.recovery_code } : {}),
+        shopId: body.shop_id,
+        ...(body.location_id !== undefined ? { locationId: body.location_id } : {}),
+      },
+      observedRoute(req)
+    );
     return send(req, reply, result);
   });
 

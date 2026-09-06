@@ -1419,6 +1419,342 @@ export function checkMigrationNumbers(filenames: readonly string[]): Finding[] {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Rule 14 — 019 T35(b) / 034 §3.3 (E03-D17): `src/identity/` is the ONLY place
+// that turns a key into a person, and the ONLY writer of `identity_access`.
+// ---------------------------------------------------------------------------
+
+/** The audited accessor. Every path below is relative to the repo root. */
+export const IDENTITY_ACCESSOR_DIR = "src/identity/";
+
+/** The one file that may INSERT the access fact. */
+export const IDENTITY_ACCESS_WRITER = "src/identity/access.ts";
+
+const IDENTITY_ACCESS_INSERT = /INSERT\s+INTO\s+identity_access\b/gi;
+
+/**
+ * A SQL string literal, as this rule is willing to recognise one.
+ *
+ * Backtick-delimited (this repository writes every statement as a template
+ * literal) and containing a SQL verb as a WORD. Prose in a comment is stripped
+ * before this runs, so what is left is code — but a `.ts` file also holds plain
+ * strings, and requiring a verb keeps the rule from having an opinion about
+ * `` `a display_name is a person's own` `` in a thrown message.
+ */
+const SQL_LITERAL = /`([^`]*)`/g;
+const SQL_VERB = /\b(SELECT|INSERT|UPDATE|DELETE)\b/i;
+
+/**
+ * The columns a projection may not name outside the accessor.
+ *
+ * 034 §3.3 names three — `operator_id`, `created_by`, `confirmed_by` — and A5
+ * puts the two legacy strings INSIDE the contract rather than outside it: T35
+ * keys on operator identifiers of any shape, and an unverified one is
+ * per-operator data that is also unreliable. `display_name` is the fourth and is
+ * the one this bead's accessors actually carry: it is what turns any of the
+ * others into a SURFACE, because a surface needs a name.
+ */
+export const PERSON_PROJECTION_COLUMNS: readonly string[] = [
+  "display_name",
+  "operator_id",
+  "created_by",
+  "confirmed_by",
+  // ⚠ THE THREE THE SECURITY LENS'S F1 ADDED, AND WHY A COLUMN LIST BEATS A
+  // TABLE LIST. v1.0.0's rule keyed on the person TABLE plus four column names,
+  // and `src/services/auth/recovery.ts` projected a named human's name and a
+  // note about how to reach them out of `shop_recovery_nomination` — a DIFFERENT
+  // table — with no audit fact, no caller, and a green gate. 060 §1 E3's grep had
+  // enumerated reads of `app_user`, so I1's claim was false in the tree it
+  // governs.
+  //
+  // A person's attributes are not the property of one table. `email` is here for
+  // the same reason and costs nothing today: the sign-in's lookup names it in a
+  // WHERE and not in a projection, and `projectionText` reads SELECT lists and
+  // RETURNING tails only — so the one legitimate email read (the otpauth label,
+  // inside the accessor) is exempt by living in the module, and the next one
+  // anywhere else is a red build.
+  "contact_name",
+  "contact_note",
+  "email",
+];
+
+/** `FROM app_user` / `JOIN app_user`, and NOT `app_user_origin` or `app_user_id`. */
+const PERSON_TABLE_READ = /\b(FROM|JOIN)\s+app_user(?![_a-z])/i;
+
+/** Every `SELECT … FROM` projection plus every `RETURNING …` tail, concatenated. */
+export function projectionText(sql: string): string {
+  const parts: string[] = [];
+  const select = /\bSELECT\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = select.exec(sql)) !== null) {
+    const rest = sql.slice(m.index + m[0].length);
+    const from = rest.search(/\bFROM\b/i);
+    parts.push(from === -1 ? rest : rest.slice(0, from));
+  }
+  const returning = /\bRETURNING\b/gi;
+  while ((m = returning.exec(sql)) !== null) parts.push(sql.slice(m.index + m[0].length));
+  return parts.join(" \n ");
+}
+
+export interface PersonJoinRow {
+  readonly path: string;
+  /** How many violating literals this file is allowed. Exact, never a ceiling. */
+  readonly count: number;
+  readonly kind: ExemptionKind;
+  readonly reason: string;
+  readonly closingBead?: string;
+}
+
+/**
+ * **The declared exemptions, which is one row.**
+ *
+ * A short list is the control rather than a convenience: 022 P3's cheapest
+ * satisfaction of 019 T35 is *"never to build a per-operator surface"*, and every
+ * row here is a read that came close enough to need an argument.
+ */
+// ⚠⚠ **THIS FILE IS SCANNED BY ITS OWN RULE. NO BACKTICKED SQL SAMPLE BELOW.**
+//
+// `checkIdentityPersonJoins` walks every backtick-delimited literal in every file
+// it is handed, INCLUDING this one — so a markdown-backticked sample statement in
+// a `reason` string makes the rule file violate the rule it defines. Exempting
+// the rule file was available and is the wrong fix: a checker that cannot be
+// checked is the shape 029 §5 move 8's *"prove the gate can fail"* exists to
+// refuse. Quote SQL in these strings with plain text, never with backticks.
+export const PERSON_JOIN_ROWS: readonly PersonJoinRow[] = [
+  {
+    path: "src/services/auth/credentials.ts",
+    count: 1,
+    kind: "exemption",
+    reason:
+      // ⚠ NO BACKTICKS IN THIS STRING, AND THAT IS NOT A STYLE CHOICE. The rule
+      // below scans backtick-delimited literals in every file it is handed,
+      // INCLUDING this one, so markdown backticks around a sample statement here
+      // make the rule file violate its own rule. Exempting the rule file would
+      // have been the wrong fix: a checker that cannot be checked is the shape
+      // 029 §5 move 8's "prove the gate can fail" exists to refuse.
+      "The sign-in lookup — SELECT u.id FROM app_user u WHERE u.email = lower($1). It PROJECTS " +
+      "u.id alone and resolves a value the CALLER supplied, so it discloses nothing about a " +
+      "person the caller did not already name; the rule flags it only because it reads the person " +
+      "TABLE, which is the stronger boundary this rule draws on purpose. It is not routed through " +
+      "the accessor for a reason that is a control rather than a convenience: it is the FIRST " +
+      "statement of an unauthenticated sign-in, so an accessor call here would let anybody with a " +
+      "socket append to `identity_access` without holding a session — an audit table a stranger " +
+      "can grow. 000-docs/060 §5.3 argues it; a failed sign-in is already recorded, as an " +
+      "`auth_attempt` failure (048 §9.1).",
+  },
+];
+
+/**
+ * A query over `auth_attempt` — 048 R17's substrate/surface rule, written as an
+ * inventory rather than as an assertion.
+ *
+ * 048 I7 requires that *"every query over `auth_attempt` in the tree is either
+ * the single-pair lockout derivation or an audited break-glass query"*, and 048
+ * §12.4 row 6 hands the fourth name to this scope. All four readers today are
+ * lockout derivations, one per factor. Nothing is moved into the accessor — a
+ * lockout count is not a person-resolution, and pretending it is would put a
+ * hot-path read behind an audit that has nothing to record.
+ */
+export interface AuthAttemptReadRow {
+  readonly path: string;
+  readonly count: number;
+  readonly reason: string;
+}
+
+export const AUTH_ATTEMPT_READ_ROWS: readonly AuthAttemptReadRow[] = [
+  {
+    path: "src/services/auth/pin.ts",
+    count: 1,
+    reason: "The PIN's single-pair lockout derivation (048 §9.1) — the original, and the anchor.",
+  },
+  {
+    path: "src/services/auth/credentials.ts",
+    count: 1,
+    reason:
+      "`personWait` — the SHARED per-person budget across all THREE factors (057 §4.5, 048 §4.3). " +
+      "It is ONE statement and not three: `authenticator.ts`'s `secondFactorWait` DELEGATES to it " +
+      "rather than spelling its own, precisely so two budgets cannot become two by an edit to one " +
+      "of them. The inventory therefore holds one row for three factors, which is the shape the " +
+      "shared budget requires and the reason `authenticator.ts` is absent from this list.",
+  },
+  {
+    path: "src/services/auth/invitations.ts",
+    count: 1,
+    reason:
+      "The per-shop code-redemption delay (048 R14): the one derivation keyed on a SHOP rather " +
+      "than on a pair, because the caller of a redemption is not yet a person.",
+  },
+];
+
+const AUTH_ATTEMPT_READ = /\bFROM\s+auth_attempt\b/gi;
+
+/**
+ * **The half of 019 T35(b) that no import graph can see.**
+ *
+ * `.dependency-cruiser.cjs`'s `identity-public-surface-only` stops a caller
+ * IMPORTING past the barrel. Nothing in an import graph stops a caller writing
+ * `` `SELECT u.display_name FROM app_user u …` `` in its own file — which is
+ * exactly how `readUser` and `readPerson` came to be two copies of one statement
+ * in two files before this bead, neither of them audited and neither of them
+ * visible to any rule. So the boundary is asserted over TEXT, in three parts:
+ *
+ *   1. no SQL literal outside `src/identity/` may PROJECT a person's attributes
+ *      or any of 034 §3.3's three attribution column names;
+ *   2. no SQL literal outside it may read the person TABLE at all (`FROM`/`JOIN
+ *      app_user`), beyond one declared exemption;
+ *   3. `identity_access` has exactly ONE writer, on `authorizationAudit.ts`'s
+ *      precedent — a second writer is a second definition of what counts as
+ *      resolving a person, and the audit would be reconciling one of two
+ *      vocabularies.
+ *
+ * Plus 048 R17's fourth name: every `FROM auth_attempt` in the tree is a declared
+ * lockout derivation.
+ *
+ * **SCOPE IS `src/` AND `scripts/`**, which is why it is called from
+ * `architectureGate.ts` with both trees rather than from `runArchitectureRules`
+ * (the invariant review's NOTE 5: a pure rule does not reach for the filesystem).
+ * 058 F6 taught this one bead ago and it applies with more force here: one of the
+ * five migrated callers IS a CLI (`pnpm enroll-authenticator`), so a rule blind
+ * to `scripts/` would have been blind to the only accessor that reads an email.
+ *
+ * **WHAT IT CANNOT SEE, STATED RATHER THAN IMPLIED.** It reads template literals.
+ * A statement assembled from concatenated fragments, or built by a query builder,
+ * is invisible to it — and there is no such construction in this repository
+ * today, which is what makes the rule worth having and also what bounds it. The
+ * database-level guarantee is a different one and it is real: the application
+ * role holds INSERT and no SELECT on `identity_access` (`appGrant: "insert-only"`),
+ * so no arrangement of application SQL can read the audit back.
+ */
+export function checkIdentityPersonJoins(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const declared = new Map(PERSON_JOIN_ROWS.map((r) => [r.path, r]));
+
+  for (const file of files) {
+    if (file.path.startsWith(IDENTITY_ACCESSOR_DIR)) continue;
+    const text = stripJsComments(file.text);
+
+    let violations = 0;
+    let m: RegExpExecArray | null;
+    const literals = new RegExp(SQL_LITERAL.source, "g");
+    while ((m = literals.exec(text)) !== null) {
+      const sql = m[1] ?? "";
+      if (!SQL_VERB.test(sql)) continue;
+      const projected = PERSON_PROJECTION_COLUMNS.filter((c) =>
+        new RegExp(`\\b${c}\\b`).test(projectionText(sql))
+      );
+      const readsTable = PERSON_TABLE_READ.test(sql);
+      if (projected.length === 0 && !readsTable) continue;
+      violations += 1;
+    }
+
+    const allowed = declared.get(file.path)?.count ?? 0;
+    // AN EQUALITY, NOT A CEILING (`SELECT_STAR_ROWS`' discipline). A declared
+    // file that stops holding its statement fails too, because a stale exemption
+    // is a hole nobody is looking at. The check is per-SCANNED-file rather than a
+    // sweep over the declaration list: a rule that reported on a path absent from
+    // its input would be un-unit-testable on a fixture, and would be reporting on
+    // a tree it was never shown. `tests/contract/architecture-gate.test.ts`
+    // asserts against the REAL tree that every declared path exists in it.
+    if (violations === allowed) continue;
+
+    findings.push({
+      rule: "identity-is-the-only-person-join",
+      message:
+        `${file.path} holds ${String(violations)} statement(s) that project a person's ` +
+        `attributes (${PERSON_PROJECTION_COLUMNS.join(", ")}) or read \`app_user\` directly; ` +
+        `${String(allowed)} declared (019 T35(b), 034 §3.3). Turning a key into a person happens ` +
+        `in \`${IDENTITY_ACCESSOR_DIR}\` and nowhere else, because that is the only place the ` +
+        `access writes an \`identity_access\` fact. Call an accessor through ` +
+        `\`src/identity/index.ts\`, or — if this read genuinely projects an id and nothing else — ` +
+        `add a PERSON_JOIN_ROWS row saying why, in the same PR.`,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Rule 14d — the PUBLIC-SURFACE rule, extended to `scripts/` (the security
+ * lens's F3b).
+ *
+ * `.dependency-cruiser.cjs`'s `identity-public-surface-only` covers `src/` and
+ * only `src/`, because `pnpm depcruise` cruises `src`. `scripts/` imports the
+ * module too — `pnpm enroll-authenticator` is one of the five migrated callers —
+ * so the strongest boundary in this bead stopped at a directory edge, and a CLI
+ * could have imported `src/identity/accessors.ts` directly and taken the person
+ * query WITHOUT the audit fact, which is the whole control.
+ *
+ * Adding `scripts/` to the cruise was the other option and was not taken: the
+ * cruise's module census is asserted byte-for-byte by the scratch-tree fixture
+ * above, and widening the cruised set changes that census for every rule at once
+ * to close one hole. A text rule over import specifiers is narrower, lives beside
+ * the other two halves of this boundary, and needs no config change.
+ */
+export function checkIdentityImportSurface(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const deep = /from\s+["'][^"']*\/identity\/(?!index\.js)[^"']+["']/g;
+  for (const file of files) {
+    if (file.path.startsWith(IDENTITY_ACCESSOR_DIR)) continue;
+    const hits = (stripJsComments(file.text).match(deep) ?? []).length;
+    if (hits === 0) continue;
+    findings.push({
+      rule: "identity-public-surface-only",
+      message:
+        `${file.path} imports ${String(hits)} time(s) past \`src/identity/index.js\`. The accessor's ` +
+        `only door is its barrel (034 §3.3): reaching into \`accessors.ts\` or \`access.ts\` takes ` +
+        `the person query WITHOUT the audit fact, which is the control. ` +
+        `\`pnpm depcruise\` says this for \`src/\`; this rule says it for \`scripts/\` too.`,
+    });
+  }
+  return findings;
+}
+
+/** Rule 14b — one writer for the access fact (rule 3b's shape, one table over). */
+export function checkIdentityAccessWriters(files: readonly SourceFile[]): Finding[] {
+  const writers = files
+    .filter((f) => (f.text.match(IDENTITY_ACCESS_INSERT) ?? []).length > 0)
+    .map((f) => f.path)
+    .sort();
+
+  if (writers.length === 1 && writers[0] === IDENTITY_ACCESS_WRITER) return [];
+  return [
+    {
+      rule: "identity-access-has-one-writer",
+      message:
+        `identity_access is written from [${writers.join(", ") || "nothing"}]; the only writer may ` +
+        `be ${IDENTITY_ACCESS_WRITER} (000-docs/060 §3). A second writer is a second definition of ` +
+        `what counts as resolving a person, and \`pnpm audit:identity-access\` would then be ` +
+        `reconciling one of two vocabularies against one declared inventory.`,
+    },
+  ];
+}
+
+/** Rule 14c — 048 R17/I7: every `FROM auth_attempt` is a declared lockout derivation. */
+export function checkAuthAttemptReads(files: readonly SourceFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const declared = new Map(AUTH_ATTEMPT_READ_ROWS.map((r) => [r.path, r]));
+
+  for (const file of files) {
+    const count = (stripJsComments(file.text).match(AUTH_ATTEMPT_READ) ?? []).length;
+    // Per-scanned-file and an EQUALITY, for `checkIdentityPersonJoins`' stated
+    // reason: a declared reader that stops reading fails here, and the existence
+    // of every declared path in the real tree is asserted by the contract test
+    // rather than by a rule reporting on files it was never handed.
+    const allowed = declared.get(file.path)?.count ?? 0;
+    if (count === allowed) continue;
+    findings.push({
+      rule: "auth-attempt-is-substrate-not-surface",
+      message:
+        `${file.path} reads auth_attempt ${String(count)} time(s); ${String(allowed)} declared ` +
+        `(048 R17, I7). Every query over this table must be a single-pair (or single-shop) lockout ` +
+        `derivation or an audited break-glass query — a failure log read for any other reason is a ` +
+        `per-operator surface, which 019 T35 signs at zero.`,
+    });
+  }
+
+  return findings;
+}
+
 export function runArchitectureRules(files: readonly SourceFile[]): Finding[] {
   return [
     ...checkSelectStar(files),

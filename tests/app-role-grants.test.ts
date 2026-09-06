@@ -17,6 +17,7 @@ describe("planAppRoleGrants", () => {
       mutable: [],
       noGrant: [],
       columnScoped: [],
+      insertOnly: [],
     });
   });
 
@@ -26,6 +27,7 @@ describe("planAppRoleGrants", () => {
       mutable: ["scan_session", "shop"],
       noGrant: [],
       columnScoped: [],
+      insertOnly: [],
     });
   });
 
@@ -39,6 +41,7 @@ describe("planAppRoleGrants", () => {
       mutable: ["shop"],
       noGrant: ["schema_migrations"],
       columnScoped: [],
+      insertOnly: [],
     });
   });
 
@@ -65,6 +68,7 @@ describe("planAppRoleGrants", () => {
       mutable: [],
       noGrant: ["app_user_origin", "app_user_origin_retirement"],
       columnScoped: [],
+      insertOnly: [],
     });
   });
 
@@ -101,9 +105,25 @@ describe("planAppRoleGrants", () => {
     // append-only CLASS is the declared set minus them — and the remainder is
     // asserted by NAME rather than only by count, so a third one cannot arrive
     // unnoticed.
+    // E03-D17 adds a THIRD narrower class — `insert-only` — so the arithmetic
+    // subtracts both, and both are asserted by NAME.
     const plan = planAppRoleGrants(APPEND_ONLY_TABLE_NAMES);
-    expect(plan.appendOnly).toHaveLength(APPEND_ONLY_TABLE_NAMES.length - plan.noGrant.length);
+    expect(plan.appendOnly).toHaveLength(
+      APPEND_ONLY_TABLE_NAMES.length - plan.noGrant.length - plan.insertOnly.length
+    );
     expect(plan.noGrant).toEqual(["app_user_origin", "app_user_origin_retirement"]);
+    expect(plan.insertOnly).toEqual(["identity_access"]);
+  });
+
+  it("gives the insert-only class INSERT and nothing else — no SELECT, so no row lock either", () => {
+    // 000-docs/060 §3.4. The mirror of `appGrant: "none"`: that class withholds
+    // the INSERT because an appended row would change what a control SEES; this
+    // one withholds the SELECT because a process that can read its own access log
+    // can shape what an audit sees before the audit runs.
+    const sql = buildGrantStatements(planAppRoleGrants(["identity_access"]), "longbox_app").join("\n");
+    expect(sql).toContain("GRANT INSERT ON identity_access TO longbox_app");
+    expect(sql).not.toMatch(/GRANT[^\n]*SELECT[^\n]*identity_access/);
+    expect(sql).not.toMatch(/GRANT[^\n]*UPDATE[^\n]*identity_access/);
   });
 });
 
@@ -113,6 +133,7 @@ describe("buildGrantStatements", () => {
     mutable: ["shop"],
     noGrant: ["schema_migrations"],
     columnScoped: [],
+    insertOnly: [],
   };
 
   it("emits no GRANT at all for a no-grant table — the opening REVOKE ALL is its whole story", () => {
@@ -123,7 +144,10 @@ describe("buildGrantStatements", () => {
 
   it("still validates a no-grant identifier, so the class cannot smuggle one past the check", () => {
     expect(() =>
-      buildGrantStatements({ appendOnly: [], mutable: [], noGrant: ["bad name"], columnScoped: [] }, "app")
+      buildGrantStatements(
+        { appendOnly: [], mutable: [], noGrant: ["bad name"], columnScoped: [], insertOnly: [] },
+        "app"
+      )
     ).toThrow(/unsafe table/);
   });
 
@@ -159,6 +183,7 @@ describe("buildGrantStatements", () => {
     mutable: [],
     noGrant: [],
     columnScoped: [{ table: "user_authenticator", columns: ["last_used_step", "updated_at"] }],
+    insertOnly: [],
   };
 
   it("grants a column-scoped table SELECT+INSERT and UPDATE on the NAMED COLUMNS only", () => {
@@ -224,7 +249,10 @@ describe("buildGrantStatements", () => {
   it("refuses an identifier it would have to interpolate unsafely", () => {
     expect(() => buildGrantStatements(plan, 'app"; DROP DATABASE x; --')).toThrow(/unsafe role/);
     expect(() =>
-      buildGrantStatements({ appendOnly: ["a b"], mutable: [], noGrant: [], columnScoped: [] }, "app")
+      buildGrantStatements(
+        { appendOnly: ["a b"], mutable: [], noGrant: [], columnScoped: [], insertOnly: [] },
+        "app"
+      )
     ).toThrow(/unsafe table/);
   });
 });
@@ -250,6 +278,7 @@ describe("applyAppRoleGrants", () => {
       mutable: ["shop"],
       noGrant: [],
       columnScoped: [],
+      insertOnly: [],
     });
     expect(executed).toContain("GRANT SELECT, INSERT ON cost_log TO longbox_app");
     expect(executed).toContain("GRANT SELECT ON shop_current TO longbox_app");

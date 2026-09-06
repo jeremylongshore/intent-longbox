@@ -308,12 +308,27 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
     // The three answers, appended. `declined` is a first-class answer: the
     // difference between "this owner has no second person" and "nobody asked" is
     // the difference between a known residual and a surprise during an outage.
-    const { recordRecoveryNomination, currentRecoveryNomination } =
-      await import("../../src/services/auth/index.js");
+    const { recordRecoveryNomination } = await import("../../src/services/auth/index.js");
     await shopTx((tx) => recordRecoveryNomination(tx, { shopId, kind: "declined" }));
-    // `shop_recovery_nomination` IS shop-scoped, unlike everything else in this
-    // suite, so both the write and the read name the shop (E03-B04).
-    expect((await currentRecoveryNomination(asShop(pool, shopId), shopId))?.kind).toBe("declined");
+
+    // ⚠ **THE READ IS A DIRECT QUERY AND NOT A `src/` FUNCTION** (E03-D17, the
+    // security lens's F1). `currentRecoveryNomination` projected a named human's
+    // name and contact note, wrote no `identity_access` fact and had no caller
+    // outside these tests — so it is DELETED, and `contact_name` / `contact_note`
+    // joined `PERSON_PROJECTION_COLUMNS` so the next author who writes it gets a
+    // red build. The property still matters, so it is asserted HERE, in the tree
+    // the rule does not govern: a shop may change its mind and the NEWEST row is
+    // the current answer. `shop_recovery_nomination` IS shop-scoped, unlike
+    // everything else in this suite, so the read names the shop (E03-B04).
+    const newest = async (): Promise<{ kind: string; contact_name: string | null }> =>
+      (
+        await shopQuery(
+          `SELECT n.kind, n.contact_name FROM shop_recovery_nomination n
+            WHERE n.shop_id = $1 ORDER BY n.created_at DESC, n.id DESC LIMIT 1`,
+          [shopId]
+        )
+      ).rows[0] as { kind: string; contact_name: string | null };
+    expect((await newest()).kind).toBe("declined");
 
     await shopTx((tx) =>
       recordRecoveryNomination(tx, {
@@ -323,8 +338,7 @@ describe.skipIf(!dbUp)("recovery codes (048 §8, I15)", () => {
         contactNote: "reachable at the shop on weekday mornings",
       })
     );
-    const current = await currentRecoveryNomination(asShop(pool, shopId), shopId);
-    expect(current).toMatchObject({ kind: "named_contact", contact_name: "A Named Person" });
+    expect(await newest()).toMatchObject({ kind: "named_contact", contact_name: "A Named Person" });
 
     // Appended, not edited: the decline is still there, which is the audit trail a
     // column would have destroyed.

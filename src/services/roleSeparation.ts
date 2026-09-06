@@ -43,7 +43,7 @@ import { APPEND_ONLY_TABLE_NAMES } from "../db/appendOnlyTables.js";
 // 058 F2: the tables the application role may not touch at all. Imported from
 // the SAME declaration the grant step reads, so the boot check and the grant
 // plan cannot disagree about which tables they are.
-import { NO_APP_GRANT_TABLE_NAMES } from "../db/appRoleGrants.js";
+import { INSERT_ONLY_TABLE_NAMES, NO_APP_GRANT_TABLE_NAMES } from "../db/appRoleGrants.js";
 import {
   SERVICE_POLICY,
   SERVICE_TABLES,
@@ -401,12 +401,47 @@ const ISOLATION_SQL = `
     -- four privileges are asked separately because the failure is any of them:
     -- a SELECT is a read of who is watched, an INSERT is the back-dated
     -- retirement itself.
-    (SELECT array_agg(t ORDER BY t) FROM unnest($9::text[]) AS t
-      WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
-        AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
-          OR has_table_privilege(current_user, quote_ident(t), 'INSERT')
-          OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
-          OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))) AS forbidden_grants
+    --
+    -- ⚠ BOTH HALVES ARE COALESCEd TO AN EMPTY ARRAY BEFORE THE ||, AND THAT
+    -- IS LOAD-BEARING (E03-D17): array_agg over zero rows returns NULL, and in
+    -- Postgres NULL || anything is NULL — so a concatenation without the two
+    -- COALESCEs would report NO findings the moment EITHER half was clean, which
+    -- is a check that goes quietly green rather than red. The same failure shape
+    -- 058 F2 exists to prevent, arriving through an operator.
+    COALESCE(
+      (SELECT array_agg(t ORDER BY t) FROM unnest($9::text[]) AS t
+        WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
+          AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
+            OR has_table_privilege(current_user, quote_ident(t), 'INSERT')
+            OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
+            OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))),
+      '{}'::text[])
+      ||
+    -- E03-D17, the security lens's F2 (= the gate audit's F2). THE SAME SHAPE,
+    -- ONE PRIVILEGE CLASS OVER, and it is here because 060 §3.4 claimed
+    -- "enforced twice" while the runtime half did not exist.
+    --
+    -- appGrant: "insert-only" gives the app role INSERT and withholds SELECT,
+    -- because a process that can read its own access log can shape what an audit
+    -- sees before the audit runs. The lens reproduced the gap: GRANT SELECT ON
+    -- identity_access TO longbox_app was accepted, BOTH boot assertions passed,
+    -- and the application read its own access log — because the check above takes
+    -- the no-grant list ALONE. A grant plan is re-applied on every pnpm migrate
+    -- and a hand-run GRANT between two runs is exactly the drift 058 F2 added
+    -- that check for.
+    --
+    -- INSERT is deliberately ABSENT from the three asked here: it is the one
+    -- privilege this class is supposed to hold, so asking about it would fail the
+    -- boot on a correct grant. to_regclass guards the pending case for the same
+    -- reason it does above.
+    COALESCE(
+      (SELECT array_agg(t ORDER BY t) FROM unnest($10::text[]) AS t
+        WHERE to_regclass('public.' || quote_ident(t)) IS NOT NULL
+          AND (has_table_privilege(current_user, quote_ident(t), 'SELECT')
+            OR has_table_privilege(current_user, quote_ident(t), 'UPDATE')
+            OR has_table_privilege(current_user, quote_ident(t), 'DELETE'))),
+      '{}'::text[])
+      AS forbidden_grants
 `;
 
 /**
@@ -514,6 +549,9 @@ export async function checkTenantIsolation(pool: TenantIsolationQueryable): Prom
       TENANT_POLICY,
       [TENANT_POLICY, SERVICE_POLICY, SERVICE_WRITE_POLICY],
       [...NO_APP_GRANT_TABLE_NAMES],
+      // E03-D17 (security F2): the insert-only class, asked about SELECT, UPDATE
+      // and DELETE — never INSERT, which is the privilege the class holds.
+      [...INSERT_ONLY_TABLE_NAMES],
     ])
   ).rows[0] as IsolationRow | undefined;
   if (!row) throw new Error("tenant-isolation check: the catalog query returned no row");
@@ -593,9 +631,12 @@ export function describeTenantIsolationFailure(result: TenantIsolationResult): s
   }
   if (result.forbiddenGrants.length > 0) {
     parts.push(
-      `role "${result.role}" holds a privilege on ${String(result.forbiddenGrants.length)} table(s) ` +
-        `declared \`appGrant: "none"\` — these carry no tenant column, so no policy stands behind the ` +
-        `grant and the grant is the whole mechanism: ${result.forbiddenGrants.join(", ")}`
+      `role "${result.role}" holds a privilege the design withholds on ` +
+        `${String(result.forbiddenGrants.length)} table(s): a table declared \`appGrant: "none"\` ` +
+        `(no tenant column, so no policy stands behind the grant and the grant is the whole ` +
+        `mechanism), or a READ, UPDATE or DELETE on a table declared \`appGrant: "insert-only"\` ` +
+        `(E03-D17 — a process that can read its own access log can shape what an audit sees before ` +
+        `the audit runs): ${result.forbiddenGrants.join(", ")}`
     );
   }
   return parts.join("; ");

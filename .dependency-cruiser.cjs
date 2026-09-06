@@ -328,6 +328,63 @@ module.exports = {
     },
 
     {
+      // E03-D17. The SAME shape as `catalog-public-surface-only` above, and it is
+      // here for the same stated reason: `src/identity/` is real code landing
+      // ahead of E02-B03's `src/modules/` relocation, so the rules keyed on
+      // `^src/modules/` do not cover it and would leave the estate's newest
+      // boundary unenforced.
+      //
+      // ⚠ **`src/identity/` IS NOT A TENTH MODULE.** The identity module already
+      // exists in the flat layout as `src/services/auth/` (029 §3.1's L1 entry;
+      // `authorizationAudit.ts` says so in as many words). This directory is that
+      // module's AUDITED ACCESSOR — a sub-boundary that becomes
+      // `src/modules/identity/access/` at the relocation — so an edge from
+      // `src/services/auth/api.ts` into it is identity→identity and creates no
+      // new layer edge. What the directory buys is a PATH for these two rules to
+      // key on, which is not expressible over a single file inside a 22-file
+      // directory whose siblings freely import `pg`, the contract layer and each
+      // other.
+      name: "identity-public-surface-only",
+      severity: "error",
+      comment:
+        "034 §3.3 / 019 T35(b): the accessor's only public surface is src/identity/index.ts. " +
+        "Routes, services, consumers and scripts import THAT and nothing else. Reaching into " +
+        "src/identity/accessors.ts or src/identity/access.ts would let a caller take the person " +
+        "query without the audit fact — which is the whole control, and no layer rule would " +
+        "notice. `pnpm arch`'s `identity-is-the-only-person-join` is the half of this the import " +
+        "graph cannot see: it stops the SQL being copied instead of imported.",
+      from: { path: "^src/", pathNot: ["^src/identity/"] },
+      to: { path: "^src/identity/.+", pathNot: ["^src/identity/index\\.ts$"] },
+    },
+
+    {
+      name: "identity-reaches-only-platform",
+      severity: "error",
+      comment:
+        "029 §3.1's ALLOWED table gives identity exactly one dependency: platform. In the flat " +
+        "layout that is `src/db.ts`, `src/db/` and `src/config.ts` — the database handle and the " +
+        "process's own environment. So the accessor may reach no workflow, no resolution, no " +
+        "condition, no valuation, no commerce, no reporting, no routes, no consumers, no catalog " +
+        "and no provider seam, and — the edge that matters — nothing under `src/services/auth/`. " +
+        "That last absence is the point: the accessor is imported BY the rest of identity and " +
+        "imports none of it back, so it cannot acquire a session, a permission or a membership " +
+        "concern, and `no-circular` cannot be tripped by the migration of a caller. " +
+        "dependency-cruiser is a per-EDGE checker: what `src/config.ts` reaches is config's " +
+        "business, and this rule states what identity reaches.",
+      from: { path: "^src/identity/" },
+      to: {
+        path: "^src/",
+        pathNot: [
+          "^src/identity/",
+          "^src/db\\.ts$",
+          "^src/db/",
+          "^src/config\\.ts$",
+          "^src/modules/platform/",
+        ],
+      },
+    },
+
+    {
       name: "platform-is-a-leaf",
       severity: "error",
       comment: "029 §2.9: if platform needs a domain fact, the design is wrong.",
@@ -357,6 +414,13 @@ module.exports = {
           "^src/server\\.ts$",
           "^src/modules/[^/]+/index\\.ts$",
           "^src/catalog/index\\.ts$",
+          // `src/identity/index.ts` joins for the same reason (E03-D17): a
+          // module's public surface is entered from outside the graph this
+          // config walks — `scripts/enroll-authenticator.ts` imports it, and
+          // `scripts/` is not scanned by `pnpm depcruise src`. Its siblings are
+          // NOT exempt, so a file this barrel stops re-exporting becomes an
+          // orphan and fails the gate.
+          "^src/identity/index\\.ts$",
         ],
       },
       to: {},

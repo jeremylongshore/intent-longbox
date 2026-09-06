@@ -144,8 +144,18 @@ export interface AppendOnlyTrigger {
    *
    * Keep this set as small as that argument reaches. "The app does not use it"
    * is a reason to review the grant, not by itself a reason to remove it.
+   *
+   * ⚠ **`"insert-only"` IS THE THIRD VALUE, ADDED BY E03-D17, AND IT IS THE
+   * MIRROR OF `"none"` RATHER THAN A SOFTENING OF IT.** `"none"` withholds the
+   * INSERT because an appended row would change what a control SEES.
+   * `"insert-only"` withholds the SELECT for the symmetric reason: the
+   * application must be able to APPEND to `identity_access` (the accessor runs
+   * inside the request) and must never be able to READ it, because a process
+   * that can read its own access log can shape what an audit sees before the
+   * audit runs. The two values answer two different questions and neither is a
+   * dilution of the other; `000-docs/060 §3.4` argues it.
    */
-  readonly appGrant?: "none";
+  readonly appGrant?: "none" | "insert-only";
 }
 
 /**
@@ -358,6 +368,29 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     // not on a `scan_session_id`, so it carries no `session_seq`. 041 I1's
     // criterion is the column, not the tenancy.
     sessionSeq: false,
+  },
+  {
+    table: "identity_access",
+    trigger: "identity_access_append_only",
+    since: "035_identity_access.sql",
+    // E03-D17 / 000-docs/060. One row per read that turned a key into a person
+    // (019 T35(b), 034 §3.3). A thing that happened is a row (041 §2.1), and an
+    // access log that could be edited is an access log that proves nothing about
+    // the accesses somebody wanted forgotten.
+    //
+    // Not an external observation: the read is this system's own act. Not
+    // session-scoped, and deliberately so — it carries no `scan_session_id`,
+    // because an access joinable to an item would be a record of what a named
+    // person did to that item (022 P3), which is the shape this whole table
+    // exists to avoid.
+    ordersByObservedAt: false,
+    sessionSeq: false,
+    // 000-docs/060 §3.4: the application APPENDS and never READS. A process
+    // that could read its own access log could shape what an audit sees before
+    // the audit runs, and nothing in the running system has a reason to ask this
+    // table a question — reading it is `pnpm audit:identity-access`'s job, and
+    // that runs as the schema owner.
+    appGrant: "insert-only",
   },
   {
     table: "invitation",

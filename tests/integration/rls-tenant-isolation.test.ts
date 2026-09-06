@@ -48,9 +48,19 @@ import {
   serviceWritePredicate,
   tenantPredicate,
 } from "../../src/db/rowLevelSecurity.js";
-import { checkTenantIsolation, describeTenantIsolationFailure } from "../../src/services/roleSeparation.js";
+import {
+  assertTenantIsolationOrThrow,
+  checkTenantIsolation,
+  describeTenantIsolationFailure,
+} from "../../src/services/roleSeparation.js";
 import { applyRowLevelSecurity } from "../../src/db/rowLevelSecurity.js";
-import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+import { APP_ROLE, appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
+
+/** A logger that says nothing: one case EXPECTS the boot assertion to fail. */
+const silent = (): { info: (m: string) => void; error: (m: string) => void } => ({
+  info: () => undefined,
+  error: () => undefined,
+});
 
 const dbUp = await probeDb();
 
@@ -806,6 +816,52 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
     } finally {
       await ownerPool.query(`DROP POLICY ${SERVICE_POLICY} ON scan_session`);
     }
+  });
+
+  it("the BOOT ASSERTION FAILS on a SELECT granted over an insert-only table (E03-D17, security F2)", async () => {
+    // ⚠ THE GAP THE SECURITY LENS REPRODUCED, AND IT WAS EXACTLY THIS.
+    // `identity_access` is `appGrant: "insert-only"` — the app APPENDS its access
+    // log and may never read it, because a process that can read its own access
+    // log can shape what an audit sees before the audit runs. At v1.0.0 that was
+    // a BUILD-TIME claim only: `GRANT SELECT ON identity_access TO longbox_app`
+    // was accepted, BOTH boot assertions passed, and the application read its own
+    // access log — because 058 F2's forbidden-grant check took the NO-GRANT list
+    // alone. 060 §3.4 said "enforced twice" and meant "build-time twice".
+    //
+    // A grant plan is re-applied on every `pnpm migrate`; a hand-run GRANT
+    // between two runs is the drift 058 F2 added that check for, one class over.
+    await ownerPool.query(`GRANT SELECT ON identity_access TO ${APP_ROLE}`);
+    try {
+      const broken = await checkTenantIsolation(appPool);
+      expect(broken.ok).toBe(false);
+      expect(broken.forbiddenGrants).toContain("identity_access");
+      await expect(assertTenantIsolationOrThrow(appPool, silent())).rejects.toThrow(/insert-only/);
+      // …and the grant is REAL, not merely catalogued: the app can now read the
+      // audit. This is the assertion that makes the fixture a reproduction rather
+      // than a restatement of the check's own opinion.
+      await expect(appPool.query(`SELECT count(*) FROM identity_access`)).resolves.toBeTruthy();
+    } finally {
+      await ownerPool.query(`REVOKE SELECT ON identity_access FROM ${APP_ROLE}`);
+    }
+    // Back to clean once the grant is gone, so the case proves the check reacts
+    // to the GRANT rather than to some permanent property of the fixture.
+    const healthy = await checkTenantIsolation(appPool);
+    expect(healthy.forbiddenGrants).toEqual([]);
+  });
+
+  it("INSERT alone does NOT trip it — the class is supposed to hold that one", async () => {
+    // The mirror. Asking about INSERT would fail the boot on a CORRECT grant,
+    // which is why the three privileges asked are SELECT, UPDATE and DELETE.
+    const healthy = await checkTenantIsolation(appPool);
+    expect(healthy.forbiddenGrants).toEqual([]);
+    const privs = await ownerPool.query(
+      `SELECT privilege_type FROM information_schema.role_table_grants
+        WHERE table_name = 'identity_access' AND grantee = $1`,
+      [APP_ROLE]
+    );
+    expect((privs.rows as Array<{ privilege_type: string }>).map((r) => r.privilege_type)).toEqual([
+      "INSERT",
+    ]);
   });
 
   it("the BOOT ASSERTION FAILS on a MATERIALIZED VIEW, which cannot carry a policy at all (F3)", async () => {

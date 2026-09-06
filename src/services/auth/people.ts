@@ -9,12 +9,17 @@
 // has two more of its own; they are not folded in here, because that script
 // creates an owner as part of a shop's first transaction and a merge would drag
 // its bootstrap semantics into the ordinary path (057 §7 residual R5).
-import type { Queryable, Tx } from "../../db.js";
-
-export interface Person {
-  id: string;
-  display_name: string;
-}
+//
+// ⚠ **THE READ THAT LIVED HERE IS GONE — E03-D17.** `readPerson` was a second
+// copy of `api.ts`'s `readUser`: the same `SELECT u.id, u.display_name FROM
+// app_user`, in two files, one of them unreferenced. Both are now
+// `src/identity/`'s audited accessor, so a person-resolution writes an
+// `identity_access` fact and cannot happen anywhere else (019 T35(b), 034 §3.3).
+// **This file keeps only the WRITE**, which is the opposite disclosure
+// direction: it carries a name INTO the database that the caller already holds.
+// `RETURNING id` and not `RETURNING id, display_name`, for the same reason —
+// no caller ever used the name, and returning one made a write into a read.
+import type { Tx } from "../../db.js";
 
 /**
  * Find or create the person an invitation names.
@@ -36,18 +41,12 @@ export interface Person {
  * exists and this system does not invent one). It is lowercased on the way in so
  * the sign-in path's `lower($1)` lookup finds it.
  */
-export async function upsertPerson(tx: Tx, args: { email: string; displayName: string }): Promise<Person> {
+export async function upsertPerson(tx: Tx, args: { email: string; displayName: string }): Promise<string> {
   const res = await tx.query(
     `INSERT INTO app_user (email, display_name) VALUES (lower($1), $2)
      ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-     RETURNING id, display_name`,
+     RETURNING id`,
     [args.email, args.displayName]
   );
-  return res.rows[0] as Person;
-}
-
-/** One person by id. Used where a response owes a display name and nothing else. */
-export async function readPerson(db: Queryable, id: string): Promise<Person | undefined> {
-  const res = await db.query(`SELECT u.id, u.display_name FROM app_user u WHERE u.id = $1`, [id]);
-  return res.rows[0] as Person | undefined;
+  return (res.rows[0] as { id: string }).id;
 }

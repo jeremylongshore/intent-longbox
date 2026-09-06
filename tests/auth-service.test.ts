@@ -40,11 +40,11 @@ import {
   revokeForReuse,
   revokeSessionsOf,
   setOperatorPin,
-  shopRoster,
   tokenHash,
   verifyOperatorPin,
   type DeviceBoundSession,
 } from "../src/services/auth/index.js";
+import { resolveShopRoster } from "../src/identity/index.js";
 import { TEST_PIN_PEPPER } from "./testConfig.js";
 
 interface Call {
@@ -430,9 +430,16 @@ describe("tenancy resolution is MEMBERSHIP-FIRST (048 §6.1, R13)", () => {
 });
 
 describe("the operator picker's payload (048 §3.5, I7)", () => {
+  // E03-D17 moved this read into `src/identity/`'s audited accessor. The SQL
+  // assertions below are unchanged, character for character — the boundary moved,
+  // the projection did not — and the suite gained the fact the move exists for.
   it("projects TWO columns and orders by a stable, activity-independent key", async () => {
     const { db, calls } = fakeDb(() => [{ id: "person-1", display_name: "A" }]);
-    await shopRoster(db, "shop-1");
+    await resolveShopRoster(
+      db,
+      { method: "GET", path: "/api/v1/operators", purpose: "operator_picker_roster", shopId: "shop-1" },
+      "shop-1"
+    );
     const sql = calls[0]!.text;
     expect(sql).toContain("SELECT DISTINCT u.id, u.display_name");
     expect(sql).toContain("ORDER BY u.display_name, u.id");
@@ -441,6 +448,29 @@ describe("the operator picker's payload (048 §3.5, I7)", () => {
     expect(sql).not.toMatch(/count\(|created_at|last_|ORDER BY .*(count|created_at)/i);
     // Break-glass is not staff and is never offered as a name to tap.
     expect(sql).toContain("m.role <> 'support_break_glass'");
+  });
+
+  it("writes ONE identity_access fact, as a bulk read, naming nobody in it", async () => {
+    const { db, calls } = fakeDb(() => [
+      { id: "person-1", display_name: "A" },
+      { id: "person-2", display_name: "B" },
+    ]);
+    await resolveShopRoster(
+      db,
+      { method: "GET", path: "/api/v1/operators", purpose: "operator_picker_roster", shopId: "shop-1" },
+      "shop-1"
+    );
+    const fact = calls[1]!;
+    expect(fact.text).toContain("INSERT INTO identity_access");
+    // `shop_roster`, not `app_user_id`: the key resolved is a SHOP, and a bulk
+    // read recorded as a single-person lookup would be invisible to the audit.
+    expect(fact.values).toContain("shop_roster");
+    // The count is the second-to-last positional value (`build_commit` is last).
+    // The fake returns two rows, so this is the only place the number 2 appears —
+    // and no `app_user_id`, email or display name is anywhere in the parameters.
+    expect(fact.values).toContain("shop-1");
+    expect(JSON.stringify(fact.values)).not.toContain("person-1");
+    expect(JSON.stringify(fact.values)).not.toContain("display_name");
   });
 });
 

@@ -873,6 +873,21 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
         );
         return (r.rows[0] as { id: string }).id;
       }
+      // E03-D17's audited-accessor fact (`migrations/035`). The recipe writes a
+      // SCOPED row, because that is the only kind the running server can write:
+      // the tenant policy's WITH CHECK refuses a NULL `shop_id` to the app role,
+      // and the CHECK ties the null to a CLI. Nothing here names a person —
+      // there is no column that could.
+      case "identity_access": {
+        const r = await pool.query(
+          `INSERT INTO identity_access
+             (shop_id, purpose, accessor_method, accessor_path, key_kind, resolved_count)
+           VALUES ($1,'session_display_name','POST','/api/v1/operator-sessions','app_user_id',1)
+           RETURNING id`,
+          [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
       default:
         throw new Error(`no insert recipe for ${table}`);
     }

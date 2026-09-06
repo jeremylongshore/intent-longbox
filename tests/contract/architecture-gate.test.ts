@@ -33,6 +33,15 @@ import {
   ORIGIN_DESIGNATION_WRITER,
   checkAuthorizationDecisionCountNouns,
   checkAuthorizationDecisionWriters,
+  checkAuthAttemptReads,
+  checkIdentityAccessWriters,
+  checkIdentityImportSurface,
+  checkIdentityPersonJoins,
+  IDENTITY_ACCESS_WRITER,
+  PERSON_JOIN_ROWS,
+  PERSON_PROJECTION_COLUMNS,
+  AUTH_ATTEMPT_READ_ROWS,
+  projectionText,
   checkOriginDesignationWriters,
   checkCostLogWriters,
   checkMigrationNumbers,
@@ -60,6 +69,7 @@ import {
   VERTICAL_LITERALS,
   VERTICAL_PACK_FILES,
   splitMutatingHandlers,
+  stripJsComments,
   type SourceFile,
   collectSources,
 } from "../../scripts/architectureRules.js";
@@ -250,6 +260,49 @@ describe("dependency-cruiser (the import-graph half)", () => {
     }
   }, 60_000);
 
+  // E03-D17: the import-graph half of 019 T35(b). `pnpm arch`'s text rule stops
+  // the SQL being COPIED; this stops the accessor being imported past its barrel,
+  // which would take the person query without the audit fact — the whole control,
+  // and no layer rule would notice.
+  it("refuses an import that reaches past src/identity/index.ts", async () => {
+    const scratch = makeScratchTree();
+    try {
+      writeFileSync(
+        join(scratch, "src", "services", "__identity_fixture_violation__.ts"),
+        "// TEMPORARY negative fixture in a scratch COPY of src/ (E03-D17).\n" +
+          "// It violates `identity-public-surface-only` by reaching into the module.\n" +
+          'import { resolveShopRoster } from "../identity/accessors.js";\n' +
+          "export const leak = resolveShopRoster;\n"
+      );
+      const { code, out } = await depcruiseIn(scratch);
+      expect(out).toContain("identity-public-surface-only");
+      expect(code).not.toBe(0);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("refuses the accessor reaching back into the rest of identity", async () => {
+    // The other direction, and the one that keeps the accessor a leaf: the
+    // accessor is imported BY the rest of identity and imports none of it back,
+    // so it cannot acquire a session, a permission or a membership concern.
+    const scratch = makeScratchTree();
+    try {
+      writeFileSync(
+        join(scratch, "src", "identity", "__identity_fixture_violation__.ts"),
+        "// TEMPORARY negative fixture in a scratch COPY of src/ (E03-D17).\n" +
+          "// It violates `identity-reaches-only-platform`.\n" +
+          'import { tokenHash } from "../services/auth/secrets.js";\n' +
+          "export const leak = tokenHash;\n"
+      );
+      const { code, out } = await depcruiseIn(scratch);
+      expect(out).toContain("identity-reaches-only-platform");
+      expect(code).not.toBe(0);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   // 029 §5 move 8: "a sibling import inside one module keeps it green (proves N1
   // fixed)". Without the `$1` backreference in `module-public-surface-only`, this
   // exact shape is forbidden and the rule is unsatisfiable.
@@ -326,6 +379,51 @@ describe("the non-graph rules, against the real tree", () => {
     // …and the rule is not vacuous: files that name the table DO exist, so an
     // empty result is a pass rather than an empty input.
     expect(all.filter((f) => f.text.includes("authorization_decision")).length).toBeGreaterThan(0);
+  });
+
+  // E03-D17's three, over BOTH trees — 058 F6's reason with more force, because
+  // one of the five migrated accessor callers IS a CLI.
+  it("019 T35(b): src/identity/ is the only place in either tree that joins a row to a person", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkIdentityPersonJoins(all)).toEqual([]);
+    // Not vacuous: the accessor module exists and holds the statements.
+    expect(all.filter((f) => f.path.startsWith("src/identity/")).length).toBeGreaterThan(0);
+    // The rule is per-scanned-file, so the "no stale exemption" property is
+    // asserted HERE, against the real tree, rather than by a rule reporting on
+    // files it was never handed. A declared path that no longer exists is a hole
+    // nobody is looking at.
+    const paths = new Set(all.map((f) => f.path));
+    for (const row of PERSON_JOIN_ROWS) expect(paths.has(row.path), row.path).toBe(true);
+    for (const row of AUTH_ATTEMPT_READ_ROWS) expect(paths.has(row.path), row.path).toBe(true);
+  });
+
+  it("000-docs/060 §3: identity_access has exactly one writer, across src/ AND scripts/", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkIdentityAccessWriters(all)).toEqual([]);
+  });
+
+  it("048 R17/I7: every FROM auth_attempt in either tree is a declared lockout derivation", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkAuthAttemptReads(all)).toEqual([]);
+    // The inventory is not empty, so an empty finding list is a pass and not an
+    // empty input — the same non-vacuity check rule 3d carries.
+    expect(AUTH_ATTEMPT_READ_ROWS.length).toBeGreaterThan(0);
+  });
+
+  it("security F3b: no file in EITHER tree imports past the accessor's barrel", () => {
+    const all = [...files, ...collectSources(join(repoRoot, "scripts"))];
+    expect(checkIdentityImportSurface(all)).toEqual([]);
+    // Not vacuous: files that import the barrel DO exist in both trees.
+    expect(all.filter((f) => /identity\/index\.js/.test(f.text)).length).toBeGreaterThan(1);
+  });
+
+  it("000-docs/060 §3.4: NOTHING under src/ reads identity_access — the audit is a CLI", () => {
+    // A stronger statement than a convention, and the database backs it: the app
+    // role holds INSERT and no SELECT (`appGrant: "insert-only"`), so a reader
+    // inside the running server would fail at runtime. This asserts the source
+    // half, so the failure is a red build rather than a red request.
+    const readers = files.filter((f) => /\bFROM\s+identity_access\b/i.test(f.text));
+    expect(readers.map((f) => f.path)).toEqual([]);
   });
 
   // 041 §3.3, the rule E02-D09 added: the single writer is a property of the tree,
@@ -670,6 +768,209 @@ describe("the non-graph rules, against fixtures that violate them", () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.message).toContain("scripts/designate-staff.ts");
+  });
+
+  // -------------------------------------------------------------------------
+  // E03-D17 — 019 T35(b)'s gate-test half, proven able to fail.
+  //
+  // 029 §5 move 8's standard: a rule with no negative fixture is a rule that has
+  // never been shown to bite, and rule N3 in `.dependency-cruiser.cjs` is this
+  // repository's own reminder that a rule can be green BY CONSTRUCTION. Each
+  // fixture below is a statement somebody would plausibly write.
+  // -------------------------------------------------------------------------
+  it("019 T35(b): a display_name projected outside the accessor is a violation", () => {
+    // The one that matters: a surface needs a NAME, and this is where one is
+    // produced. Exactly the shape `readUser` and `readPerson` had before this
+    // bead — two copies of it, in two files, neither audited.
+    const findings = checkIdentityPersonJoins([
+      {
+        path: "src/routes/scanSessions.ts",
+        text: "const r = await db.query(`SELECT s.id, u.display_name FROM scan_session s JOIN x u ON 1=1`);",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("identity-is-the-only-person-join");
+    expect(findings[0]!.message).toContain("src/routes/scanSessions.ts");
+  });
+
+  it("034 §3.3 A5: operator_id, created_by and confirmed_by are each a violation in a projection", () => {
+    // A5 puts the two LEGACY strings inside the contract: T35 keys on operator
+    // identifiers of ANY shape, and an unverified one is per-operator data that
+    // is also unreliable. All three are asserted by name rather than testing
+    // `operator_id` and trusting the others to follow (034 I9's own standard).
+    for (const column of ["operator_id", "created_by", "confirmed_by"]) {
+      const findings = checkIdentityPersonJoins([
+        { path: "src/services/scanSession.ts", text: "`SELECT id, " + column + " FROM scan_session`" },
+      ]);
+      expect(findings, column).toHaveLength(1);
+    }
+    // …and the column list the rule enforces is the one the record names.
+    // The list grew by three at v1.1.0 (the security lens's F1): a person's
+    // attributes are not the property of one table, and `contact_name` /
+    // `contact_note` were being projected out of `shop_recovery_nomination`.
+    expect([...PERSON_PROJECTION_COLUMNS].sort()).toEqual(
+      [
+        "confirmed_by",
+        "contact_name",
+        "contact_note",
+        "created_by",
+        "display_name",
+        "email",
+        "operator_id",
+      ].sort()
+    );
+  });
+
+  it("security F1: a contact_name projection from ANY table is a violation", () => {
+    // THE FINDING THAT MADE I1 FALSE IN THE TREE IT GOVERNS. v1.0.0's rule keyed
+    // on the person TABLE plus four column names, and
+    // `src/services/auth/recovery.ts` projected a named human's name and a note
+    // about how to reach them out of `shop_recovery_nomination` — a different
+    // table — with no audit fact, no caller, and a green gate. The read is
+    // deleted; this is the fixture that stops it coming back.
+    const findings = checkIdentityPersonJoins([
+      {
+        path: "src/services/auth/recovery.ts",
+        text: "`SELECT n.id, n.kind, n.contact_name, n.contact_note FROM shop_recovery_nomination n`",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("identity-is-the-only-person-join");
+  });
+
+  it("security F1: the deleted read is GONE from the real tree, not merely forbidden", () => {
+    // The rule and the deletion are two claims and this asserts the second one.
+    // A rule that forbids a statement still present somewhere is a rule with an
+    // exemption nobody wrote down.
+    // Comments are stripped first: `recovery.ts` and the identity barrel both
+    // RECORD the deletion in prose, and a check that counted explanations would
+    // teach the next author to stop writing them (`stripJsComments`' own reason).
+    const all = [...collectSources(join(repoRoot, "src")), ...collectSources(join(repoRoot, "scripts"))];
+    const offenders = all.filter((f) => /currentRecoveryNomination/.test(stripJsComments(f.text)));
+    expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  it("019 T35(b): reading the person TABLE at all is a violation, even projecting only an id", () => {
+    // The stronger half of the boundary. `SELECT u.id FROM app_user` discloses
+    // nothing — and it is still refused outside the accessor, because a rule that
+    // only watched columns would let a person-read grow one column at a time.
+    const findings = checkIdentityPersonJoins([
+      { path: "src/services/sessionApi.ts", text: "`SELECT u.id FROM app_user u WHERE u.id = $1`" },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("E03-D17: an INSERT INTO app_user is NOT a violation — a write is the other direction", () => {
+    // `register-shop` and `upsertPerson` carry a name INTO the database that the
+    // caller already holds. Flagging that would push the shop-registration write
+    // into an accessor whose audit row would record nothing worth having.
+    expect(
+      checkIdentityPersonJoins([
+        {
+          path: "scripts/register-shop.ts",
+          text: "`INSERT INTO app_user (email, display_name) VALUES ($1,$2) ON CONFLICT (email) DO UPDATE SET display_name = app_user.display_name RETURNING id`",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("E03-D17: RETURNING a display_name IS a violation — a write that hands one back is a read", () => {
+    // The exact edit this bead made to `upsertPerson`: `RETURNING id,
+    // display_name` became `RETURNING id`. The projection walker reads the
+    // RETURNING tail as well as every SELECT list, which is what makes this
+    // distinguishable from the case above.
+    const findings = checkIdentityPersonJoins([
+      {
+        path: "src/services/auth/people.ts",
+        text: "`INSERT INTO app_user (email, display_name) VALUES (lower($1), $2) RETURNING id, display_name`",
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("E03-D17: app_user_origin and app_user_id are NOT the person table", () => {
+    // The negative lookahead earns its keep: 058's designation tables and every
+    // `m.app_user_id = s.app_user_id` join would otherwise be swept up, and a
+    // rule that fires on the audits is a rule somebody disables.
+    expect(
+      checkIdentityPersonJoins([
+        {
+          path: "src/services/auth/origin.ts",
+          text: "`SELECT o.id FROM app_user_origin o WHERE o.app_user_id = $1`",
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("E03-D17: the exemption is an EQUALITY — a declared file that stops violating fails too", () => {
+    // `SELECT_STAR_ROWS`' discipline, one rule over: a stale exemption is a hole
+    // nobody is looking at.
+    const findings = checkIdentityPersonJoins([
+      { path: PERSON_JOIN_ROWS[0]!.path, text: "// nothing at all" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("0 statement(s)");
+    expect(findings[0]!.message).toContain("1 declared");
+  });
+
+  it("E03-D17: the projection walker reads SELECT lists and RETURNING tails, not WHERE clauses", () => {
+    // The unit behind the two cases above, asserted directly so a future edit to
+    // the walker fails here rather than silently widening or narrowing the rule.
+    expect(projectionText("SELECT a, b FROM t WHERE display_name = $1")).toContain("a, b");
+    expect(projectionText("SELECT a, b FROM t WHERE display_name = $1")).not.toContain("display_name");
+    expect(projectionText("INSERT INTO t (x) VALUES ($1) RETURNING id, display_name")).toContain(
+      "display_name"
+    );
+  });
+
+  it("security F3b: a CLI importing past the barrel is a violation", () => {
+    // depcruise cruises `src` only, so the strongest boundary in this bead
+    // stopped at a directory edge — and `scripts/` imports the module. A CLI
+    // reaching `accessors.ts` directly takes the person query WITHOUT the fact.
+    const findings = checkIdentityImportSurface([
+      {
+        path: "scripts/enroll-authenticator.ts",
+        text: 'import { resolvePersonByKey } from "../src/identity/accessors.js";',
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("identity-public-surface-only");
+  });
+
+  it("security F3b: importing the BARREL is not a violation", () => {
+    expect(
+      checkIdentityImportSurface([
+        {
+          path: "scripts/enroll-authenticator.ts",
+          text: 'import { resolvePersonByKey } from "../src/identity/index.js";',
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("000-docs/060 §3: a second writer of identity_access is a violation", () => {
+    const findings = checkIdentityAccessWriters([
+      { path: IDENTITY_ACCESS_WRITER, text: "INSERT INTO identity_access (a)" },
+      { path: "src/services/auth/api.ts", text: "INSERT INTO identity_access (a)" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("src/services/auth/api.ts");
+  });
+
+  it("000-docs/060 §3: NO writer of identity_access is a violation too — an equality", () => {
+    // The direction that matters more than a second writer: an accessor module
+    // whose audit call was deleted would pass every other rule in this file.
+    expect(checkIdentityAccessWriters([{ path: IDENTITY_ACCESS_WRITER, text: "nothing" }])).toHaveLength(1);
+  });
+
+  it("048 R17: an undeclared read of auth_attempt is a violation", () => {
+    // The substrate/surface line as a rule rather than an assertion (048 §13 Q9).
+    // A reporting query over the failure log is a per-operator surface.
+    const findings = checkAuthAttemptReads([
+      { path: "src/services/costLog.ts", text: "`SELECT count(*) FROM auth_attempt`" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe("auth-attempt-is-substrate-not-surface");
   });
 
   it("058 §3: the designation with NO writer is also a violation — the rule is an equality", () => {

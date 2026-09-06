@@ -128,7 +128,11 @@ export const EVENT_CATALOGUE: readonly CatalogueEntry[] = [
 ];
 
 /**
- * The nine exclusions, each naming the rule that excludes it (043 §3.3).
+ * The exclusions, each naming the rule that excludes it (043 §3.3).
+ *
+ * (It said "nine" until E03-D14 and E03-D17 each added one; the count is now in
+ * the list rather than in this sentence, because a number in prose is a number
+ * that goes stale silently while the list beside it grows.)
  *
  * This is not documentation-for-its-own-sake: it is what makes the catalogue
  * falsifiable. A reader who disagrees with an entry here has one sentence to
@@ -560,6 +564,16 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
   // would carry the single most sensitive fact this schema holds about a
   // colleague: that they are watched. Its only reader is the schema-owner audit.
   // ---------------------------------------------------------------------------
+  {
+    table: "identity_access",
+    rule:
+      "E03-D17 / 034 §3.3: the audited accessor's own fact. Publishing it would put a record of " +
+      "every person-resolution on a bus with many consumers — the exact shape 019 T35 signs at " +
+      "zero, arriving through the outbox instead of through a query. It carries no " +
+      "scan_session_id and nothing downstream acts on it; its one reader is " +
+      "`pnpm audit:identity-access`, run by the schema owner, and the application role cannot " +
+      'even SELECT it (`appGrant: "insert-only"`).',
+  },
   {
     table: "app_user_origin",
     rule:

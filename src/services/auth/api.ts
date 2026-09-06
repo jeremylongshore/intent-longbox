@@ -44,15 +44,18 @@ import {
   verifyInvitation,
   type InvitableRole,
 } from "./invitations.js";
-import {
-  membershipAt,
-  membershipsAt,
-  shopRoster,
-  shopsForSession,
-  type RosterEntry,
-  type ShopSummary,
-} from "./memberships.js";
+import { membershipAt, membershipsAt, shopsForSession, type ShopSummary } from "./memberships.js";
 import { upsertPerson } from "./people.js";
+// E03-D17: the ONE door onto a person's attributes (034 §3.3, 019 T35(b)). Every
+// call below writes an `identity_access` fact; nothing in this file may read
+// `app_user` directly, and `pnpm arch` refuses it if anybody tries.
+import {
+  httpAccessor,
+  resolvePersonByKey,
+  resolveShopRoster,
+  type ObservedRoute,
+  type Person,
+} from "../../identity/index.js";
 import { recordFailure, setOperatorPin, verifyOperatorPin } from "./pin.js";
 import { redeemRecoveryCode } from "./recovery.js";
 import { tokenHash } from "./secrets.js";
@@ -162,9 +165,24 @@ export async function openDeviceSession(deps: AuthDeps, secret: string): Promise
   };
 }
 
-/** The picker's roster. Display name and id, ordered by name — never by activity. */
-export async function operatorRoster(deps: AuthDeps, device: DeviceBoundSession): Promise<AuthResult> {
-  const operators: RosterEntry[] = await shopRoster(tenantDb(deps.pool, device.shop_id), device.shop_id);
+/**
+ * The picker's roster. Display name and id, ordered by name — never by activity.
+ *
+ * Through `src/identity/` since E03-D17, so the bulk read that produces N people
+ * records itself as one access of `key_kind: "shop_roster"` with
+ * `resolved_count: N` — rather than being indistinguishable, in the audit, from
+ * the single-person lookup beside it.
+ */
+export async function operatorRoster(
+  deps: AuthDeps,
+  device: DeviceBoundSession,
+  observed: ObservedRoute
+): Promise<AuthResult> {
+  const operators: Person[] = await resolveShopRoster(
+    tenantDb(deps.pool, device.shop_id),
+    httpAccessor(observed, "operator_picker_roster", device.shop_id),
+    device.shop_id
+  );
   return { status: 200, body: { operators }, cookies: [] };
 }
 
@@ -221,7 +239,8 @@ export async function myShops(
 export async function openOperatorSession(
   deps: AuthDeps,
   device: DeviceBoundSession,
-  input: { appUserId: string; pin: string }
+  input: { appUserId: string; pin: string },
+  observed: ObservedRoute
 ): Promise<AuthResult> {
   const now = new Date();
   const verdict = await withTransaction(
@@ -283,7 +302,20 @@ export async function openOperatorSession(
   // `app_user` carries no tenant column and therefore no policy (its reason, and
   // the residual it leaves, are 056 §7 and §11 R9). `shop` DOES carry one now — on
   // its own `id` — so the read that follows names the tenant it is about.
-  const person = await readUser(deps.pool, input.appUserId);
+  //
+  // ⚠ **AND IT RUNS ON A `tenantDb` HANDLE SINCE E03-D17, WHICH IS NOT COSMETIC.**
+  // The accessor appends an `identity_access` fact on the SAME handle, and that
+  // table IS policied (`shop_id = current_shop_id()`) — so a read on the raw pool
+  // would leave the fact with no tenant for the WITH CHECK to satisfy and the
+  // database would refuse it. The read naming its tenant is what makes the audit
+  // writable: the boundary paying for itself rather than being worked around.
+  const person = requirePerson(
+    await resolvePersonByKey(
+      tenantDb(deps.pool, device.shop_id),
+      httpAccessor(observed, "session_display_name", device.shop_id),
+      input.appUserId
+    )
+  );
   const shop = await readShop(tenantDb(deps.pool, device.shop_id), device.shop_id);
   return {
     status: 201,
@@ -369,7 +401,8 @@ export async function openPrivilegedSession(
     recoveryCode?: string;
     shopId: string;
     locationId?: string;
-  }
+  },
+  observed: ObservedRoute
 ): Promise<AuthResult> {
   const now = new Date();
 
@@ -553,7 +586,13 @@ export async function openPrivilegedSession(
     { tenant: { shopId: input.shopId } }
   );
 
-  const person = await readUser(deps.pool, verdict.appUserId);
+  const person = requirePerson(
+    await resolvePersonByKey(
+      tenantDb(deps.pool, input.shopId),
+      httpAccessor(observed, "session_display_name", input.shopId),
+      verdict.appUserId
+    )
+  );
   const shop = await readShop(tenantDb(deps.pool, input.shopId), input.shopId);
   // 048 §8.1's forced re-enrollment, rendered rather than discovered: a recovery
   // redemption retired the authenticator in the transaction above, so this reads
@@ -671,10 +710,16 @@ export async function createInvitation(
   let code: string | undefined;
   let expiresAt: Date | undefined;
   const outcome = await runIdempotent(deps.pool, req, async (tx) => {
-    const person = await upsertPerson(tx, { email: input.email, displayName: input.displayName });
+    // `upsertPerson` returns an ID and no longer a row (E03-D17): a write that
+    // handed back a display name was a person-read wearing a write's clothes,
+    // and no caller ever used the name.
+    const invitedPersonId = await upsertPerson(tx, {
+      email: input.email,
+      displayName: input.displayName,
+    });
     const issued = await issueInvitation(tx, {
       shopId: session.shop_id,
-      appUserId: person.id,
+      appUserId: invitedPersonId,
       role: input.role,
       locationId: input.locationId ?? null,
       invitedBy: appUserId,
@@ -856,11 +901,19 @@ async function readShop(db: Queryable, shopId: string): Promise<{ id: string; na
   return row;
 }
 
-async function readUser(db: Queryable, id: string): Promise<{ id: string; display_name: string }> {
-  const res = await db.query(`SELECT id, display_name FROM app_user WHERE id = $1`, [id]);
-  const row = res.rows[0] as { id: string; display_name: string } | undefined;
-  if (!row) throw new LongboxError("SESSION_REQUIRED");
-  return row;
+/**
+ * The refusal an accessor deliberately does not choose.
+ *
+ * `src/identity/`'s accessors return `undefined` rather than throwing, because
+ * the HTTP consequence of "no such person" differs by caller and a data module
+ * that picked one would be choosing somebody else's refusal code — 048 §9.3's
+ * constant-answer rule is the caller's to keep. Both session routes want the
+ * same one, so it is written once here. **It replaces `readUser`**, which was
+ * this file's private second copy of the accessor's statement (E03-D17).
+ */
+function requirePerson(person: Person | undefined): Person {
+  if (person === undefined) throw new LongboxError("SESSION_REQUIRED");
+  return person;
 }
 
 // ===========================================================================
@@ -904,7 +957,8 @@ async function readUser(db: Queryable, id: string): Promise<{ id: string; displa
 export async function redeemInvitation(
   deps: AuthDeps,
   device: DeviceBoundSession,
-  input: { code: string; pin: string; idempotencyKey: string }
+  input: { code: string; pin: string; idempotencyKey: string },
+  observed: ObservedRoute
 ): Promise<AuthResult> {
   const req: IdempotentRequest = {
     shopId: device.shop_id,
@@ -983,7 +1037,17 @@ export async function redeemInvitation(
     if (!set.ok) throw new LongboxError("PIN_REFUSED");
 
     await grantInvitation(tx, { invitation, device, deviceSessionId: device.id });
-    const person = await readUser(tx, invitation.app_user_id);
+    // On the TRANSACTION handle, so the grant, the PIN, the access fact and the
+    // receipt are one atomic act — the strongest form of the accessor's write,
+    // and the one `src/identity/access.ts` says a caller gets when it has a
+    // transaction to offer.
+    const person = requirePerson(
+      await resolvePersonByKey(
+        tx,
+        httpAccessor(observed, "invitation_addressee", invitation.shop_id),
+        invitation.app_user_id
+      )
+    );
     const shop = await readShop(tx, invitation.shop_id);
     return {
       status: 201,

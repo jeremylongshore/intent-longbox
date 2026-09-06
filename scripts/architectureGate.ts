@@ -22,8 +22,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readdirSync } from "node:fs";
 import {
+  checkAuthAttemptReads,
   checkAuthorizationDecisionCountNouns,
+  checkIdentityAccessWriters,
+  checkIdentityImportSurface,
   checkIdentityPairEdit,
+  checkIdentityPersonJoins,
   checkMigrationNumbers,
   checkNoFreshnessColumn,
   checkOriginDesignationWriters,
@@ -63,6 +67,14 @@ const findings = [
   ...checkServiceScopeSites(bothTrees),
   ...checkOriginDesignationWriters(bothTrees),
   ...checkAuthorizationDecisionCountNouns(bothTrees),
+  // E03-D17's three, all over BOTH trees and for 058 F6's reason with more force:
+  // one of the five migrated accessor callers IS a CLI (`pnpm enroll-authenticator`),
+  // so a rule handed `src/` alone would be blind to the only accessor that reads
+  // an email.
+  ...checkIdentityPersonJoins(bothTrees),
+  ...checkIdentityAccessWriters(bothTrees),
+  ...checkIdentityImportSurface(bothTrees),
+  ...checkAuthAttemptReads(bothTrees),
   ...checkNoFreshnessColumn([...bothTrees, ...migrationFiles]),
   ...checkMigrationNumbers(readdirSync(join(REPO_ROOT, "migrations")).filter((f) => f.endsWith(".sql"))),
 ];
@@ -76,7 +88,7 @@ if (changedPath !== null) {
 if (findings.length === 0) {
   console.log(
     `architecture gate: ok (${files.length} files, 11 tree rules over src/, ` +
-      `4 rules over src/ + scripts/ (one of them also over migrations/), ` +
+      `8 rules over src/ + scripts/ (one of them also over migrations/), ` +
       `1 rule over migrations/ filenames` +
       (changedPath === null
         ? `; paired-edit rule SKIPPED — no changed-file list supplied)`

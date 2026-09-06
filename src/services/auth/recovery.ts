@@ -287,18 +287,26 @@ export async function recordRecoveryNomination(
   );
 }
 
-/** The shop's current answer, or `undefined` when nobody has been asked yet. */
-export async function currentRecoveryNomination(
-  db: Queryable,
-  shopId: string
-): Promise<RecoveryNomination | undefined> {
-  const res = await db.query(
-    `SELECT n.id, n.shop_id, n.kind, n.contact_name, n.contact_note, n.created_at
-       FROM shop_recovery_nomination n
-      WHERE n.shop_id = $1
-      ORDER BY n.created_at DESC, n.id DESC
-      LIMIT 1`,
-    [shopId]
-  );
-  return res.rows[0] as RecoveryNomination | undefined;
-}
+// ⚠ **`currentRecoveryNomination` IS DELETED — E03-D17, the security lens's F1.**
+//
+// It read `SELECT n.id, n.shop_id, n.kind, n.contact_name, n.contact_note …`,
+// which resolves a NAMED HUMAN and a note about how to reach them, wrote no
+// `identity_access` fact, and — this is the part that decided it — **had no
+// caller outside its own tests.** That is the exact shape this bead deleted
+// `readPerson` for one file over, and it was invisible to 060 §1 E3, whose grep
+// enumerated reads of `app_user` while I1 claims *the only place that turns a key
+// into a person*. The invariant was false in the tree it governs.
+//
+// **The fix is deletion and not an accessor**, because building one would mean
+// inventing a purpose for a surface nobody has designed — 022 P3's CFO
+// constraint applied to a vocabulary (060 §3.3). `contact_name` and
+// `contact_note` join `PERSON_PROJECTION_COLUMNS` in
+// `scripts/architectureRules.ts`, so the next author who writes this read gets a
+// red build rather than a green one, and the recovery screen that eventually
+// needs it goes through an accessor with its own purpose — 060 §11 R8, PROPOSED
+// alias **E03-D29 `longbox-e5b.3.39`**.
+//
+// The WRITE stays: `recordRecoveryNomination` carries a name INTO the database
+// that the caller already holds, which is the opposite disclosure direction, and
+// `RecoveryNomination` stays as the row's shape for the tests that read it
+// directly. Nothing in `src/` reads this table today.

@@ -143,15 +143,29 @@ async function signInPool(over: (text: string) => { rows: unknown[] } | undefine
   });
 }
 
+/**
+ * The accessor pair the ROUTE observes (E03-D17, the security lens's F3).
+ *
+ * `httpAccessor` refuses a pair no `DECLARED_ACCESSORS` row names, so these cases
+ * pass the real registered template rather than a plausible string — which is the
+ * point of the change: a wrong pair is now a refused request, not a plausible
+ * audit row somebody finds later.
+ */
+const OBSERVED = { method: "POST", path: "/api/v1/privileged-sessions" };
+
 describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
   it("takes the FIRST factor's anchor before the SECOND factor's (042 §5.3(b), five positions)", async () => {
     const pool = await signInPool();
-    await openPrivilegedSession(deps(pool.pool), {
-      email: EMAIL,
-      password: PASSWORD,
-      totpCode: totpCode(SECRET, stepAt(NOW)),
-      shopId: SHOP,
-    });
+    await openPrivilegedSession(
+      deps(pool.pool),
+      {
+        email: EMAIL,
+        password: PASSWORD,
+        totpCode: totpCode(SECRET, stepAt(NOW)),
+        shopId: SHOP,
+      },
+      OBSERVED
+    );
     const credential = pool.calls.findIndex((c) => c.text.includes("FOR UPDATE OF c"));
     const authenticator = pool.calls.findIndex((c) => c.text.includes("FOR UPDATE OF a"));
     expect(credential).toBeGreaterThanOrEqual(0);
@@ -169,12 +183,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
 
   it("declares the `second-factor` scope for the factors and the SHOP for the scope check", async () => {
     const pool = await signInPool();
-    await openPrivilegedSession(deps(pool.pool), {
-      email: EMAIL,
-      password: PASSWORD,
-      totpCode: totpCode(SECRET, stepAt(NOW)),
-      shopId: SHOP,
-    });
+    await openPrivilegedSession(
+      deps(pool.pool),
+      {
+        email: EMAIL,
+        password: PASSWORD,
+        totpCode: totpCode(SECRET, stepAt(NOW)),
+        shopId: SHOP,
+      },
+      OBSERVED
+    );
     const begins = pool.calls.filter((c) => c.text.startsWith("BEGIN")).map((c) => c.text);
     // The factors are facts about a PERSON, who may hold memberships at several
     // shops; the membership read and the session issuance are about ONE shop.
@@ -185,12 +203,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
   it("REFUSES a wrong password with §9.3's one code, and issues no session", async () => {
     const pool = await signInPool();
     await expect(
-      openPrivilegedSession(deps(pool.pool), {
-        email: EMAIL,
-        password: `${PASSWORD}-wrong`,
-        totpCode: totpCode(SECRET, stepAt(NOW)),
-        shopId: SHOP,
-      })
+      openPrivilegedSession(
+        deps(pool.pool),
+        {
+          email: EMAIL,
+          password: `${PASSWORD}-wrong`,
+          totpCode: totpCode(SECRET, stepAt(NOW)),
+          shopId: SHOP,
+        },
+        OBSERVED
+      )
     ).rejects.toThrow(LongboxError);
     expect(pool.calls.some((c) => c.text.includes("INSERT INTO app_session"))).toBe(false);
     // …and the second factor was never tested, so a code presented without a
@@ -201,12 +223,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
   it("REFUSES a person with no live membership at the shop they named", async () => {
     const pool = await signInPool((text) => (text.includes("FROM membership m") ? { rows: [] } : undefined));
     await expect(
-      openPrivilegedSession(deps(pool.pool), {
-        email: EMAIL,
-        password: PASSWORD,
-        totpCode: totpCode(SECRET, stepAt(NOW)),
-        shopId: SHOP,
-      })
+      openPrivilegedSession(
+        deps(pool.pool),
+        {
+          email: EMAIL,
+          password: PASSWORD,
+          totpCode: totpCode(SECRET, stepAt(NOW)),
+          shopId: SHOP,
+        },
+        OBSERVED
+      )
     ).rejects.toThrow(LongboxError);
     const failure = pool.calls.find((c) => c.text.includes("INSERT INTO auth_attempt"));
     expect(failure?.values).toContain("no_live_membership");
@@ -219,12 +245,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
         : undefined
     );
     await expect(
-      openPrivilegedSession(deps(pool.pool), {
-        email: EMAIL,
-        password: PASSWORD,
-        totpCode: totpCode(SECRET, stepAt(NOW)),
-        shopId: SHOP,
-      })
+      openPrivilegedSession(
+        deps(pool.pool),
+        {
+          email: EMAIL,
+          password: PASSWORD,
+          totpCode: totpCode(SECRET, stepAt(NOW)),
+          shopId: SHOP,
+        },
+        OBSERVED
+      )
     ).rejects.toThrow(LongboxError);
     const failure = pool.calls.find((c) => c.text.includes("INSERT INTO auth_attempt"));
     expect(failure?.values).toContain("role_not_privileged");
@@ -240,12 +270,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
         ? { rows: [{ chain_id: "stolen-chain" }] }
         : undefined
     );
-    await openPrivilegedSession(deps(pool.pool), {
-      email: EMAIL,
-      password: PASSWORD,
-      totpCode: totpCode(SECRET, stepAt(NOW)),
-      shopId: SHOP,
-    });
+    await openPrivilegedSession(
+      deps(pool.pool),
+      {
+        email: EMAIL,
+        password: PASSWORD,
+        totpCode: totpCode(SECRET, stepAt(NOW)),
+        shopId: SHOP,
+      },
+      OBSERVED
+    );
     const revoke = pool.calls.find((c) => c.text.includes("INSERT INTO app_session_revocation"));
     expect(revoke?.values).toEqual([SHOP, "stolen-chain", "privileged_superseded", PERSON]);
     // BEFORE the new row exists, so it cannot revoke the chain it is making room
@@ -278,12 +312,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
         return Reflect.get(target, prop, receiver) as unknown;
       },
     });
-    await openPrivilegedSession(deps(pool.pool, spy), {
-      email: EMAIL,
-      password: PASSWORD,
-      totpCode: totpCode(SECRET, stepAt(NOW)),
-      shopId: SHOP,
-    });
+    await openPrivilegedSession(
+      deps(pool.pool, spy),
+      {
+        email: EMAIL,
+        password: PASSWORD,
+        totpCode: totpCode(SECRET, stepAt(NOW)),
+        shopId: SHOP,
+      },
+      OBSERVED
+    );
     expect(taken).toHaveLength(1);
     expect(taken[0]).toMatch(/^[0-9a-f]{64}$/);
     // A rate-limit key is held in a process and printed in a log line the day
@@ -301,12 +339,16 @@ describe("openPrivilegedSession (048 §4.1, 057 §4.5)", () => {
       },
     });
     await expect(
-      openPrivilegedSession(deps(pool.pool, drain), {
-        email: EMAIL,
-        password: PASSWORD,
-        totpCode: totpCode(SECRET, stepAt(NOW)),
-        shopId: SHOP,
-      })
+      openPrivilegedSession(
+        deps(pool.pool, drain),
+        {
+          email: EMAIL,
+          password: PASSWORD,
+          totpCode: totpCode(SECRET, stepAt(NOW)),
+          shopId: SHOP,
+        },
+        OBSERVED
+      )
     ).rejects.toThrow(LongboxError);
     expect(pool.calls).toHaveLength(0);
   });

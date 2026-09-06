@@ -74,6 +74,20 @@ export const APP_LOCKABLE_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.fi
 export const MUTABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE";
 
 /**
+ * Privileges an `appGrant: "insert-only"` table grants (E03-D17).
+ *
+ * **APPEND WITHOUT READ.** `identity_access` is the audited accessor's fact
+ * (019 T35(b), 034 §3.3): the application must write a row on every read that
+ * turns a key into a person, and must never be able to read the rows back. A
+ * process that could query its own access log could shape what an audit sees
+ * before the audit runs, and nothing in the running system has a question to ask
+ * this table — its only reader is `pnpm audit:identity-access`, as the schema
+ * owner. The mirror of `appGrant: "none"`, and declared as its own class rather
+ * than as a special case inside the grant builder.
+ */
+export const INSERT_ONLY_PRIVILEGES = "INSERT";
+
+/**
  * Privileges a COLUMN-SCOPED exemption grants, beside its `GRANT UPDATE (cols)`.
  *
  * The same pair an append-only table gets, and deliberately so: a table whose
@@ -108,6 +122,15 @@ export interface GrantPlan {
    * in the full-DML list.
    */
   readonly columnScoped: ReadonlyArray<{ table: string; columns: readonly string[] }>;
+  /**
+   * Declared tables the app role may INSERT into and may not read (E03-D17).
+   *
+   * A FIFTH class for `noGrant`'s reason, one value over: the grant step's
+   * output and its test should be able to say "this table is append-without-read"
+   * rather than leaving a reader to infer it from a table missing from the
+   * append-only list.
+   */
+  readonly insertOnly: readonly string[];
 }
 
 /**
@@ -165,6 +188,19 @@ export const NO_APP_GRANT_TABLE_NAMES: readonly string[] = [
 ].sort();
 
 /**
+ * Declared append-only tables the app role may INSERT into and may not read
+ * (`appGrant: "insert-only"`, E03-D17).
+ *
+ * Derived from the same declaration list as every other class, so a table cannot
+ * enter or leave it by being edited here.
+ */
+export const INSERT_ONLY_TABLE_NAMES: readonly string[] = APPEND_ONLY_TABLES.filter(
+  (t) => t.appGrant === "insert-only"
+)
+  .map((t) => t.table)
+  .sort();
+
+/**
  * Classify the live base tables into the three privilege classes.
  *
  * @param liveTables base-table names present in schema `public`.
@@ -174,6 +210,7 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
   const appendOnly: string[] = [];
   const mutable: string[] = [];
   const noGrant: string[] = [];
+  const insertOnly: string[] = [];
   const columnScoped: Array<{ table: string; columns: readonly string[] }> = [];
   const undeclared: string[] = [];
 
@@ -184,6 +221,10 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
     // branch below and silently granted `SELECT, INSERT` — the same ordering bug
     // the `columnScoped` comment records, one class over.
     if (NO_APP_GRANT_TABLE_NAMES.includes(table)) noGrant.push(table);
+    // `insertOnly` BEFORE the append-only branch, for `noGrant`'s reason exactly
+    // (E03-D17): it is narrower, and reaching the wider branch first would grant
+    // the SELECT this class exists to withhold.
+    else if (INSERT_ONLY_TABLE_NAMES.includes(table)) insertOnly.push(table);
     else if (APPEND_ONLY_TABLE_NAMES.includes(table)) appendOnly.push(table);
     // BEFORE the plain-exempt branch: a row carrying `updateColumns` is a
     // narrower class, and reaching the wider one first would silently restore
@@ -194,7 +235,7 @@ export function planAppRoleGrants(liveTables: readonly string[]): GrantPlan {
   }
 
   if (undeclared.length > 0) throw new UndeclaredTableError(undeclared);
-  return { appendOnly, mutable, noGrant, columnScoped };
+  return { appendOnly, mutable, noGrant, columnScoped, insertOnly };
 }
 
 /** Postgres identifiers we are willing to interpolate: lowercase, unquoted, no injection surface. */
@@ -222,6 +263,7 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
     ...plan.appendOnly,
     ...plan.mutable,
     ...plan.noGrant,
+    ...plan.insertOnly,
     ...plan.columnScoped.map((c) => c.table),
     ...views,
   ]) {
@@ -245,6 +287,12 @@ export function buildGrantStatements(plan: GrantPlan, role: string, views: reado
   }
   if (plan.mutable.length > 0) {
     statements.push(`GRANT ${MUTABLE_PRIVILEGES} ON ${plan.mutable.join(", ")} TO ${role}`);
+  }
+  // APPEND WITHOUT READ (E03-D17). No `SELECT` — which also means no
+  // `SELECT … FOR UPDATE`, so this class cannot be row-locked either, and that
+  // is correct: nothing in the running system reads or waits on these rows.
+  if (plan.insertOnly.length > 0) {
+    statements.push(`GRANT ${INSERT_ONLY_PRIVILEGES} ON ${plan.insertOnly.join(", ")} TO ${role}`);
   }
   // THE COLUMN-SCOPED CLASS (E03-D06). `SELECT, INSERT` at the table, `UPDATE` on
   // the named columns only, and NO DELETE — so a table exempted because ONE column

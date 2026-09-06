@@ -25,6 +25,7 @@
     "grant-app-role": "tsx scripts/grant-app-role.ts",
     "audit:cross-tenant": "tsx scripts/audit-cross-tenant.ts",
     "audit:break-glass": "tsx scripts/audit-break-glass.ts",
+    "audit:identity-access": "tsx scripts/audit-identity-access.ts",
     "designate-staff": "tsx scripts/designate-staff.ts",
     "retire-staff-designation": "tsx scripts/retire-staff-designation.ts",
     "register-shop": "tsx scripts/register-shop.ts",

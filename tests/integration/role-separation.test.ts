@@ -26,7 +26,11 @@ import {
   superuserUrl,
 } from "./helpers.js";
 import { APPEND_ONLY_EXEMPTIONS, APPEND_ONLY_TABLE_NAMES } from "../../src/db/appendOnlyTables.js";
-import { APP_LOCKABLE_TABLE_NAMES, NO_APP_GRANT_TABLE_NAMES } from "../../src/db/appRoleGrants.js";
+import {
+  APP_LOCKABLE_TABLE_NAMES,
+  INSERT_ONLY_TABLE_NAMES,
+  NO_APP_GRANT_TABLE_NAMES,
+} from "../../src/db/appRoleGrants.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { checkRoleSeparation, assertRoleSeparationOrThrow } from "../../src/services/roleSeparation.js";
 
@@ -222,11 +226,35 @@ describe.skipIf(!dbUp)("role separation: the app role owns nothing", () => {
     for (const table of APPEND_ONLY_TABLE_NAMES) {
       if (APP_LOCKABLE_TABLE_NAMES.includes(table)) continue; // asserted separately below
       if (NO_APP_GRANT_TABLE_NAMES.includes(table)) continue; // and so is this class, below
+      if (INSERT_ONLY_TABLE_NAMES.includes(table)) continue; // and so is E03-D17's, below
       expect({ table, privileges: grants.get(table) }).toEqual({
         table,
         privileges: ["INSERT", "SELECT"],
       });
     }
+  });
+
+  // ⚠ THE THIRD EXCEPTION, AND IT IS THE MIRROR OF THE SECOND (E03-D17).
+  //
+  // `app_user_origin` withholds the INSERT because an appended row would change
+  // what a control SEES. `identity_access` withholds the SELECT for the
+  // symmetric reason: it is the audited accessor's own fact (019 T35(b), 034
+  // §3.3), and a process that can read its own access log can shape what an
+  // audit sees before the audit runs. Nothing in the running system has a
+  // question to ask this table; reading it is `pnpm audit:identity-access`'s
+  // job, as the schema owner.
+  //
+  // Asserted as an EXACT privilege set rather than as an absence, so a future
+  // `GRANT SELECT` fails here — and the refusal is proved real, not merely
+  // catalogued, because a policy filtering rows would return zero rather than
+  // throw.
+  it("a DECLARED insert-only append-only table grants the app role INSERT and nothing else", async () => {
+    const grants = await privilegesByTable(ownerPool);
+    expect(INSERT_ONLY_TABLE_NAMES).toEqual(["identity_access"]);
+    for (const table of INSERT_ONLY_TABLE_NAMES) {
+      expect({ table, privileges: grants.get(table) }).toEqual({ table, privileges: ["INSERT"] });
+    }
+    await expect(appPool.query(`SELECT count(*) FROM identity_access`)).rejects.toThrow(/permission denied/);
   });
 
   // ⚠ THE SECOND EXCEPTION, AND IT NARROWS RATHER THAN WIDENS (E03-D14).

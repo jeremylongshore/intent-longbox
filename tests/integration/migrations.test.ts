@@ -107,6 +107,11 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // `031` merged FIRST and slotted in above without renumbering anything
       // here, which is the property this ORDERED list exists to demonstrate.
       "034_scan_session_composite_tenant_keys.sql",
+      // `035` (E03-D17) was cut against a tree whose highest number was `033`,
+      // while `034` was in flight on E03-D19's branch — the same shape one row
+      // up, and it KEEPS its number for the same reason: `034` merged first and
+      // slotted in above without renumbering anything here.
+      "035_identity_access.sql",
     ]);
 
     const tables = await pool.query(
@@ -190,11 +195,13 @@ describe.skipIf(!dbUp)("migration runner", () => {
     const appliedAgain = await pool.query(`SELECT count(*)::int AS n FROM schema_migrations`);
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
     // (E03-B06 reserved `027` and never wrote it), plus E02-D11's `030`,
-    // E03-D11's `031`, E03-D14's `032`/`033` and E03-D19's `034`, is 33 — while
-    // the highest number is 034. ONE gap, not two: `031` landed and closed the
-    // second one, and `034` was taken while it was still in flight. The runner
-    // reads no contiguity, and this is the assertion that keeps saying so.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(33);
+    // E03-D11's `031`, E03-D14's `032`/`033`, E03-D19's `034` and E03-D17's
+    // `035`, is 34 — while the highest number is 035. **ONE gap, not two**:
+    // `027` is the only one, reserved by E03-B06 and never written. `031` closed
+    // the second gap when it landed, and `034` closed the third when E03-D19
+    // merged ahead of this branch. The runner reads no contiguity, and this is
+    // the assertion that keeps saying so.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(34);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

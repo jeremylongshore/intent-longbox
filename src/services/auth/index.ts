@@ -82,9 +82,11 @@ export type {
   TotpVerdict,
 } from "./authenticator.js";
 
+// E03-D17 (security lens F1): `currentRecoveryNomination` is GONE. It projected
+// a named human's name and contact note with no audit fact and no caller — the
+// shape `readPerson` was deleted for, one file over.
 export {
   RecoveryCodeAlreadyUsed,
-  currentRecoveryNomination,
   liveRecoveryCodeCount,
   recordRecoveryNomination,
   redeemRecoveryCode,
@@ -145,8 +147,10 @@ export {
 } from "./credentials.js";
 export type { PasswordRefusal, PasswordVerdict, UserCredentialRow } from "./credentials.js";
 
-export { readPerson, upsertPerson } from "./people.js";
-export type { Person } from "./people.js";
+// E03-D17: `readPerson` is GONE and `Person` moved. Turning a key into a person
+// is `src/identity/`'s, behind its own barrel and its own audit fact (034 §3.3,
+// 019 T35(b)); this module keeps the WRITE that creates one, which returns an id.
+export { upsertPerson } from "./people.js";
 
 export { authenticatorsBelowVersion, resealAuthenticator } from "./authenticator.js";
 
@@ -217,10 +221,12 @@ export {
   membershipAt,
   membershipsAt,
   revokeMembership,
-  shopRoster,
   shopsForSession,
 } from "./memberships.js";
-export type { MembershipRow, MembershipScope, Role, RosterEntry, ShopSummary } from "./memberships.js";
+// `shopRoster` / `RosterEntry` are GONE from this barrel — E03-D17 moved the
+// picker's roster to `src/identity/`'s `resolveShopRoster`, the only `JOIN
+// app_user` in the tree.
+export type { MembershipRow, MembershipScope, Role, ShopSummary } from "./memberships.js";
 
 // E03-B03 — the permission matrix and the one decision that reads it. The door
 // matters here for the same reason it matters for `verifyOperatorPin`: an

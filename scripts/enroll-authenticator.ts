@@ -58,6 +58,11 @@ import {
   requireAuthenticatorKey,
   requirePinPepper,
 } from "../src/services/auth/index.js";
+// E03-D17: the otpauth label needs a login identifier, and turning an
+// `app_user_id` into one is the audited accessor's job wherever it happens —
+// including in a schema-owner CLI, which is the tree `pnpm arch`'s rule scans
+// for exactly this reason (058 F6's lesson, one bead over).
+import { resolvePersonForAuthenticatorEnrollment } from "../src/identity/index.js";
 
 const { values } = parseArgs({
   options: { user: { type: "string" }, issuer: { type: "string", default: "Longbox" } },
@@ -78,8 +83,21 @@ async function main(): Promise<void> {
   const pool = new pg.Pool({ connectionString: resolveMigrateUrl() });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const person = await pool.query(`SELECT id, email, display_name FROM app_user WHERE id = $1`, [user]);
-    const row = person.rows[0] as { id: string; email: string; display_name: string } | undefined;
+    // The access fact carries a NULL `shop_id` — a second factor belongs to a
+    // PERSON, who may hold memberships at more than one shop (034 §2.6) — which
+    // `migrations/035`'s CHECK ties to `accessor_method = 'CLI'` and which only
+    // the schema owner can write, because the tenant policy refuses an unscoped
+    // row to the application role.
+    const row = await resolvePersonForAuthenticatorEnrollment(
+      pool,
+      {
+        method: "CLI",
+        path: "scripts/enroll-authenticator.ts",
+        purpose: "authenticator_enrollment",
+        shopId: null,
+      },
+      user
+    );
     if (!row) throw new Error(`no app_user with id ${user}`);
 
     // THE SECRET LIVES IN THIS PROCESS AND NOWHERE ELSE UNTIL IT IS CONFIRMED

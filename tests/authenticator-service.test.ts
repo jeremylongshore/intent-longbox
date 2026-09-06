@@ -18,7 +18,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Queryable, Tx } from "../src/db.js";
 import {
   RecoveryCodeAlreadyUsed,
-  currentRecoveryNomination,
   enrollAuthenticator,
   liveAuthenticator,
   mfaState,
@@ -470,10 +469,13 @@ describe("the shop's recovery nomination (048 §8.2)", () => {
     ]);
   });
 
-  it("reads the NEWEST answer, because a shop may change its mind", async () => {
-    const { db, calls } = fakeDb(() => ({ rows: [{ kind: "second_owner" }] }));
-    expect((await currentRecoveryNomination(db, "shop-1"))?.kind).toBe("second_owner");
-    expect(calls[0]!.text).toContain("ORDER BY n.created_at DESC");
-    expect(calls[0]!.text).toContain("LIMIT 1");
-  });
+  // ⚠ THE "READS THE NEWEST ANSWER" CASE IS GONE, AND SO IS THE FUNCTION IT
+  // TESTED (E03-D17, the security lens's F1). `currentRecoveryNomination`
+  // projected a named human's name and contact note out of
+  // `shop_recovery_nomination`, wrote no `identity_access` fact, and had no
+  // caller outside this suite — the exact shape this bead deleted `readPerson`
+  // for. The PROPERTY it asserted (a shop may change its mind, and the newest
+  // row is the answer) survives as a direct query in
+  // `tests/integration/recovery-codes.test.ts`, against a real database, where
+  // the append trail is visible rather than mocked.
 });

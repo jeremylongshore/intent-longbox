@@ -156,7 +156,39 @@ export const TERMINAL_KINDS: readonly AttemptKind[] = ["delivered", "dead_letter
  * carries that distinction as a column so it cannot be lost in whoever writes
  * the report.
  */
-export const GUARD_REASON_CODES = ["listing_left_draft", "no_observation_evidence"] as const;
+export const GUARD_REASON_CODES = [
+  "listing_left_draft",
+  "no_observation_evidence",
+  /**
+   * E03-B08 (000-docs/064 §7). The privacy job refuses to answer `no_data_held`
+   * for a store whose connector was ever GRANTED a scope that could reach a
+   * customer. It is a GUARD refusal for the same reason the two above are: the
+   * guard working is not the system being unreliable, and counting it in the 019
+   * T17 aggregate would make a control look like a fault.
+   */
+  "customer_scope_was_granted",
+  /**
+   * E03-B08 F4 (security lens). The privacy job refuses to answer `no_data_held`
+   * for a store with ZERO recorded `connector_token_version` rows.
+   *
+   * **It is a GUARD refusal because the guard is what is missing.** The check the
+   * automatic answer rests on is *no recorded grant carries a customer scope*,
+   * and an EMPTY set satisfies that vacuously — so a store on the legacy static
+   * path would be answered by a check that examined nothing, and the result would
+   * be indistinguishable from a real one. That inverts 043 A3's fail-closed
+   * idiom. Unknown means do not touch.
+   *
+   * ⚠ **IT IS DEFENCE IN DEPTH AND NOT A LIVE DETECTOR, and v1.1.0 over-claimed
+   * it (the security re-check's finding 2).** The record said this made residual
+   * R1 *self-enforcing*. It does not: since F-A a store with no recorded grant
+   * resolves to a NULL tenant, and the producer never enqueues a job without one
+   * — so **this branch is unreachable from the shipped producer**, and the test
+   * that exercises it constructs the outbox row by hand. It is kept because a
+   * future producer (E16-B02's cutover, or a re-drive) can reach it, and a guard
+   * that only exists once somebody needs it is a guard nobody writes.
+   */
+  "no_recorded_grant",
+] as const;
 export const REASON_CODES = [
   ...GUARD_REASON_CODES,
   /** The Shopify response carried `userErrors`: a permanent failure (043 §5.2). */
@@ -172,6 +204,26 @@ export const REASON_CODES = [
    * is not one.
    */
   "session_not_draftable",
+  /**
+   * E03-B08: the `privacy_request` a job names is not visible under its own
+   * tenant. Retrying cannot make it visible, so it is terminal — and it is
+   * deliberately NOT a guard refusal, because nothing was decided about a
+   * customer: the job could not find the question it was sent to answer.
+   */
+  "privacy_request_not_visible",
+  /**
+   * E03-B08, the gate audit's B6. A job was enqueued for a topic this system does
+   * not answer automatically.
+   *
+   * **It is deliberately NOT a guard refusal**, and the distinction is a
+   * statement of fact rather than a taxonomy preference: a guard refusal says
+   * *the control worked*, and nothing was controlled here — a PRODUCER enqueued
+   * something no consumer should have been given. Filing it as
+   * `customer_scope_was_granted`, which is what the first version did, put a
+   * FALSE SENTENCE in `outbox_dead_letter` (041 §8.2 forbids exactly that) and
+   * counted a deployment defect as a control doing its job.
+   */
+  "privacy_topic_not_auto_fulfillable",
 ] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
 

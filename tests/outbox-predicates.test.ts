@@ -206,13 +206,34 @@ describe("the declared kinds and reason codes", () => {
     ]);
   });
 
-  it("keeps the two GUARD refusals identifiable as a group (043 A5)", () => {
+  it("keeps the GUARD refusals identifiable as a group (043 A5)", () => {
     // A dead letter from a Shopify 500 is a provider problem and belongs in
     // T17's "declared provider outage" arithmetic. A dead letter carrying one of
     // these two is the guard WORKING. Counted together, a guard doing its job
     // reads as a reliability problem and a reliability problem reads as a guard
     // doing its job — so the grouping is a declared constant, not a convention.
-    expect([...GUARD_REASON_CODES]).toEqual(["listing_left_draft", "no_observation_evidence"]);
+    //
+    // E03-B08 added the third — `customer_scope_was_granted`, the privacy job's
+    // refusal — and the EXACT list is what made that an edit somebody had to
+    // make on purpose. A new dead-letter code is a decision about which side of
+    // the T17 line it falls on, and this assertion is where that decision is
+    // taken rather than inherited.
+    //
+    // E03-B08's cannon added the FOURTH — `no_recorded_grant`, the security
+    // lens's F4 — and deliberately did NOT add `privacy_topic_not_auto_fulfillable`
+    // beside it (the gate audit's B6). That split is the whole content of this
+    // assertion: a guard refusal says A CONTROL WORKED, and a job enqueued for a
+    // topic nothing answers automatically is a PRODUCER defect where nothing was
+    // controlled. Filing it as a guard refusal would have put a false sentence in
+    // `outbox_dead_letter` (041 §8.2) and counted a bug as a control.
+    expect([...GUARD_REASON_CODES]).toEqual([
+      "listing_left_draft",
+      "no_observation_evidence",
+      "customer_scope_was_granted",
+      "no_recorded_grant",
+    ]);
+    expect(REASON_CODES).toContain("privacy_topic_not_auto_fulfillable");
+    expect([...GUARD_REASON_CODES]).not.toContain("privacy_topic_not_auto_fulfillable");
     for (const code of GUARD_REASON_CODES) expect(REASON_CODES).toContain(code);
   });
 });

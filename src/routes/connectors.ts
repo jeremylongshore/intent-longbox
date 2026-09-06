@@ -127,6 +127,12 @@ export function registerConnectorRoutes(app: FastifyInstance, deps: ConnectorDep
             shopDomain: headerValue(req.headers["x-shopify-shop-domain"]),
             webhookId: headerValue(req.headers["x-shopify-webhook-id"]),
             apiVersion: headerValue(req.headers["x-shopify-api-version"]),
+            // E03-B08. Passed through UNVERIFIED and knowingly so: the HMAC
+            // covers the body, so every header on this request — including this
+            // one — is attacker-controlled in a replay. 000-docs/064 §4 bounds
+            // what it is allowed to decide, and the body digest is what actually
+            // stops a replay.
+            triggeredAt: headerValue(req.headers["x-shopify-triggered-at"]),
           },
           raw
         );

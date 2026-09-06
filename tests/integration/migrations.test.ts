@@ -122,6 +122,14 @@ describe.skipIf(!dbUp)("migration runner", () => {
       // the next number rather than racing for it, which is why the two land
       // consecutively and no gap appears here.
       "037_authenticator_offer_use_and_credential_clearance.sql",
+      // `038` and NOT `037`: E03-D24's branch HELD `037` on this same base while
+      // E03-B08 was building, and the rule is `030`'s — a number moves freely
+      // before a merge and never after one, so the branch that has not shipped
+      // keeps its number and the one that ships takes the next free one. `037`
+      // merged FIRST and slotted in above without renumbering anything here,
+      // which is the property this ORDERED list exists to demonstrate. `027` is
+      // once again the ONLY gap, and it belongs to nobody.
+      "038_webhook_replay_and_privacy_workflows.sql",
     ]);
 
     const tables = await pool.query(
@@ -206,14 +214,15 @@ describe.skipIf(!dbUp)("migration runner", () => {
     // A COUNT of files, not of the highest number: 28 through E03-B04's `029`
     // (E03-B06 reserved `027` and never wrote it), plus E02-D11's `030`,
     // E03-D11's `031`, E03-D14's `032`/`033`, E03-D19's `034`, E03-D17's `035`,
-    // E03-D21's `036` and E03-D24's `037`, is 36 — while the highest number is
-    // 037. **ONE gap, not two**: `027` is the only one, reserved by E03-B06 and
-    // never written. `031` closed the second gap when it landed, `034` closed
-    // the third when E03-D19 merged ahead of that branch, and `037` opened no
-    // fourth because it took the number after its in-flight neighbour rather
-    // than racing it. The runner reads no contiguity, and this is the assertion
-    // that keeps saying so.
-    expect((appliedAgain.rows[0] as { n: number }).n).toBe(36);
+    // E03-D21's `036`, E03-D24's `037` and E03-B08's `038`, is 37 — while the
+    // highest number is 038. **ONE gap, not two**: `027` is the only one,
+    // reserved by E03-B06 and never written. `031` closed the second gap when it
+    // landed, `034` closed the third when E03-D19 merged ahead of that branch,
+    // and `037` opened no fourth because it took the number after its in-flight
+    // neighbour rather than racing it — which is also why `038` closed the gap it
+    // would have left had `037` never shipped. The runner reads no contiguity,
+    // and this is the assertion that keeps saying so.
+    expect((appliedAgain.rows[0] as { n: number }).n).toBe(37);
 
     // 015 (E06-D01): the band's derivation is recorded beside the band, and the
     // model's self-reported number may be absent — a model that declines to guess

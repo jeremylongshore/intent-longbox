@@ -15,7 +15,7 @@ import { DEPRECATION_HEADERS, isNoRequestLogPath } from "./contracts/v1/routes.j
 import { registerErrorHandling } from "./http/errors.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerConnectorRoutes } from "./routes/connectors.js";
-import { resolveAppCredentials } from "./services/connectors/shopify/index.js";
+import { loadWebhookWindows, resolveAppCredentials } from "./services/connectors/shopify/index.js";
 import { registerScanSessionRoutes } from "./routes/scanSessions.js";
 import { ShopRateLimiter } from "./services/rateLimit.js";
 import type { ApiDeps } from "./services/sessionApi.js";
@@ -183,6 +183,11 @@ export async function buildApp(
   // and `receiveWebhook`/`completeInstall` both refuse outright on an empty
   // secret. A verifier with no key accepts nothing; it does not accept
   // everything, and it does not disappear.
+  // E03-B08's two floors are resolved HERE, once, for `loadOutboxParams`'s
+  // reason: a subsystem that re-read the environment per request would let a
+  // deployment change a security window without a restart, and the restart is
+  // where somebody notices.
+  const webhookWindows = loadWebhookWindows();
   registerConnectorRoutes(app, {
     pool: db,
     limiter: deps.limiter,
@@ -192,6 +197,13 @@ export async function buildApp(
       redirectUri: "",
       apiVersion: process.env["SHOPIFY_API_VERSION"] ?? "2025-07",
     },
+    webhookWindowSeconds: webhookWindows.windowSeconds,
+    webhookClockSkewSeconds: webhookWindows.clockSkewSeconds,
+    // Both of these reached this call because of a review finding rather than a
+    // design: the fulfilment window was DOCUMENTED and read by nothing (the
+    // invariant review's finding 2), and the unresolved-domain ceiling is F5's.
+    privacyFulfilmentWindowDays: webhookWindows.fulfilmentWindowDays,
+    privacyUnresolvedDomainCeiling: webhookWindows.unresolvedDomainCeiling,
   });
 
   // 042 §3.4 half one — ONE prefix, ONE plugin. Every shop-scoped route is

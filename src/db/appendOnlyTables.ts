@@ -816,6 +816,37 @@ export const APPEND_ONLY_TABLES: readonly AppendOnlyTrigger[] = [
     sessionSeq: false,
   },
   {
+    table: "privacy_request",
+    trigger: "privacy_request_append_only",
+    since: "038_webhook_replay_and_privacy_workflows.sql",
+    // E03-B08 / 000-docs/064 §6. A message that ARRIVED, and the moment an answer
+    // became owed. Neither is corrected: a request that turns out to have been
+    // for another store is answered `not_applicable` by a FACT, not by an edit,
+    // and `due_at` is stamped at insert so that a window changed next year cannot
+    // silently restate what was owed last year.
+    //
+    // NOT an external observation in 041 §2.5's sense even though a provider
+    // caused it: nothing orders these rows by anything the provider stated, and
+    // `triggered_at` — the one time Shopify supplies — lives on the RECEIPT and
+    // is deliberately not this table's ordering key (064 §4.2).
+    ordersByObservedAt: false,
+    // No `scan_session_id` and never will be: a privacy message is about a person
+    // or a store, not about a book on a counter.
+    sessionSeq: false,
+  },
+  {
+    table: "privacy_request_fulfilment",
+    trigger: "privacy_request_fulfilment_append_only",
+    since: "038_webhook_replay_and_privacy_workflows.sql",
+    // The ANSWER, and the reason it is append-only is the sharper half: a wrong
+    // fulfilment is still a true record of what this system did, and correcting
+    // it in place would destroy the only evidence that the wrong answer was ever
+    // given. `UNIQUE (privacy_request_id)` is what makes the consumer idempotent
+    // under concurrent duplicate delivery (043 §3.2).
+    ordersByObservedAt: false,
+    sessionSeq: false,
+  },
+  {
     table: "vertical_pack_version",
     trigger: "vertical_pack_version_append_only",
     since: "016_catalog_core.sql",

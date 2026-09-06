@@ -23,8 +23,20 @@
 // reason): adding a name is ADDITIVE within v1 and is the rule working. A rename
 // or a removal is a v2 change, and a retired name is retired forever.
 
-/** 029 §2's module names, as used by the middle segment of every event name. */
-export type EventModule = "workflow" | "resolution" | "condition" | "valuation" | "commerce";
+/**
+ * 029 §2's module names, as used by the middle segment of every event name.
+ *
+ * ⚠ **`platform` ARRIVED AT E03-B08 AND IT CONTRADICTS A SENTENCE 043 §3.3
+ * WROTE**, so it is amended rather than quietly widened (000-docs/064 §8; the
+ * amendment block is in 043 §3.3). That sentence — *"they are platform's own
+ * tables, and 029 §2.9 makes platform the graph's leaf: nothing may import it and
+ * it publishes to nobody who is not already inside it"* — was written about the
+ * four RETENTION tables, whose consumers are platform's own sweep. It holds for
+ * them and it does not decide `privacy_request`, whose consumer is a JOB WHOSE
+ * REFUSAL MUST BE VISIBLE OUTSIDE the transaction that acknowledged the message.
+ * The distinction is the reason, and it is the whole of it.
+ */
+export type EventModule = "workflow" | "resolution" | "condition" | "valuation" | "commerce" | "platform";
 
 export interface CatalogueEntry {
   /** The wire name. Written out in full rather than composed, so a grep finds it. */
@@ -124,6 +136,22 @@ export const EVENT_CATALOGUE: readonly CatalogueEntry[] = [
       "040 §3.3's explicit transitions; reporting's funnel and E05's resumable list read " +
       "them. The table landed with E02-B10's migration 010, so every entry in this " +
       "catalogue now references a table that exists.",
+  },
+  {
+    event: "longbox.platform.privacy_request_received",
+    module: "platform",
+    refTable: "privacy_request",
+    why:
+      "E03-B08 / 000-docs/064 §7. The consumer is the compliance job, and it is NOT the module " +
+      "that writes the row: the connector's inbound path appends the fact (029 §2.7 owns " +
+      "webhook reconciliation) and platform's compliance machinery answers it (029 §2.9, §2.11 — " +
+      "which declined a tenth privacy module for exactly this cluster). It is NOT command-shaped: " +
+      "it references a COMMITTED witness row, so 042 §7.1's re-read rule has something to " +
+      "protect, and 043 §3.4's count of one stands. **The reason it is an event at all is that " +
+      "the job can REFUSE**: a fail-closed guard inside the acknowledgement transaction would " +
+      "have to become a 500, and a 500 to Shopify is a retry storm and, eventually, an app whose " +
+      "webhooks the provider disables — 053 §5.5's own stated hazard. Refusing on the outbox " +
+      "instead makes the refusal a dead letter a human can see.",
   },
 ];
 
@@ -439,7 +467,20 @@ export const CATALOGUE_EXCLUSIONS: ReadonlyArray<{ table: string; rule: string }
       "053 §5.5: Longbox's record that a signed provider message arrived (041 §2.5). Its EFFECT, " +
       "when it has one, is written in the same transaction as the receipt; and three of the four " +
       "topics it records are PRIVACY REQUESTS, so an event would put a `customers/redact` on a " +
-      "bus that 041 §8.4 keeps personal values off entirely. E03-B09 reads the table.",
+      "bus that 041 §8.4 keeps personal values off entirely. E03-B09 reads the table. " +
+      "(E03-B08 note: the receipt still produces no event. What produces one is " +
+      "`privacy_request`, which is the OBLIGATION rather than the message, carries a digest and " +
+      "no payload, and therefore puts nothing personal anywhere.)",
+  },
+  {
+    table: "privacy_request_fulfilment",
+    rule:
+      "E03-B08 / 000-docs/064 §6: the ANSWER to an obligation, and the two things that read it " +
+      "are the outstanding-request predicate and `pnpm audit:privacy-requests` — both of which " +
+      "read it as a table, in the transaction or the process that needs it. An event announcing " +
+      "that a request was answered would arrive after everything that could act on it, and it " +
+      "would carry `operator_id` out of the identity module and onto a bus whose consumers are " +
+      "many (019 T35, non-waivable; 022 P3).",
   },
 
   // ---------------------------------------------------------------------------
@@ -624,3 +665,6 @@ export function isCatalogueEvent(event: string): boolean {
 
 /** The one command-shaped event, by name, for callers that would otherwise re-derive it. */
 export const DRAFT_REQUESTED = "longbox.commerce.draft_requested";
+
+/** E03-B08's job event, by name. Reference-shaped: its `privacy_request` row exists first. */
+export const PRIVACY_REQUEST_RECEIVED = "longbox.platform.privacy_request_received";

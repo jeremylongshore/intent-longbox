@@ -27,9 +27,29 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const catalogueSource = readFileSync(path.join(here, "..", "..", "src", "events", "catalogue.ts"), "utf8");
 
 describe("the event catalogue (043 §3.3)", () => {
-  it("declares nine names, and they are unique", () => {
-    expect(EVENT_CATALOGUE).toHaveLength(9);
-    expect(new Set(EVENT_NAMES).size).toBe(9);
+  it("declares ten names, and they are unique", () => {
+    // NINE until E03-B08, which added `longbox.platform.privacy_request_received`
+    // (000-docs/064 §7). Adding a name is ADDITIVE within v1 (042 §2.3) and the
+    // count is not the guard — the guard is the COMMAND count below, plus the
+    // requirement that every entry names a consumer outside the writing module.
+    // The number is asserted anyway so that a tenth name is an edit somebody
+    // makes deliberately rather than one that lands with a producer.
+    expect(EVENT_CATALOGUE).toHaveLength(10);
+    expect(new Set(EVENT_NAMES).size).toBe(10);
+  });
+
+  it("E03-B08's entry is REFERENCE-shaped, so 043 §3.4's count of one still holds", () => {
+    // The trap this pins: a job event looks command-shaped, and if the entry had
+    // self-referenced it would have been the SECOND command — which 043 §3.4
+    // makes a decision-record change rather than a catalogue addition. It does
+    // not: `privacy_request` is a committed witness row that exists before the
+    // event does, so 042 §7.1's "a consumer re-reads current truth" has
+    // something to protect.
+    const entry = EVENT_CATALOGUE.find((e) => e.event === "longbox.platform.privacy_request_received");
+    expect(entry).toBeDefined();
+    expect(entry?.command).toBeUndefined();
+    expect(entry?.refTable).toBe("privacy_request");
+    expect(entry?.module).toBe("platform");
   });
 
   it("names follow `longbox.<module>.<past-tense verb phrase>`", () => {

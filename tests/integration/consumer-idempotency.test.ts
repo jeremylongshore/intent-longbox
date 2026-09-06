@@ -28,7 +28,11 @@ import { type Tx, withTransaction } from "../../src/db.js";
 import { createScanSession } from "../../src/services/scanSession.js";
 import { claimBatch, DEFAULT_OUTBOX_PARAMS, enqueue, type Claim } from "../../src/services/outbox.js";
 import { buildConsumerRegistry } from "../../src/consumers/index.js";
-import { DRAFT_REQUESTED } from "../../src/events/catalogue.js";
+import { DRAFT_REQUESTED, PRIVACY_REQUEST_RECEIVED } from "../../src/events/catalogue.js";
+import { randomUUID } from "node:crypto";
+import { CONNECTOR, requireConnectorKey } from "../../src/services/connectors/shopify/index.js";
+import { introduceTokenVersion } from "../../src/services/connectors/shopify/custody.js";
+import { TEST_CONNECTOR_KEY_V1 } from "../testConfig.js";
 import { fakeShopifyClient } from "../fakes.js";
 import { appUrl, asShop, createFreshDb, probeDb, runMigrations, seedShop } from "./helpers.js";
 
@@ -46,6 +50,30 @@ const dbUp = await probeDb();
 interface Scenario {
   seed(pool: pg.Pool, shopId: string): Promise<{ subject: string }>;
   countEffects(pool: pg.Pool, subject: string, shopId: string): Promise<number>;
+  /**
+   * How this event is enqueued for its subject.
+   *
+   * ⚠ GENERALISED AT E03-B08, and the reason is worth one line: the harness used
+   * to hard-code `scanSessionId: subject`, which is the DRAFT event's shape and
+   * not the outbox's. `longbox.platform.privacy_request_received` has no scan
+   * session at all — a privacy message is about a person or a store, never about
+   * a book on a counter — so the shape belongs to the scenario.
+   */
+  enqueue(tx: Tx, shopId: string, subject: string): Promise<{ id: string }>;
+  /**
+   * Prove the LOSING writer is stopped by a CONSTRAINT (I5(b)), by trying to
+   * defeat it directly. Per-scenario, because the constraint differs: the draft's
+   * is a partial unique on `outbox_id`, and the privacy job's is
+   * `UNIQUE (privacy_request_id)`.
+   */
+  defeatTheConstraint(
+    query: (sql: string, values?: unknown[]) => Promise<pg.QueryResult>,
+    shopId: string,
+    subject: string,
+    outboxId: string
+  ): Promise<void>;
+  /** Only for a consumer that reaches a provider. The privacy job reaches none. */
+  readonly touchesProvider?: true;
 }
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -77,6 +105,102 @@ const SCENARIOS: Record<string, Scenario> = {
           )
         ).rows[0]!.n
       );
+    },
+    enqueue: (tx, shopId, subject) =>
+      enqueue(tx, { shopId, event: DRAFT_REQUESTED, scanSessionId: subject, authoredBy: "human" }),
+    async defeatTheConstraint(query, shopId, subject, outboxId) {
+      await query(
+        `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
+         VALUES ($1,$2,'gid://a','draft',$3)`,
+        [subject, shopId, outboxId]
+      );
+      await expect(
+        query(
+          `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
+           VALUES ($1,$2,'gid://b','draft',$3)`,
+          [subject, shopId, outboxId]
+        )
+      ).rejects.toThrow(/duplicate key|unique/i);
+    },
+    touchesProvider: true,
+  },
+  // E03-B08's privacy job (000-docs/064 §7). Its effect is ONE
+  // `privacy_request_fulfilment`, and its idempotency is `UNIQUE
+  // (privacy_request_id)` with `ON CONFLICT DO NOTHING` — a constraint, not a
+  // read-then-write, which is what makes it survive the interleaving below.
+  [PRIVACY_REQUEST_RECEIVED]: {
+    async seed(pool, shopId) {
+      const db = asShop(pool, shopId);
+      // A RECORDED GRANT for the store, because F4 makes zero grants a REFUSAL:
+      // an empty scope set satisfies *no customer scope was granted* vacuously,
+      // so a store with nothing recorded is dead-lettered rather than answered.
+      // The scenario's subject is the fulfilment, so it seeds the precondition
+      // the guard demands rather than the guard's refusal.
+      await introduceTokenVersion(
+        db,
+        requireConnectorKey({ LONGBOX_CONNECTOR_KEY_V1: TEST_CONNECTOR_KEY_V1 }),
+        {
+          shopId,
+          connector: CONNECTOR,
+          versionNo: Math.floor(Math.random() * 1_000_000) + 1,
+          shopDomain: "idem.myshopify.com",
+          accessToken: "test-shopify-access-token-key",
+          grantedScopes: ["write_products", "read_products"],
+          installStateId: null,
+          authoredBy: "human",
+        }
+      );
+      const receipt = await db.query(
+        `INSERT INTO connector_webhook_receipt
+           (shop_id, connector, topic, webhook_id, shop_domain, payload_digest, payload_bytes)
+         VALUES ($1,'shopify','customers/redact',$2,'idem.myshopify.com',$3,4) RETURNING id`,
+        [shopId, `idem-${randomUUID()}`, "1".repeat(64)]
+      );
+      const request = await db.query(
+        `INSERT INTO privacy_request
+           (shop_id, connector, topic, webhook_id, webhook_receipt_id, shop_domain, payload_digest, due_at)
+         VALUES ($1,'shopify','customers/redact',$2,$3,'idem.myshopify.com',$4,
+                 now() + interval '25 days')
+         RETURNING id`,
+        [shopId, `idem-${randomUUID()}`, (receipt.rows[0] as { id: string }).id, "1".repeat(64)]
+      );
+      return { subject: (request.rows[0] as { id: string }).id };
+    },
+    async countEffects(pool, requestId, shopId) {
+      return Number(
+        (
+          await asShop(pool, shopId).query(
+            `SELECT count(*)::int AS n FROM privacy_request_fulfilment WHERE privacy_request_id = $1`,
+            [requestId]
+          )
+        ).rows[0]!.n
+      );
+    },
+    // NO `scanSessionId`: a privacy message is about a person or a store, never
+    // about a book on a counter, and the reference is the obligation itself.
+    enqueue: (tx, shopId, subject) =>
+      enqueue(tx, {
+        shopId,
+        event: PRIVACY_REQUEST_RECEIVED,
+        refTable: "privacy_request",
+        refId: subject,
+        authoredBy: "provider",
+      }),
+    async defeatTheConstraint(query, shopId, subject) {
+      await query(
+        `INSERT INTO privacy_request_fulfilment
+           (shop_id, privacy_request_id, outcome, method, authored_by)
+         VALUES ($1,$2,'no_data_held','scope_policy','system')`,
+        [shopId, subject]
+      );
+      await expect(
+        query(
+          `INSERT INTO privacy_request_fulfilment
+             (shop_id, privacy_request_id, outcome, method, authored_by)
+           VALUES ($1,$2,'not_applicable','scope_policy','system')`,
+          [shopId, subject]
+        )
+      ).rejects.toThrow(/duplicate key|unique/i);
     },
   },
 };
@@ -142,9 +266,7 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
     async (event) => {
       const scenario = SCENARIOS[event]!;
       const { subject } = await scenario.seed(pool, shopId);
-      const outboxId = (
-        await shopTx((tx) => enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" }))
-      ).id;
+      const outboxId = (await shopTx((tx) => scenario.enqueue(tx, shopId, subject))).id;
 
       // One claim, then the SAME claim delivered twice at once. This is the
       // duplicate delivery the visibility window makes reachable, constructed
@@ -169,8 +291,14 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
       // ONE row, by constraint.
       expect(await scenario.countEffects(pool, subject, shopId)).toBe(1);
       // ONE effect at the provider: 043 §4.3's customId upsert is the
-      // provider-side half of the same rule.
-      expect(new Set(shopify.products.values()).size).toBe(1);
+      // provider-side half of the same rule. Only asserted for a consumer that
+      // reaches a provider — the privacy job reaches none, and asserting a set of
+      // size one over an untouched fake would be an assertion about the fake.
+      if (scenario.touchesProvider === true) {
+        expect(new Set(shopify.products.values()).size).toBe(1);
+      } else {
+        expect(shopify.products.size).toBe(0);
+      }
     }
   );
 
@@ -183,21 +311,8 @@ describe.skipIf(!dbUp)("consumer idempotency, gated at the REGISTRY (043 A2)", (
       // Here the constraint is asserted directly, by trying to defeat it.
       const scenario = SCENARIOS[event]!;
       const { subject } = await scenario.seed(pool, shopId);
-      const outboxId = (
-        await shopTx((tx) => enqueue(tx, { shopId, event, scanSessionId: subject, authoredBy: "human" }))
-      ).id;
-      await shopQuery(
-        `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
-         VALUES ($1,$2,'gid://a','draft',$3)`,
-        [subject, shopId, outboxId]
-      );
-      await expect(
-        shopQuery(
-          `INSERT INTO shopify_draft (scan_session_id, shop_id, product_gid, status, outbox_id)
-           VALUES ($1,$2,'gid://b','draft',$3)`,
-          [subject, shopId, outboxId]
-        )
-      ).rejects.toThrow(/duplicate key|unique/i);
+      const outboxId = (await shopTx((tx) => scenario.enqueue(tx, shopId, subject))).id;
+      await scenario.defeatTheConstraint(shopQuery, shopId, subject, outboxId);
     }
   );
 

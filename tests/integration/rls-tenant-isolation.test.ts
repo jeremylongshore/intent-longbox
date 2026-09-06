@@ -501,7 +501,7 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
     expect(rows.map((r) => r.tablename)).toEqual([...SERVICE_CONTEXT_TABLES].sort());
   });
 
-  it("the WRITE policy exists on exactly FOUR tables, and each check names the row", async () => {
+  it("the WRITE policy exists on exactly SIX tables, and each check names the row", async () => {
     const rows = (
       await ownerPool.query(
         `SELECT tablename, with_check FROM pg_policies
@@ -518,6 +518,14 @@ describe.skipIf(!dbUp)("row-level security, as the application role (E03-B04, 01
       "auth_attempt",
       "connector_token_retirement",
       "connector_webhook_receipt",
+      // E03-B08 (000-docs/064 §7.2). `outbox` is the ONE queue table reachable
+      // inside a cross-tenant scope, and its check names the EVENT — so the
+      // connector's inbound path can enqueue the privacy job and can NEVER
+      // enqueue a draft. That is the widening a reviewer should look at hardest
+      // in that bead, and it is pinned here as well as in `tests/rls-plan.test.ts`
+      // because this assertion reads the LIVE catalog rather than the plan.
+      "outbox",
+      "privacy_request",
     ]);
     // Every one is a conjunction of the scope list AND a condition about the row.
     // A check that were only the scope list would be the `FOR ALL` boolean wearing

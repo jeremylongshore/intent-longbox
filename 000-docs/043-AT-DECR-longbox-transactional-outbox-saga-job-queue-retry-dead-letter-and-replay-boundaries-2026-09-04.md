@@ -1,6 +1,6 @@
 # Decision Record — The Transactional Outbox, the Event Catalogue, the Shopify Saga, the Job Queue, Retry, Dead-Lettering and the Replay Boundaries
 
-**Version:** 1.1.2
+**Version:** 1.2.0
 **Status:** **RATIFIED 2026-09-04** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`martin-kleppmann-reviewer`, `rich-hickey-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §14. Amendments A1–A12 absorbed in full, none declined; **one draft decision was STRUCK** (`payload_hash`, A6) and **one draft mechanism was REPLACED by an invariant** (the ship-together instruction → A3's fail-closed guard); four dissents preserved in §14.
 **Bead:** E02-B09 `longbox-e5b.2.9` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class DEC, owner-role eng, risk critical) — see 000-docs/014 §8 row E02-B09
 **Drafted:** 2026-09-04 by `longbox-domain-builder` · **Cannon:** `martin-kleppmann-reviewer` + `rich-hickey-reviewer`, 2026-09-04 on `8579e70` — **both reproduced the code claims they leaned on** (E1, E2, E4, E7, E9, E11); **neither re-fetched Shopify's API reference, which A11 records rather than glosses** · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
@@ -18,6 +18,7 @@
 | **1.1.0** | **2026-09-04** | **RATIFIED. Twelve amendments absorbed, none declined; one draft decision struck and one draft mechanism replaced.** **A1** (Kleppmann, REQUIRED) §2.4/§7.2 — the claim `SELECT … FOR UPDATE … SKIP LOCKED` and the `started` INSERT are **one transaction on one connection**, the lock releasing only after the `started` row commits; without it the lease derives from a log that does not yet mention the claim. I13 gains the overlapping-visibility-window property and §7.2 gains a correct/forbidden interleaving diagram — *the one place formality earns its keep.* **A2** (Kleppmann, REQUIRED) §3.2 — consumer idempotency is gated **at the registry**: a parametric contract test across every registered consumer plus a static lint on the `SELECT`-then-write shape, both E02-D07 acceptance lines. A rule proved against one hand-picked consumer is enforced by whoever remembers the example. **A3** (Kleppmann, REQUIRED, **the most costly**) §4.3 — the guard **FAILS CLOSED**. The draft refused a job when an observation said the listing had left `draft` and **passed when there were no observations at all**, which is today's state; the record covered that with an instruction that the guard and watcher not ship apart. *"An instruction is not an invariant."* Now: zero observations plus a prior `shopify_draft` ⇒ **REFUSED**, `reason_code='no_observation_evidence'`. I8 is rewritten with the empty-table case first, and **E02-D07 no longer needs E10-B05 to be safe, only to be useful.** **A4** (Kleppmann) §8.2 — **T22 bounds database recovery, not time-to-external-consistency**; that second figure is owed by E13-B07's drill and E13-B01/E10-B05's cadence, and filed as a T22 scope-note candidate for E00-B03. **A5** (Kleppmann) §5.4 — guard-refusal dead letters are reported **distinctly from the T17 aggregate**, because a guard working is not unreliability; **Q8 affirmed**. **A6** (Kleppmann + Hickey, REQUIRED) **`payload_hash` STRUCK** — the unique constraint already makes its case unconstructible, and *"a column that exists to catch a case the schema already makes impossible … is a place a future engineer will eventually repurpose."* **Q6 answered.** **A7** (Hickey) §2.4 — the timing assumption is named: `attempt_visibility` > worst-case clock skew, server-side `now()`, NTP beyond one host. **A8** (Hickey + Kleppmann, **Q3**) §2.6 — both witness reasons **kept and declared independent**. **A9** (Hickey, **Q2**) §2.2/§10 — the queue-library rejection is a **decision constrained by locked decision 4**, and I5/I13 must be **adversarial** because they stand in for the suite a library would have shipped. **A10** (Hickey, **Q5**) §3.4 — one table, one declared command, **ratified**; I3's failure message points at the argument; the catalogue is **authored, never generated**. **A11** (Kleppmann, unreproduced) §4.3 — **neither lens re-fetched Shopify's reference**, so the `customId` upsert's immediate consistency is an **assumption signed OPEN**, closed by a dev-store test before the saga serves a shop: **answered by measurement, not by citation.** **A12** — **Q1** answered *falsifiable now*, **Q7** accepted as drafted, implementing beads named and **E02-D07 created with its 015 row**. | Two-lens cannon → acting head, §14 |
 | 1.1.1 | 2026-09-04 | Patch after the gate audit (statements of fact only, no decision changed): E6 and E10 re-derived at `f469d7d` — the negative greps now return prose comments PR #56 added, the named symbols still return nothing; I1's `routes:407` → `:467`; §11's two summary sentences re-derived to the table (one ⛔ I17; three ⚠ I10/I14/I20; three red-on-tree I1/I7/I19; I8 no longer conditional after A3). | acting head, from the `longbox-gate-auditor` report on main `f469d7d` |
 | 1.1.2 | 2026-09-04 | Patch (statement of fact): §5.3's `job_max_attempts` arithmetic — six attempts with base 30 s and ceiling 30 min span ~15.5 min, not ~75; the ceiling never binds at six. The provisional value is unchanged; E02-D07's test asserts what the code does; the real value closes by measurement (O-A / E00-B03). Found by `longbox-domain-builder` while building E02-D07. | acting head |
+| **1.2.0** | **2026-09-06** | **MINOR — E03-B08 `longbox-e5b.3.8` (000-docs/064) adds a TENTH event and NARROWS one exclusion rule. Every sentence below this row stays verbatim; the change lands as an amendment block in §3.3.** **(1) `longbox.platform.privacy_request_received` joins the catalogue.** Adding a name is ADDITIVE within v1 (§3.3's closing rule, from 042 §2.3) and would need no row — except that its MODULE segment is `platform`, and §3.3's exclusion paragraph says platform's tables *"publish to nobody who is not already inside it"*. **That sentence was written about the four RETENTION tables and it holds for them**: their consumer is platform's own sweep, which reads them as tables in the process that needs them. `privacy_request` differs on the axis the exclusion turns on — **its consumer is a JOB WHOSE REFUSAL MUST BE VISIBLE OUTSIDE the transaction that acknowledged the provider's message**, because a fail-closed guard inside an acknowledgement can only become a 500 (a retry storm, and eventually an app whose webhooks the provider disables — 053 §5.5's own hazard) or a silence. The rule is therefore narrowed to its actual criterion rather than left contradicted. **(2) §3.4's COUNT OF ONE IS UNCHANGED and is asserted afresh.** The new entry is REFERENCE-shaped: `privacy_request` is a committed witness row that exists before the event does, so 042 §7.1's re-read rule has something to protect. A second command-shaped event would still be a decision-record change and not a catalogue addition. **(3) `GUARD_REASON_CODES` gains a THIRD and a FOURTH member** — `customer_scope_was_granted` and `no_recorded_grant` — and `outbox_dead_letter.guard_refusal` covers both, on A5's ground exactly: a guard working is not unreliability, and counting either refusal in the 019 T17 aggregate would make a control look like a fault. **`REASON_CODES` additionally gains a NON-guard member**, `privacy_topic_not_auto_fulfillable`, and the split is the point: a job enqueued for a topic nothing answers automatically is a PRODUCER defect, so filing it as a guard refusal would put a false sentence in `outbox_dead_letter` (041 §8.2) and count a bug as a control doing its job. **(4) `privacy_request_fulfilment` produces NO event**, with a stated exclusion rule: it carries `operator_id`, and an event about it would carry an operator identifier out of the identity module onto a registry whose consumers are many (019 T35 non-waivable; 022 P3). **Nothing about §2's tables, §5's retry parameters, §6's replay boundaries or §7's claim changes.** | E03-B08 `longbox-e5b.3.8` → `longbox-security-tenancy-builder` |
 
 ## 0. Evidence posture
 
@@ -230,6 +231,52 @@ This is the same construction 041 §9.2 item 4 uses for the trigger set — one 
 **Nine, and the exclusions are the argument.** `cost_log` produces no event — 029 §2.8 makes reporting the *sink* that owns the table, and an event to tell reporting about a row reporting wrote is a loop. `llm_rerank` produces none: it is written in the same transaction as its `candidate_set` (029 §12.1 point 4's worked example) and a consumer that wants it reads it through the reference. `media_deletion`, `retention_policy`, `retention_hold`, `retention_hold_release` and `retention_sweep_run` produce none: they are platform's own tables, and 029 §2.9 makes platform the graph's leaf — **nothing may import it and it publishes to nobody who is not already inside it.** `corpus_version` produces none because nothing writes it (041 §10.1). **Five tables in, nine events out, and every exclusion names the rule that excludes it** — which is the falsifiability §0 claims: a reader who thinks `llm_rerank` needs an event has a specific sentence to attack.
 
 **Additive by 042 §2.3.** A new event name is an additive change within `v1`. **A rename or a removal is a `v2` change**, and a retired name is retired forever — 042 §2.3's rule for error codes, applied to the same class of object for the same reason.
+
+> **AMENDMENT (v1.2.0, 2026-09-06, E03-B08 `longbox-e5b.3.8`, 000-docs/064 §8). A
+> TENTH NAME, AND THE PLATFORM EXCLUSION IS NARROWED TO ITS ACTUAL CRITERION.
+> Nothing in this section is edited; the nine names, their table, and every other
+> exclusion stand verbatim.**
+>
+> The paragraph above excludes platform's tables with this sentence: *"they are
+> platform's own tables, and 029 §2.9 makes platform the graph's leaf — nothing
+> may import it and it publishes to nobody who is not already inside it."*
+>
+> **That is true of the five tables it was written about**, whose consumer is
+> platform's own sweep, reading them as tables in the process that needs them. The
+> criterion it was reaching for is *does any consumer outside the writing module
+> need to be told*, and for those five the answer is no.
+>
+> **`privacy_request` answers it differently, on one axis:** its consumer is a JOB
+> **whose REFUSAL must be visible outside the transaction that acknowledged the
+> provider's message.** A fail-closed guard inside that acknowledgement has only
+> two endings and both are bad — a 500, which is a retry storm and eventually an
+> app whose webhooks the provider disables (053 §5.5 names that hazard as the
+> reason `topic` carries no CHECK), or a swallowed exception, which is a silent
+> discard. On the outbox the refusal is a DEAD LETTER: visible, attributable, and
+> never automatically re-driven (§5.5).
+>
+> **So the rule reads, as a PREDICATE rather than as a carve-out for one entry
+> (the consistency lens's K5):**
+>
+> > **A table produces an event when a consumer OUTSIDE the writing module needs
+> > to act on it — and "outside" INCLUDES a job whose REFUSAL must be visible
+> > outside the transaction that produced the row.**
+>
+> The second clause is the one this bead added, and it is stated in the general
+> form on purpose: an eleventh event that satisfies it needs no new argument, and
+> one that does not is excluded by the same sentence. The five retention tables
+> are unaffected — their consumer is platform's own sweep, reading them as tables
+> in the process that needs them, and no refusal of theirs has to survive
+> anything.
+>
+> **§3.4's count of ONE is unchanged.** `longbox.platform.privacy_request_received`
+> is REFERENCE-shaped: `privacy_request` is a committed witness row that exists
+> before the event does, so 042 §7.1's re-read rule has something to protect. A
+> second command-shaped event is still a decision-record change and not a
+> catalogue addition, and `tests/contract/event-catalogue.test.ts` still asserts
+> it. **`privacy_request_fulfilment` produces NO event**, with its own exclusion
+> row: it carries `operator_id`, and an event about it would put an operator
+> identifier on a registry whose consumers are many (019 T35; 022 P3).
 
 ### 3.4 `draft_requested` is a command wearing an event's clothes, and the record says so
 

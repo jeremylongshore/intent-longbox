@@ -448,6 +448,64 @@ export const SERVICE_TABLES: readonly ServiceTable[] = [
     },
     reason: "The duplicate check reads it in the same breath (`ON CONFLICT … DO NOTHING`, then read back).",
   },
+  {
+    table: "privacy_request",
+    readScopes: ["connector-inbound"],
+    write: {
+      scopes: ["connector-inbound"],
+      // The obligation inherits the receipt's nullable tenant for the receipt's
+      // own reason (053 §5.5): the commonest `shop/redact` names a store this
+      // system has already offboarded. `webhook_receipt_id` is required in the
+      // POLICY as well as by the column, so a scope cannot write an obligation
+      // that cites no signed message — the same shape
+      // `connector_token_retirement` uses one table up.
+      check: "(webhook_receipt_id IS NOT NULL)",
+      reason:
+        "E03-B08 (000-docs/064 §6). A privacy message arrives with no session and its tenant may " +
+        "be NULL, so the fact has nowhere else to be written — and recording nothing is the " +
+        "failure 053 §9 exists to prevent.",
+    },
+    reason: "The redelivery check reads it back inside the same transaction that tried to write it.",
+  },
+  {
+    // ⚠ THE OUTBOX IS REACHED INSIDE A SCOPE, AND IT IS THE ONLY QUEUE TABLE THAT
+    // IS. The reason is narrow and stated rather than assumed: the privacy
+    // obligation and the job that answers it must commit together (043 §2.1's
+    // rule that the outbox row is written inside the transaction that produced
+    // the fact), and that transaction cannot be a tenant one, because a webhook
+    // matching no install writes a NULL tenant (053 §5.5) and one transaction
+    // carries one context.
+    //
+    // **The alternatives were both worse.** Branching the context on whether the
+    // store resolved would put the receipt path's two most different cases on two
+    // code paths, so the one that runs in production would be the one the
+    // unresolved-tenant tests never take. Enqueueing after the receipt commits
+    // would split the fact from its effect, which is the half-written chain 043
+    // exists to remove.
+    //
+    // **The widening is bounded twice.** The WRITE check names the event, so the
+    // inbound scope can enqueue that job and nothing else. The READ is the whole
+    // table and is not narrowable in this shape (a read policy is a scope list,
+    // not a row condition) — which is acceptable HERE and would not be on a
+    // content table: an `outbox` row carries a reference and an envelope and
+    // never the referenced row's values (043 §2.5), and this scope already reads
+    // every shop's `connector_token_version` cross-tenant by design, which is a
+    // strictly more sensitive table. `enqueue` needs the read because an INSERT …
+    // RETURNING is filtered by the SELECT policy.
+    table: "outbox",
+    readScopes: ["connector-inbound"],
+    write: {
+      scopes: ["connector-inbound"],
+      check: "((shop_id IS NOT NULL) AND (event = 'longbox.platform.privacy_request_received'))",
+      reason:
+        "E03-B08 (000-docs/064 §7.2). The privacy job is enqueued in the transaction that records " +
+        "the obligation, which runs in this scope; naming the event in the policy means the scope " +
+        "can enqueue that one job and can never enqueue a draft.",
+    },
+    reason:
+      "`enqueue` reads the row back when the unique constraint absorbs its INSERT, and an " +
+      "`INSERT … RETURNING` is filtered by the SELECT policy in any case.",
+  },
 ];
 
 /** The table names, for the readers that only need the set. */

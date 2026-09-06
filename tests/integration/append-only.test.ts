@@ -219,6 +219,25 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
     return { id: (r.rows[0] as { id: string }).id };
   }
 
+  /**
+   * One privacy obligation, with the signed message it cites (E03-B08).
+   *
+   * `webhook_receipt_id` is NOT NULL by design: an obligation with no evidence is
+   * an assertion rather than a fact, so the recipe writes a receipt first instead
+   * of inventing an id.
+   */
+  async function freshPrivacyRequest(): Promise<{ id: string }> {
+    const receipt = await freshWebhookReceipt();
+    const r = await pool.query(
+      `INSERT INTO privacy_request
+         (shop_id, connector, topic, webhook_id, webhook_receipt_id, shop_domain, payload_digest, due_at)
+       VALUES ($1,'shopify','shop/redact',$2,$3,'recipe.myshopify.com',$4, now() + interval '25 days')
+       RETURNING id`,
+      [shopId, `recipe-privacy-${randomUUID()}`, receipt.id, "0".repeat(64)]
+    );
+    return { id: (r.rows[0] as { id: string }).id };
+  }
+
   /** A fresh three-letter vertical code, for the `vertical_pack` recipe. */
   let verticalCodeCounter = 0;
   function freshVerticalCode(): string {
@@ -916,6 +935,24 @@ describe.skipIf(!dbUp)("append-only triggers", () => {
            VALUES ($1,'session_display_name','POST','/api/v1/operator-sessions','app_user_id',1)
            RETURNING id`,
           [shopId]
+        );
+        return (r.rows[0] as { id: string }).id;
+      }
+      // E03-B08's privacy workflow (`migrations/038`). The obligation cites the
+      // signed message that produced it — a NOT NULL column, because an
+      // obligation with no evidence is an assertion (018's rung rules) — so the
+      // recipe borrows the webhook-receipt recipe above rather than inventing a
+      // receipt id. Nothing here is a customer: the row holds a DIGEST and there
+      // is no column that could hold anything else.
+      case "privacy_request":
+        return (await freshPrivacyRequest()).id;
+      case "privacy_request_fulfilment": {
+        const request = await freshPrivacyRequest();
+        const r = await pool.query(
+          `INSERT INTO privacy_request_fulfilment
+             (shop_id, privacy_request_id, outcome, method, authored_by)
+           VALUES ($1,$2,'no_data_held','scope_policy','system') RETURNING id`,
+          [shopId, request.id]
         );
         return (r.rows[0] as { id: string }).id;
       }

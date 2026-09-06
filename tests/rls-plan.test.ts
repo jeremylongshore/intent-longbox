@@ -185,7 +185,7 @@ describe("the statements it emits", () => {
     expect(sql.some((x) => x.startsWith(`CREATE POLICY ${SERVICE_WRITE_POLICY} ON app_session`))).toBe(false);
   });
 
-  it("gives the three writable tables an INSERT-only policy with a condition on the ROW", () => {
+  it("gives every writable table an INSERT-only policy with a condition on the ROW", () => {
     const attempt = SERVICE_TABLES.find((t) => t.table === "auth_attempt")!;
     const sql = buildRlsStatements(
       planRowLevelSecurity([{ name: "auth_attempt", relkind: "r", hasShopId: true }])
@@ -206,7 +206,28 @@ describe("the statements it emits", () => {
       "auth_attempt",
       "connector_token_retirement",
       "connector_webhook_receipt",
+      // E03-B08 (000-docs/064 §7.2). `privacy_request` is written where its
+      // evidence is written and its tenant may be NULL; `outbox` is the ONE
+      // queue table reachable inside a scope, and its check names the EVENT — so
+      // the inbound scope can enqueue the privacy job and can never enqueue a
+      // draft. That the list had to be edited by hand is the point: a sixth
+      // writable table is a decision, and this is where it is taken.
+      "privacy_request",
+      "outbox",
     ]);
+  });
+
+  it("E03-B08: the inbound scope may enqueue ONE event and no other", () => {
+    // The widening a reviewer should look at hardest in this bead, pinned so it
+    // cannot be relaxed silently. If a future edit drops the event name from this
+    // check, the connector's inbound path can enqueue a draft — which is a
+    // provider-triggered outward mutation with no human anywhere near it.
+    const outbox = SERVICE_TABLES.find((t) => t.table === "outbox")!;
+    const check = serviceWritePredicate(outbox);
+    expect(check).toContain("connector-inbound");
+    expect(check).toContain("event = 'longbox.platform.privacy_request_received'");
+    expect(check).toContain("shop_id IS NOT NULL");
+    expect(outbox.write?.scopes).toEqual(["connector-inbound"]);
   });
 
   it("E03-D21: the admission's write check names the ROW, and the scope may not UPDATE", () => {

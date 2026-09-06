@@ -27,8 +27,9 @@ import {
   resolveTokenVersion,
   type ConnectorKeyring,
 } from "../services/connectors/shopify/index.js";
-import { DRAFT_REQUESTED } from "../events/catalogue.js";
+import { DRAFT_REQUESTED, PRIVACY_REQUEST_RECEIVED } from "../events/catalogue.js";
 import { createDraftRequestedConsumer, type ShopifyClientResolver } from "./draftRequested.js";
+import { createPrivacyRequestConsumer } from "./privacyRequestReceived.js";
 
 /**
  * Per-shop Shopify client, in THREE outcomes and a fixed precedence (E03-B06,
@@ -150,5 +151,10 @@ export function buildConsumerRegistry(
         (deps.keyring ? createShopifyClientResolver({ keyring: deps.keyring }) : resolveShopifyClientForShop),
     })
   );
+  // E03-B08. It takes NO dependency, and that is worth one line: the job reaches
+  // no provider and makes no outbound call. Everything it consults — the
+  // obligation and the store's recorded grants — is in this database, which is
+  // what makes its answer checkable rather than trusting.
+  registry.register(PRIVACY_REQUEST_RECEIVED, createPrivacyRequestConsumer());
   return registry;
 }

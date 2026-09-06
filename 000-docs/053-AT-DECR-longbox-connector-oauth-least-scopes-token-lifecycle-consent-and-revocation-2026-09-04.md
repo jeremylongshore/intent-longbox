@@ -1,6 +1,6 @@
 # Decision Record — Connector OAuth: Where a Provider-Minted Token Lives, What Authority It Carries, and What an Uninstall Actually Ends
 
-**Version:** 1.0.8
+**Version:** 1.1.0
 **Status:** **RATIFIED 2026-09-04 (v1.0.5)** by the acting head under Jeremy's standing delegation — `security-auditor` and `rich-hickey-reviewer` were DISPATCHED on the §2 Q1 ruling (both ACCEPT-WITH-CHANGES; verdicts and dissents in §14.1 are the reopening triggers); `longbox-invariant-reviewer` BLOCK at `16f17ef` → PASS-WITH-NOTES at `843652c`; `longbox-gate-auditor` NOT-READY ×2 on statements of fact → v1.0.4; landed as PR #87 squash `f4a03b6`. The custody ruling (AEAD column with its own ring; the three-way rule; a credential's death must be observable) may be cited as settled from this version; the scope claim is a stolen database dump IN ISOLATION until E13-D01 separates the archive. **v1.0.6 (2026-09-05): E13-D01's separation is REPRODUCED IN TEST and is NOT applied on the hosts, so the scope claim is UNCHANGED — see the change log and §14 item 2.**
 **Bead:** E03-B06 `longbox-e5b.3.6` — *Implement connector OAuth, least scopes, token lifecycle, consent and uninstall/revocation* (epic LBOX-E03 `longbox-e5b.3`, gate G2) — see 000-docs/014 §8 row E03-B06
 **Filed:** 2026-09-04 · **Author:** `longbox-security-tenancy-builder` · **Owner:** parent session (acting head of board)
@@ -15,6 +15,7 @@
 
 | Version | Date | What changed | Authority |
 | --- | --- | --- | --- |
+| **1.1.0** | **2026-09-06** | **MINOR — E03-B08 `longbox-e5b.3.8` (000-docs/064) extends two mechanisms this record shipped, and both changes are CONTENT rather than repairs. Every sentence below this row stays verbatim; the changes land as amendment blocks in §5.5 and §7.3.** **(1) THE DEDUPE KEY THIS RECORD RATIFIED IS A HEADER, AND THE SIGNATURE DOES NOT COVER IT.** §8.2 is exactly right that the webhook HMAC is over the RAW BODY — and the consequence §5.5 did not draw is that `X-Shopify-Webhook-Id` is therefore attacker-chosen in a replay. `UNIQUE (connector, webhook_id)` answers the PROVIDER's at-least-once delivery precisely and answers a deliberate replay of captured bytes not at all. **It is not weakened and not replaced**; a SECOND, window-scoped key over `payload_digest` — a digest OF the signed bytes, and a column this record already required for 041 §8.4's reason — sits beside it, and `connector_webhook_receipt` gains `triggered_at` and a CLOSED three-value `disposition` so that a REFUSED delivery is recorded rather than dropped (064 §4). **(2) §7.3's *"an uninstall retires EVERY live token granted for that store"* was NOT COMMUTATIVE, and the sequence is real rather than hypothetical**: uninstall at T1 while this endpoint is unreachable, re-install at T2, the provider's retry lands at T3 inside its 48-hour horizon — and, as shipped, kills the FRESH token, with the receipt's UNIQUE unable to see it because that delivery is the first carrying that id. The retirement is now bounded by the event's own time plus a guard band, so **an uninstall ends the tokens that existed when it happened**; a message with NO stated time is unbounded, which is this record's shipped behaviour unchanged. **(3) The three compliance topics §9 ACKNOWLEDGED and ROUTED now produce an append-only OBLIGATION with a stored clock** (`privacy_request`) and an answer that is a fact (`privacy_request_fulfilment`), so *"cannot be lost"* is enforced by a detector rather than asserted. §9's split is unchanged: what a person is entitled to, on what clock, and what they are told is still E03-B09's and counsel's, and 064 cites no statute either. | E03-B08 `longbox-e5b.3.8` → `longbox-security-tenancy-builder` |
 | **1.0.8** | **2026-09-06** | **Patch — two statements of fact repaired in v1.0.7's own amendment block; no ruling moves and §7's text stays verbatim.** **(1)** The §7.2 amendment said the one-shop rule is decided by *"the database"* and that `pnpm connector-install` *"says so"*. **Both were wrong.** The rule is decided by the INSTALL CALLBACK'S TRANSACTION — a constraint against a RACE, and route-scoped, because `introduceTokenVersion` writes a token version, consults no claim and takes a NULL install state by design (§5.3), so a live token does not imply a claim (061 §9 R5). And the CLI does NOT say so: the clause characterising the mechanism was **DROPPED under 021 B16** before v1.0.7 was written, so the attribution described a sentence that does not ship. The CLI states the rule and what happens when a store is already recorded, and characterises nothing. **(2)** v1.0.7's row said the callback's loser is answered *"byte-identically"* to an unknown state; the accurate form is **identical in bytes**, with the qualifier that the pre- and post-exchange refusal classes differ by ONE OUTBOUND CALL to the token endpoint — unreachable without a valid HMAC, so it discloses nothing to the population the constant answer defends against. | E03-D22 re-audit (000-docs/061 v1.1.2) |
 | **1.0.7** | **2026-09-06** | **PATCH — one mechanism strengthened by a bead outside this record, recorded as a ROW and TWO amendment blocks. No ruling here moves and the scope claim does not change.** E03-D22 `longbox-e5b.3.32` (000-docs/061) makes the **callback CLAIM the store** on `shop.shopify_domain` inside the transaction that introduces the token version, so §7.3's *"an uninstall retires EVERY live token granted for that store"* can no longer end the WRONG shop's authority through a race: two shops holding live tokens for one store was previously prevented by a read outside that transaction (the security lens's F8), and is now prevented by `shop_shopify_domain_is_one_store`, with the loser answered `CONNECTOR_CALLBACK_REFUSED` identically in bytes to an unknown state (the classes differ by one outbound call, unreachable without a valid HMAC — see v1.0.8). **§5.5's ruling is UNCHANGED and was re-asserted rather than assumed**: the tenant of an `app/uninstalled` is still resolved from `connector_token_version.shop_domain` — the value an authenticated grant wrote — and never from the config column, which now has a value and still is not read as a lookup key. The finding-1 regression test changed shape to keep proving that (it asserts the independence on a shop with NO claim, §5.3's Dev Dashboard token, instead of asserting a NULL this change makes false). **The claim is NOT released by an uninstall** (061 §4): the column is configuration under 034 §4.2, and a third party's act at Shopify must not un-configure a Longbox shop; the cost — moving a store to a DIFFERENT Longbox shop needs a schema-owner act — is 061 §9 R2 and belongs to offboarding. One side effect worth naming: `src/consumers/index.ts` reads that column with an env fallback, so a connector-installed shop's draft now names the store the GRANT names. **No migration; `026`'s index and column already carried everything** (061 §7). | E03-D22 `longbox-e5b.3.32` → `longbox-security-tenancy-builder` |
 | **1.0.6** | **2026-09-05** | **Patch — a statement of fact about the backup, from E13-D01 `longbox-e5b.13.11`. No ruling moves and THE SCOPE CLAIM DOES NOT CHANGE.** §14 item 2 said the estate's borg include set carries `/etc` and the database dump in one archive, and named E13-D01 as the bead that separates them. That separation is now **REPRODUCED IN TEST** — intent-os PR #576, squash SHA `77000dd3` excludes `/etc/intentsolutions/age.key`, the host SOPS files and the home/root `.config/sops/age` paths from the archive that carries `/var/backups/db-dumps`, adds a preflight that REFUSES the run when the exclusion is missing, and proves it with 30 cases under real borg including a negative control. **It is NOT applied on either host**: the live timers still run the deployed copies, so today's archives still carry the key, and archives already in Backblaze keep their contents for their Object-Lock life. **Therefore the honest scope of this encryption is still *a stolen database dump in isolation*** — a test proves a script, and only a deploy changes what an archive holds. When the deploy happens it is recorded as a decision-log row in **006**, and only then may this item be read as closed. | acting head, on E13-D01 |
@@ -234,6 +235,33 @@ Five tables, all append-only, all `ENABLE ALWAYS`, all declared in `src/db/appen
 >
 > **It was also a 019 T24 exposure on its own**: `shop.shopify_domain` carried no UNIQUE and the query took `rows[0]` with no `ORDER BY`. `026` now adds a **partial unique index** on it. That is belt-and-braces on a column this path no longer reads, and it is worth the row for a reason this repository keeps rediscovering: **removing the READER makes a bug unreachable; the CONSTRAINT makes the STATE unrepresentable**, so the next reader of that column cannot reintroduce it. The index can fail to apply on a database already holding two shops with one domain — which is the intended behaviour, because that is exactly the state that would have ended the wrong shop's authority.
 >
+> **AMENDMENT (v1.1.0, 2026-09-06, E03-B08 `longbox-e5b.3.8`, 000-docs/064). TWO
+> COLUMNS AND A SECOND KEY, BESIDE §5.5's RULING RATHER THAN INSTEAD OF IT.
+> Nothing in this section is edited.**
+>
+> **`UNIQUE (connector, webhook_id)` STAYS, AND WHAT IT ANSWERS IS NARROWED TO
+> WHAT IT ACTUALLY ANSWERS.** §8.2 rules that the webhook HMAC is over the RAW
+> BODY. The consequence this section did not draw is that **every header is
+> outside the signature**, `X-Shopify-Webhook-Id` included — so the dedupe key is
+> exact against the PROVIDER's at-least-once delivery, where the sender is Shopify
+> and the id is evidence, and worth nothing against someone replaying captured
+> bytes under an id they chose.
+>
+> The second key is **`payload_digest`**, which this section already required for
+> 041 §8.4's reason and which is a digest OF the bytes the signature covers. It is
+> **window-scoped, not absolute**: a repeat of a body seen inside
+> `WEBHOOK_RECEIPT_WINDOW_SECONDS` for the same connector, topic and store is
+> refused, and one seen outside it is a new event — because two byte-identical
+> messages years apart ARE two events, and collapsing them would make a second
+> genuine `customers/redact` disappear (064 §4.3).
+>
+> **`triggered_at`** records `X-Shopify-Triggered-At` and **`disposition`** records
+> what this system decided: `accepted`, `stale` or `replayed_body`, a CLOSED set
+> against `topic`'s deliberately open one — because `topic` is the PROVIDER's
+> vocabulary and this is ours. A REFUSED delivery still writes a receipt, on §9's
+> own ground: a message this system silently discarded is the failure that reads
+> as compliance until somebody asks.
+
 > **`shop_id` IS NULLABLE ON THE RECEIPT, ALONE IN THIS FILE, AND THE REASON IS RECORDED RATHER THAN INFERRED.** Locked decision 4 puts a `shop_id` FK on every shop-scoped table and every table here carries one. On the receipt it is nullable because the receipt is an OBSERVATION OF ANOTHER SYSTEM'S ACT whose tenancy is the HMAC-verified `shop_domain`, not a Longbox id — and the commonest `shop/redact` arrives for a shop that has already been offboarded. The choices are to record the fact with a null resolution or to record nothing. **Recording nothing is the worse answer**: E03-B09 needs the fact, and a privacy webhook this system silently discarded is the failure that reads as compliance until somebody asks. Inventing a `shop_id` would be worse still. `shop_domain` is NOT NULL, because it is always known — it is inside the bytes the signature covers.
 
 ---
@@ -260,6 +288,32 @@ Five tables, all append-only, all `ENABLE ALWAYS`, all declared in `src/db/appen
 **7.2 Starting an install is a CLI, on the E03-D06/E03-D07 precedent.** 048 §7.3 puts owner acts in a privileged session; 048 §12.4 row 3a records that privileged sessions do not exist; so `mintInstallState` is a real service with a real state row, reached from `pnpm connector-install`. The merchant-facing landing an unlisted public app needs (Shopify's `app_url`) is **DECLARED `pending: true`** on the auth allowlist with **E10-B02** named, so its principal is a decision somebody already made rather than one inferred by whoever adds the handler. **OFFLINE access is requested**, because an online token expires with the merchant's browser session and 043's job model assumes the authority outlives the request that created it.
 
 **7.3 Ending it.** An `app/uninstalled` webhook retires every live version and produces a receipt per version. `pnpm connector-retire-token` offers `rotation` and `revocation` and **deliberately does not offer `uninstall`** — a human typing that would be recording a third party's act with no evidence, which the schema CHECK also refuses. **The receipt says what each ending achieved and what it did not**, per reason, because the three differ exactly there: an `uninstall` means the token is dead at Shopify by the merchant's act; a `rotation` or a `revocation` means only that this system will never present it again.
+
+> **AMENDMENT to 7.3 (v1.1.0, 2026-09-06, E03-B08 `longbox-e5b.3.8`, 000-docs/064
+> §5). THE RETIREMENT IS BOUNDED BY THE EVENT'S OWN TIME. Nothing above is
+> edited, and "every live version granted for that store" is unchanged — what is
+> added is which versions the message REACHES.**
+>
+> *"An `app/uninstalled` retires every live version"* was **not commutative**, and
+> the counter-example is a sequence rather than a hypothesis: **T1** the merchant
+> uninstalls while this endpoint is unreachable; **T2** they re-install and a new
+> version is introduced; **T3** Shopify's retry lands, still inside its 48-hour
+> horizon — and, as shipped, retires the token from T2. The receipt's UNIQUE
+> cannot see it, because that delivery is the FIRST one carrying that id.
+>
+> **The ruling: an uninstall ends the tokens that EXISTED WHEN IT HAPPENED.** One
+> predicate on the retirement query — `created_at <= triggered_at + guard band`.
+>
+> **It crosses two clocks and the guard band's DIRECTION is the decision.** 043
+> §2.4 already ratified this kind of comparison together with its condition (NTP
+> is a requirement, not a nicety). With the band, skew retires one token TOO MANY
+> — the shop re-installs. Without it, skew retires one too FEW, leaving a version
+> this system believes is live after the merchant killed it at Shopify, which is
+> the shape §5(a) of 050 inverts an ordering to avoid.
+>
+> **A message with NO stated event time is UNBOUNDED**, which is this record's
+> shipped behaviour unchanged: under a missing header the conservative direction
+> is the one that leaves no live token behind.
 
 **7.3a The provider-side revoke, and the sentence it replaced (S2, v1.0.1).**
 

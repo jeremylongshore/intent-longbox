@@ -12,21 +12,26 @@
 //
 // Bead: longbox-e5b.2.17 (E02-D07). Docs: 043 §4.1, §5.3, A2.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DRAFT_REQUESTED } from "../src/events/catalogue.js";
+import { DRAFT_REQUESTED, PRIVACY_REQUEST_RECEIVED } from "../src/events/catalogue.js";
 import { buildConsumerRegistry, resolveShopifyClientForShop } from "../src/consumers/index.js";
 import { fakePool } from "./fakes.js";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
 
 describe("buildConsumerRegistry (043 §4.1, A2)", () => {
-  it("registers the draft_requested consumer and nothing else", () => {
+  it("registers exactly the two declared consumers", () => {
     // The registry IS the idempotency gate (A2): every entry is enrolled in the
     // parametric concurrent-duplicate test and the write-shape lint. Asserting
     // the exact membership here is what makes "every registered consumer" a
     // knowable set rather than a phrase.
+    //
+    // E03-B08 added the second, and the EXACT assertion is why this line had to
+    // be edited deliberately rather than growing on its own — which is the
+    // property the test exists to have.
     const registry = buildConsumerRegistry();
-    expect(registry.entries().map(([event]) => event)).toEqual([DRAFT_REQUESTED]);
+    expect(registry.entries().map(([event]) => event)).toEqual([DRAFT_REQUESTED, PRIVACY_REQUEST_RECEIVED]);
     expect(registry.get(DRAFT_REQUESTED)).toBeTypeOf("function");
+    expect(registry.get(PRIVACY_REQUEST_RECEIVED)).toBeTypeOf("function");
   });
 
   it("takes an injected client resolver, so the integration lane can use a fake", () => {

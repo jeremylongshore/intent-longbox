@@ -478,6 +478,20 @@ describe.skipIf(!dbUp)("upgrading a prior released schema", () => {
     // first migration that is ENTIRELY a tenant boundary, and the only way to
     // show that an operator's RUNNING database ends up behind it is to restore
     // one that predates it and migrate in.
+    // E03-B08 shipped `038` and added NONE, and the reason is stated because the
+    // default in this file has lately been to add one anyway. Two things decide
+    // it. **The limit does not force it** — head is a COUNT and not a number
+    // (`027` is the only gap, and `037` closed the one it briefly held when
+    // E03-D24 merged ahead of this branch), so at 37 files `035`'s 34 still sits
+    // three behind and inside the four. **And `035` is already the
+    // right snapshot for what `038` does**: its only reach into an existing table
+    // is `ADD COLUMN … NOT NULL DEFAULT 'accepted'` on
+    // `connector_webhook_receipt`, whose truth claim is about ROWS THAT ARE
+    // ALREADY THERE — every receipt written before this migration WAS accepted —
+    // and a fixture predating `026` would have no such rows to prove it on, while
+    // `035` has the table and the shape an operator actually upgrades from. A
+    // fixture cut at `036` would test the same statement against the same shape
+    // one migration later.
     const newest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
     expect(HEAD_COUNT - newest.applied).toBeLessThanOrEqual(4);
     const trigger = APPEND_ONLY_TABLES.find((t) => t.table === "scan_session_transition");

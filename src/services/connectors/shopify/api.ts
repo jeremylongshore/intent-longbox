@@ -45,13 +45,27 @@ import {
   KNOWN_TOPICS,
   SHOPIFY_REQUIRED_SCOPES,
   SHOPIFY_SCOPE_LIST_VERSION,
+  PRIVACY_UNRESOLVED_DOMAIN_CEILING,
   TOPIC_APP_UNINSTALLED,
+  WEBHOOK_CLOCK_SKEW_SECONDS,
+  WEBHOOK_RECEIPT_WINDOW_SECONDS,
+  type WebhookDisposition,
+  checkSignedDomain,
+  classifyDelivery,
+  isAutoFulfillableTopic,
+  isComplianceTopic,
   isShopifyShopDomain,
   parseScopeList,
+  parseTriggeredAt,
+  retirementCutoff,
   scopeSatisfies,
+  topicPolicy,
   verifyQueryHmac,
   verifyWebhookHmac,
 } from "./policy.js";
+import { PRIVACY_REQUEST_RECEIVED } from "../../../events/catalogue.js";
+import { enqueue } from "../../outbox.js";
+import { recordPrivacyRequest } from "../../privacy.js";
 
 /** The connector this module speaks for. A closed set with one member today. */
 export const CONNECTOR = "shopify" as const;
@@ -82,6 +96,32 @@ export interface ConnectorDeps {
   /** The app's OAuth client id and secret, from the environment (053 §3.4). */
   readonly app: ShopifyAppCredentials;
   readonly keyring?: ConnectorKeyring;
+  /**
+   * E03-B08 — the receipt window, in seconds, as a PROVISIONAL floor
+   * (`WEBHOOK_RECEIPT_WINDOW_SECONDS` when absent).
+   *
+   * It is a dependency and not an environment read inside `receiveWebhook` so the
+   * integration lane can construct a delivery that is one second outside a
+   * one-second window instead of one that is two days old.
+   */
+  readonly webhookWindowSeconds?: number;
+  /**
+   * E03-B08 — the guard band on the uninstall's cross-clock bound, in seconds
+   * (`WEBHOOK_CLOCK_SKEW_SECONDS` when absent).
+   *
+   * A dependency for the same reason as the window: the lane needs to construct a
+   * token introduced on the far side of an event time, and it cannot make a real
+   * `created_at` five minutes old on an append-only table.
+   */
+  readonly webhookClockSkewSeconds?: number;
+  /**
+   * E03-B08 — the fulfilment clock, in days (the invariant review's finding 2).
+   * It reached this interface because `.env.example` documented it as settable
+   * and NOTHING read it, so an operator who set it got the default and no error.
+   */
+  readonly privacyFulfilmentWindowDays?: number;
+  /** F5 — the ceiling on null-tenant compliance obligations per store domain. */
+  readonly privacyUnresolvedDomainCeiling?: number;
 }
 
 /**
@@ -763,6 +803,12 @@ export interface WebhookHeaders {
   readonly shopDomain: string | undefined;
   readonly webhookId: string | undefined;
   readonly apiVersion: string | undefined;
+  /**
+   * `X-Shopify-Triggered-At` — the provider's statement about when the event
+   * happened (E03-B08). Like every other member of this interface it is OUTSIDE
+   * the signature, which is why 064 §4 bounds what it is allowed to decide.
+   */
+  readonly triggeredAt?: string | undefined;
 }
 
 export class WebhookRefusedError extends Error {
@@ -797,6 +843,19 @@ export interface WebhookOutcome {
   readonly topic: string;
   /** Receipts for every token this message ended. Empty for every other topic. */
   readonly retired: readonly ConnectorOffboardingReceipt[];
+  /**
+   * E03-B08 — what this system DECIDED about this delivery, recorded on the
+   * receipt. `accepted` is the only one whose effects ran.
+   *
+   * ⚠ It is on the OUTCOME and never on the RESPONSE. `src/routes/connectors.ts`
+   * answers one constant body for every disposition, because a body that told a
+   * caller *your replay was detected* is a fact about this system's state handed
+   * to something that authenticated with a shared secret rather than as a tenant
+   * (053 §8.3's constant answer, one layer over).
+   */
+  readonly disposition: WebhookDisposition;
+  /** The `privacy_request` this message created, when it created one. */
+  readonly privacyRequestId?: string;
 }
 
 /**
@@ -840,6 +899,36 @@ export async function receiveWebhook(
     // Authentic but unusable. Refused rather than recorded under invented
     // values: a receipt whose `webhook_id` this server made up is a dedupe key
     // that dedupes nothing.
+    throw new WebhookRefusedError("the webhook is signed but carries no usable topic, id or shop");
+  }
+
+  // ==========================================================================
+  // F1 — THE STORE COMES FROM THE SIGNED BYTES, AND THE HEADER IS CHECKED
+  // AGAINST IT. This is the security lens's CRITICAL finding and the reason its
+  // first verdict was REJECT.
+  // ==========================================================================
+  //
+  // `X-Shopify-Shop-Domain` is a header, so it is outside the HMAC — and it is
+  // not just any header: it SELECTS which shop's tokens are destroyed and which
+  // tenant an obligation is attributed to. As first shipped, one captured signed
+  // message from ANY store (including the isolated dev store this bead names as
+  // its own closing evidence) could be re-addressed at an unrelated Longbox shop:
+  // the probe retired that shop's live token, and the same edit wrote a
+  // `privacy_request` under its tenant — an unauthenticated cross-tenant write,
+  // 019 T24's shape. Substituting the domain ALSO moved the body-key tuple, so
+  // the replay detector was evaded by the same character change.
+  //
+  // The repair is one equality check against the bytes the signature covers, and
+  // it lands HERE — at the same pre-transaction branch that refuses a signed
+  // message with no usable topic — so a mismatch costs one HMAC and one
+  // `JSON.parse` and leaves ZERO rows.
+  const signedDomain = checkSignedDomain(rawBody, topic, shopDomain);
+  if (signedDomain === "mismatch") {
+    // Refused with the SAME message as the branch above, and that is deliberate:
+    // from outside, "your headers are unusable" and "your body names a different
+    // store" are one answer (053 §8.3's constant answer). Telling a caller which
+    // one it was would confirm that the captured message is authentic and that
+    // the target store exists.
     throw new WebhookRefusedError("the webhook is signed but carries no usable topic, id or shop");
   }
 
@@ -892,13 +981,46 @@ export async function receiveWebhook(
     [CONNECTOR, shopDomain]
   );
   const shopIds = (installed.rows as Array<{ shop_id: string }>).map((r) => r.shop_id);
+  // ⚠ **ONLY A SIGNED DOMAIN ATTRIBUTES A TENANT (F-A, the security re-check's
+  // finding 1).** v1.1.0's F1 fix gated the RETIREMENT on `agrees` and left the
+  // tenant resolution keyed on the header — so on the three compliance topics an
+  // `unknown` verdict still wrote a `privacy_request` under the shop the UNSIGNED
+  // header named, with an outbox job behind it. The probe did exactly that. The
+  // fix was off for the privacy half while the record read as though it were on,
+  // which is the precise condition §0 A4's *worst outcome* sentences exist to
+  // bound.
+  //
+  // So the tenant is now a property of the SIGNED verdict rather than of the
+  // lookup: `agrees` attributes, and `unknown` does not. Three consequences
+  // follow and all three are wanted — the receipt records a NULL resolution (053
+  // §5.5's own case), no per-SHOP rate token is taken (there is no shop to charge;
+  // §7.5's unresolved-domain ceiling is what bounds this path instead), and
+  // nothing is enqueued, because the enqueue already requires a tenant.
+  //
+  // `mismatch` never reaches here: it is refused before the digest is computed.
+  //
   // Exactly one, or none. Two shops holding tokens for one store is a state this
   // system should never be in, and naming an arbitrary one of them on the
   // receipt would be the T24 defect wearing a different query.
-  const shopId = shopIds.length === 1 ? shopIds[0]! : null;
+  const shopId = signedDomain === "agrees" && shopIds.length === 1 ? shopIds[0]! : null;
   if (shopId !== null && !deps.limiter.takeOrdinary(shopId).allowed) {
     throw new WebhookRateLimitedError("too many webhooks for this shop");
   }
+
+  // E03-B08 — the provider's stated event time, PARSED HERE and trusted only as
+  // far as 064 §4 says it may be. It is a header and therefore outside the
+  // signature (`WEBHOOK_HEADERS_ARE_NOT_SIGNED`), so it can decide staleness and
+  // bound an uninstall's reach — and after F2 it can decide neither of those in
+  // the FUTURE direction, because a future value is a header somebody chose
+  // rather than evidence about when anything happened.
+  const triggeredAt = parseTriggeredAt(headers.triggeredAt);
+  const windowSeconds = deps.webhookWindowSeconds ?? WEBHOOK_RECEIPT_WINDOW_SECONDS;
+  const skewSeconds = deps.webhookClockSkewSeconds ?? WEBHOOK_CLOCK_SKEW_SECONDS;
+  // F3 — how far back the body key looks, per topic. `app/uninstalled` is
+  // ABSOLUTE; the compliance topics keep the window. An unknown topic gets the
+  // conservative `window`, which costs nothing because an unknown topic has no
+  // effect to protect.
+  const lookback = topicPolicy(topic)?.replayLookback ?? "window";
 
   // STILL the inbound scope, and here it is load-bearing rather than tidy: a
   // webhook that matches no install writes a receipt with a NULL `shop_id`
@@ -906,30 +1028,112 @@ export async function receiveWebhook(
   // be a tenant one even when `shopId` happens to be known.
   return withTransaction(
     deps.pool,
-    async (tx: Tx) => {
+    async (tx: Tx): Promise<WebhookOutcome> => {
+      // ⚠ THE BODY KEY, READ BEFORE THE RECEIPT IS WRITTEN (064 §4.3), UNDER AN
+      // ADVISORY LOCK (K2, the consistency lens's most costly finding).
+      //
+      // A read before a write is the shape 043 §3.2 forbids for IDEMPOTENCY, and
+      // this is not one: exactly-once for a delivery is still decided by
+      // `UNIQUE (connector, webhook_id)` two statements down, and by
+      // `UNIQUE (privacy_request.connector, webhook_id)` and
+      // `UNIQUE (connector_token_version_id)` under the effects. THIS read is a
+      // duplicate DETECTOR for the adversary the id cannot catch.
+      //
+      // **THE LOCK IS A DETECTOR'S SERIALISATION, NOT AN IDEMPOTENCY MECHANISM**,
+      // and the distinction is why 043 §3.2 is untouched: every effect below is
+      // still behind an independent database constraint, and removing this lock
+      // would not produce a double EFFECT. What it produces without the lock is a
+      // double OBLIGATION — the lens traced it: two concurrent replays of one
+      // captured compliance body both classify `accepted` (neither sees the
+      // other's uncommitted receipt), both carry a different `webhook_id`, and so
+      // both write a `privacy_request`, each independently clocked and each
+      // fulfilled at most once. That is not a double effect and it is not nothing:
+      // it is two obligations from one message, and `pnpm audit:privacy-requests`
+      // counts both.
+      //
+      // `pg_advisory_xact_lock` releases at COMMIT or ROLLBACK with no unlock
+      // path to forget, which is the only reason an advisory lock is acceptable
+      // here at all. It takes NO position in 042 §5.3(b)'s order because it is
+      // taken on a hash rather than on a row, and it is the first statement of
+      // this transaction — nothing can be held under it.
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        `${CONNECTOR}|${topic}|${shopDomain}|${digest}`,
+      ]);
+      const priorBody = await tx.query(
+        `SELECT received_at
+           FROM connector_webhook_receipt
+          WHERE connector = $1 AND topic = $2 AND shop_domain = $3 AND payload_digest = $4
+          ORDER BY received_at DESC
+          LIMIT 1`,
+        [CONNECTOR, topic, shopDomain, digest]
+      );
+      const priorRow = priorBody.rows[0] as { received_at: Date } | undefined;
+      const now = new Date();
+      const classification = classifyDelivery({
+        now,
+        triggeredAt,
+        priorBodySeenAt: priorRow?.received_at,
+        windowSeconds,
+        lookback,
+        skewSeconds,
+      });
+
       // ON CONFLICT DO NOTHING, then read back: the insert IS the duplicate
       // check (041 §4.2(i)'s constraint-over-lock preference), and a returned
       // row means this delivery is the first.
+      //
+      // **A REFUSED DELIVERY IS STILL RECORDED**, with the disposition that
+      // refused it. Dropping it would make the receipt table say a message never
+      // arrived, and 053 §9's whole reason for recording these at all is that a
+      // privacy webhook this system silently discarded is the failure that reads
+      // as compliance until somebody asks.
       const inserted = await tx.query(
         `INSERT INTO connector_webhook_receipt
-           (shop_id, connector, topic, webhook_id, shop_domain, api_version, payload_digest, payload_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           (shop_id, connector, topic, webhook_id, shop_domain, api_version, payload_digest,
+            payload_bytes, triggered_at, disposition)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (connector, webhook_id) DO NOTHING
          RETURNING id`,
-        [shopId, CONNECTOR, topic, webhookId, shopDomain, headers.apiVersion ?? null, digest, rawBody.length]
+        [
+          shopId,
+          CONNECTOR,
+          topic,
+          webhookId,
+          shopDomain,
+          headers.apiVersion ?? null,
+          digest,
+          rawBody.length,
+          triggeredAt ?? null,
+          classification.disposition,
+        ]
       );
       const first = inserted.rows[0] as { id: string } | undefined;
       if (!first) {
         const existing = await tx.query(
-          `SELECT id FROM connector_webhook_receipt WHERE connector = $1 AND webhook_id = $2`,
+          `SELECT id, disposition FROM connector_webhook_receipt WHERE connector = $1 AND webhook_id = $2`,
           [CONNECTOR, webhookId]
         );
+        const row = existing.rows[0] as { id: string; disposition: string };
         return {
           acknowledged: true as const,
           duplicate: true,
-          receiptId: (existing.rows[0] as { id: string }).id,
+          receiptId: row.id,
           topic,
           retired: [],
+          disposition: row.disposition as WebhookDisposition,
+        };
+      }
+
+      // The refused dispositions stop here, with their receipt written and no
+      // effect performed.
+      if (!classification.runEffects) {
+        return {
+          acknowledged: true as const,
+          duplicate: false,
+          receiptId: first.id,
+          topic,
+          retired: [],
+          disposition: classification.disposition,
         };
       }
 
@@ -938,13 +1142,134 @@ export async function receiveWebhook(
       // granted for it ends, whichever Longbox shop happens to hold it. That is
       // also why this still runs when `shopId` is null — an ambiguous or absent
       // tenant must not leave a live token behind.
+      //
+      // E03-B08 — AND IT IS BOUNDED BY THE EVENT'S OWN TIME (064 §5). An
+      // uninstall ends the tokens that existed when it happened; a version
+      // introduced by a LATER re-install is not covered by it. Without the bound,
+      // a retry landing after a re-install kills the fresh token, and the
+      // receipt's UNIQUE cannot see it because that delivery carries an id
+      // nothing has seen.
+      //
+      // ⚠ **AND IT DOES NOT RUN AT ALL WHEN THE SIGNED BODY NAMED NO STORE THIS
+      // BUILD COULD READ (F1's `unknown`).** The message is still RECORDED and
+      // still acknowledged; what is refused is the DESTRUCTIVE effect. That
+      // asymmetry is the whole of the ruling: an unreadable payload shape must
+      // never be able to turn a `customers/redact` into a message nobody
+      // recorded, and must never be able to retire a token on a store nobody
+      // verified either. `TOPIC_DOMAIN_FIELD` is an ASSUMPTION about a third
+      // party's payload (064 §0 A4), so a wrong guess degrades to "a token was
+      // not retired" rather than to "the wrong shop's token was".
       const retired =
-        topic === TOPIC_APP_UNINSTALLED ? await retireEveryLiveTokenForDomain(tx, shopDomain, first.id) : [];
+        topic === TOPIC_APP_UNINSTALLED && signedDomain === "agrees"
+          ? await retireEveryLiveTokenForDomain(
+              tx,
+              shopDomain,
+              first.id,
+              retirementCutoff(triggeredAt, skewSeconds, now)
+            )
+          : [];
 
-      return { acknowledged: true as const, duplicate: false, receiptId: first.id, topic, retired };
+      // E03-B08 — the three topics Shopify requires an app to handle become an
+      // append-only OBLIGATION with a clock (064 §6). The fact is written for all
+      // three; only the two whose answer this system can compute get a job.
+      let privacyRequestId: string | undefined;
+      if (isComplianceTopic(topic) && (await underUnresolvedDomainCeiling(tx, shopId, shopDomain, deps))) {
+        const request = await recordPrivacyRequest(tx, {
+          shopId,
+          connector: CONNECTOR,
+          topic,
+          webhookId,
+          webhookReceiptId: first.id,
+          shopDomain,
+          payloadDigest: digest,
+          ...(deps.privacyFulfilmentWindowDays === undefined
+            ? {}
+            : { windowDays: deps.privacyFulfilmentWindowDays }),
+        });
+        privacyRequestId = request.id;
+        // ⚠ NO JOB WITHOUT A TENANT, AND NO JOB FOR `shop/redact`.
+        //
+        // ⚠ **AND SINCE F-A THERE IS NO TENANT UNDER AN `unknown` VERDICT**, so
+        // an unreadable payload shape lands here as a recorded obligation with a
+        // NULL `shop_id` and no job — R2's bucket, visible in
+        // `pnpm audit:privacy-requests` as unresolved-tenant. That is the whole
+        // of what makes §0 A4's *worst outcome* sentence true on this half too.
+        //
+        // `outbox.shop_id` is NOT NULL, so a request whose store matches no
+        // install — or whose store this build could not read — cannot be
+        // enqueued at all — and that is the right answer rather
+        // than a limitation to route around: there is no tenant to act within,
+        // and the fact is still recorded, still on the clock, and still counted
+        // by `pnpm audit:privacy-requests`. The backstop is the detector, not the
+        // queue (064 §7.4).
+        //
+        // `shop/redact` gets no job because this bead performs no deletion: the
+        // procedure is E03-B09's, and a consumer registered to do nothing would
+        // be a green delivery that answered nobody.
+        if (shopId !== null && isAutoFulfillableTopic(topic) && !request.alreadyRecorded) {
+          await enqueue(tx, {
+            shopId,
+            event: PRIVACY_REQUEST_RECEIVED,
+            refTable: "privacy_request",
+            refId: request.id,
+            authoredBy: "provider",
+            occurredAt: triggeredAt ?? null,
+          });
+        }
+      }
+
+      return {
+        acknowledged: true as const,
+        duplicate: false,
+        receiptId: first.id,
+        topic,
+        retired,
+        disposition: classification.disposition,
+        ...(privacyRequestId === undefined ? {} : { privacyRequestId }),
+      };
     },
     { label: "connector-webhook", tenant: { service: "connector-inbound" } }
   );
+}
+
+/**
+ * F5 — a PROVISIONAL per-domain ceiling on compliance obligations recorded for a
+ * store that matches no install.
+ *
+ * **A tenant-resolved obligation is never bounded here**: that shop's `ordinary`
+ * bucket was already taken above (048 R14), the message is about a store this
+ * system genuinely holds data for, and refusing one would be exactly the silent
+ * discard 053 §9 exists to prevent. The bound applies ONLY to the null-tenant
+ * case, and there the honest ceiling is small: a store this system holds nothing
+ * for produces at most one `shop/redact` per offboarding.
+ *
+ * **Why a COUNT and not a rate.** A rate limiter refuses for a minute and then
+ * forgets; the harm here is a permanently non-zero audit exit, so what must be
+ * bounded is the TOTAL and not the rate. The count is over the whole table for
+ * that domain, and it is cheap because `privacy_request` is indexed on
+ * `(due_at, received_at)` and this path is rare by construction.
+ *
+ * **The refusal is silent to the caller and loud in the receipt.** The message is
+ * still recorded — `connector_webhook_receipt` already holds it, written two
+ * statements up — and the response is the same constant `{acknowledged: true}`.
+ * What is refused is the OBLIGATION row, and 064 §9 R8 carries the residual that
+ * this can in principle drop a genuine late `shop/redact` for a store that has
+ * offboarded more than the ceiling's worth of times.
+ */
+async function underUnresolvedDomainCeiling(
+  tx: Tx,
+  shopId: string | null,
+  shopDomain: string,
+  deps: ConnectorDeps
+): Promise<boolean> {
+  if (shopId !== null) return true;
+  const ceiling = deps.privacyUnresolvedDomainCeiling ?? PRIVACY_UNRESOLVED_DOMAIN_CEILING;
+  const seen = await tx.query(
+    `SELECT count(*)::int AS n FROM privacy_request
+      WHERE connector = $1 AND shop_domain = $2 AND shop_id IS NULL`,
+    [CONNECTOR, shopDomain]
+  );
+  return (seen.rows[0] as { n: number }).n < ceiling;
 }
 
 /**
@@ -967,19 +1292,40 @@ export async function receiveWebhook(
  * It is deliberately NOT exported: it is correct only inside `receiveWebhook`'s
  * transaction, after the receipt exists, because `026`'s CHECK requires an
  * `uninstall` retirement to cite one.
+ *
+ * ============================================================================
+ * E03-B08 — `cutoff` IS THE EVENT-TIME BOUND (000-docs/064 §5)
+ * ============================================================================
+ *
+ * `undefined` means *no bound*, which is what E03-B06 shipped and what a message
+ * carrying no `X-Shopify-Triggered-At` still gets: under a missing header the
+ * conservative direction is the one that leaves no live token behind.
+ *
+ * A Date means: retire only versions INTRODUCED AT OR BEFORE this instant. It is
+ * `triggered_at` plus a guard band, because the comparison crosses two clocks —
+ * Shopify's and this database's — and 043 §2.4 already ratified that kind of
+ * comparison together with its condition (NTP is a requirement, not a nicety).
+ *
+ * **The band's direction is chosen, not incidental.** Adding it makes skew retire
+ * one token TOO MANY rather than one too few, and those two failures are not
+ * symmetric: a shop that must re-install has an inconvenience with an obvious
+ * remedy, while a token this system believes is live after the merchant killed it
+ * at Shopify is a credential nobody is managing and an ending that did not end.
  */
 async function retireEveryLiveTokenForDomain(
   tx: Tx,
   shopDomain: string,
-  webhookReceiptId: string
+  webhookReceiptId: string,
+  cutoff?: Date | undefined
 ): Promise<ConnectorOffboardingReceipt[]> {
   const res = await tx.query(
     `SELECT v.id, v.shop_id, v.shop_domain, v.granted_scopes, v.version_no
        FROM connector_token_version v
        LEFT JOIN connector_token_retirement r ON r.connector_token_version_id = v.id
       WHERE v.connector = $1 AND v.shop_domain = $2 AND r.id IS NULL
+        AND ($3::timestamptz IS NULL OR v.created_at <= $3::timestamptz)
       ORDER BY v.shop_id, v.version_no DESC`,
-    [CONNECTOR, shopDomain]
+    [CONNECTOR, shopDomain, cutoff ?? null]
   );
   const receipts: ConnectorOffboardingReceipt[] = [];
   for (const row of res.rows as Array<{

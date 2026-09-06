@@ -17780,7 +17780,7 @@
       "method": "POST",
       "path": "/api/v1/connectors/shopify/webhooks",
       "kind": "exemption",
-      "reason": "the signed webhook receiver (053 §8.2). ONE path for every topic, because the authentication, the dedupe and the receipt are identical and only the EFFECT differs — and the tenant is `X-Shopify-Shop-Domain` inside the signed bytes, resolved to a shop when one exists and recorded with a null resolution when it does not (a `shop/redact` for an already-offboarded store is the commonest message this route receives).",
+      "reason": "the signed webhook receiver (053 §8.2). ONE path for every topic, because the authentication, the dedupe and the receipt are identical and only the EFFECT differs — and the tenant is the store named INSIDE THE SIGNED BODY, with `X-Shopify-Shop-Domain` checked against it and the message refused before any row when the two disagree (E03-B08 F1 — the header is outside the HMAC, so on its own it selected which shop's tokens were destroyed). **A tenant is attributed ONLY when the body's domain AGREES**: where the payload names no domain this build can read, the message is recorded with a NULL resolution, no DESTRUCTIVE effect runs and no job is enqueued (F-A) — a token was not retired and an obligation was recorded against nobody — so an unreadable shape can never attribute an obligation to a shop the unsigned header chose. It resolves to a shop when one exists and is recorded with a null resolution when it does not (a `shop/redact` for an already-offboarded store is the commonest message this route receives).",
       "closing_bead": null
     },
     {

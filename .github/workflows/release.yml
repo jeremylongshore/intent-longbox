@@ -67,7 +67,10 @@ jobs:
       - name: Determine previous tag
         id: prev
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Highest semver tag in the repo, not the nearest ancestor: a tag cut off an
+          # unmerged commit made describe return an older tag and re-propose an existing one.
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          PREV_TAG=${PREV_TAG:-v0.0.0}
           echo "tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
           echo "Previous tag: $PREV_TAG"
 

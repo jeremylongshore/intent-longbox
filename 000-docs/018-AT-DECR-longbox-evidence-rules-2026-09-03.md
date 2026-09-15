@@ -100,14 +100,14 @@ Named corollaries, adopted verbatim from the bead note and 014:
 | **Docs** (`000-docs/`) | every claim carries a rung/state by section; Version + index on change; contradictions to 016 §5 | doc-filing convention (manual — this repo has no doc-filing hook today; the only wired hook is SessionStart `bd prime`; add one under E15 if wanted), prettier/CI, gate auditor on governance beads |
 | **Code** | comments and CHANGELOG describe what the code does at that SHA, not what is planned; stubs are labeled `stub: true`; no "verified" without a test | `longbox-invariant-reviewer` pre-close; CI |
 | **Beads** | notes cite artifacts; close reasons name SHA/run/doc/audit; PROPOSED thresholds stay labeled in acceptance text | gate/invariant auditors; `bd-sync close` reason |
-| **External claims** | rung ≤ artifact; retire "AI grades", "seconds", "pilot live", "verified", "production-ready" unless earned; partner intent never stated as fact; never-answer list (010) binding | E00-B05 registry; gate auditor; MiniMax adversarial lane (advisory) |
+| **External claims** | rung ≤ artifact; retire "AI grades", "seconds", "pilot live", "verified", "production-ready" unless earned; partner intent never stated as fact; the partner-disclosure rules (retained privately) binding | E00-B05 registry; gate auditor; MiniMax adversarial lane (advisory) |
 | **Pilot analysis** | PILOT-MEASURED only with cohort, N, denominators, date, frozen manifest (E16-B02); averages never conceal slices | E16-B08 weekly review; E14-B07 eval regression |
 
 ## 7. Consequences
 
 - Slower prose, faster trust: every "we do X" costs a citation. That is the point — 006's drift cost a day of re-audit.
 - The registers grow: 016 gains a row per new source and a CONTRADICTED row per catch; that is the audit trail, not overhead.
-- Partner conversations get shorter and safer: only earned rungs are speakable (010 never-answer list remains binding).
+- Partner conversations get shorter and safer: only earned rungs are speakable, and the partner-disclosure rules (retained privately) remain binding.
 - Some existing text is already out of compliance (013 scores, 007/008 missing Version lines, README org badges); E02-B01 and E15-B01 own those repairs — this record does not rewrite history.
 
 ## 8. Alternatives considered

@@ -103,7 +103,7 @@ describe.skipIf(!dbUp)("the crosswalk (047 §8)", () => {
           `INSERT INTO edition_external_id
              (edition_lcid, provider, external_id, vertical, corpus_version_id, match_method,
               data_source_id, certified, certified_at, decided_by, decided_by_role)
-           VALUES ($1,'upc','012345678905',$2,$3,'exact',$4,true,now(),'ben','shop_operator')`,
+           VALUES ($1,'upc','012345678905',$2,$3,'exact',$4,true,now(),'operator-a','shop_operator')`,
           [edition, VERTICAL, corpus, seed.registrarSourceId]
         )
       ).rejects.toThrow(/edition_external_id_catalog_authoring_role/);

@@ -149,7 +149,7 @@ export async function latestListingStatus(
 /**
  * 019 T19's detector rule, as a pure predicate.
  *
- * T19 verbatim (000-docs/019 v1.2.0 §3.3, row T19):
+ * T19 verbatim (product success contract 019 v1.2.0 §3.3, row T19):
  *   "| T19 | Auto-publish incidents | 0 | `published_by='app'` rows + Shopify
  *    status watcher | any → K1; **non-waivable** |"
  *

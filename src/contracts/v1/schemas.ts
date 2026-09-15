@@ -697,7 +697,7 @@ export const connectorCallbackQuery = z.object({
  * ⚠ IT IS JSON, NOT A PAGE. 042 §4.3 rules that the server emits no operator
  * prose, so this route cannot answer with a "Longbox is connected" screen. The
  * merchant-facing install and consent SURFACE — including the words on it — is
- * E10-B02's, and its copy is a candidate C-row for 000-docs/021 under the T26
+ * E10-B02's, and its copy is a candidate row for the external-claims register under the T26
  * pre-send (053 §9). It is not written here.
  */
 export const connectorCallbackResponse = z.object({

@@ -1,5 +1,5 @@
 // Regression guard for 000-docs/022 P6 ("no probability language / bare
-// numbers on screens; band words only") and 000-docs/019 §2 ("percentages
+// numbers on screens; band words only") and 019 §2 ("percentages
 // without N and date are forbidden as claims of fact"). The violation this
 // covers shipped at public/app.js:103/:113 (see bead longbox-e5b.5.11 /
 // E05-D01) and is the CI grep P6's enforcement line names: "the `%`-in-copy

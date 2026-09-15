@@ -15,7 +15,7 @@
 // were actually performed, names the file the restart re-derived, and stops.
 //
 // ⚠ THIS IS DEVELOPER/OPERATOR TEXT, NOT SHOP-FACING COPY. 050 §5 routes the
-// wording a shop receives at offboarding to a candidate C-row for `000-docs/021`
+// wording a shop receives at offboarding to a candidate row for the external-claims register
 // under the T26 pre-send, drafted with the pilot paperwork — *"it is not written
 // here"*. Nothing in this module may be pasted into a shop-facing surface
 // without going through that step.

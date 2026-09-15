@@ -102,7 +102,7 @@ describe.skipIf(!dbUp)("listing_status_observation (E02-D02)", () => {
       shopId,
       shopifyDraftId: draftId,
       observedStatus: "published",
-      publishedBy: "ben@gotham",
+      publishedBy: "staff@example-shop",
       source: "webhook",
       observedAt: new Date("2026-09-04T12:00:00.000Z"),
     });

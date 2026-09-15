@@ -175,7 +175,7 @@ describe("the attempt detail allowlist (043 §2.5, §11 I6)", () => {
     expect(() => assertAttemptDetail({ message: "boom" } as never)).toThrow(AttemptDetailError);
     expect(() => assertAttemptDetail({ body: "{...}" } as never)).toThrow(/not an allowlisted key/);
     expect(() => assertAttemptDetail({ model: "claude-sonnet-5" } as never)).toThrow(AttemptDetailError);
-    expect(() => assertAttemptDetail({ operator: "ben" } as never)).toThrow(AttemptDetailError);
+    expect(() => assertAttemptDetail({ operator: "operator-a" } as never)).toThrow(AttemptDetailError);
     expect(() => assertAttemptDetail({ estimated_usd: 0.01 } as never)).toThrow(AttemptDetailError);
   });
 

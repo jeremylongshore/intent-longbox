@@ -604,7 +604,7 @@ export function connectorResidual(reason: RetirementReason): string {
  * is what the merchant approved — neither is a credential.
  *
  * ⚠ THIS IS OPERATOR TEXT, NOT SHOP-FACING COPY. 050 §5 routes the wording a
- * shop receives at offboarding to a candidate C-row for `000-docs/021` under the
+ * shop receives at offboarding to a candidate row for the external-claims register under the
  * T26 pre-send, and 053 §9 does the same for the connector's. Nothing in this
  * module may be pasted into a shop-facing surface without that step.
  */

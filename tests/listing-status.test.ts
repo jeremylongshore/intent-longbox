@@ -89,7 +89,9 @@ describe("isAutoPublishIncident (019 T19)", () => {
   });
 
   it("does not fire when a person published it", () => {
-    expect(isAutoPublishIncident({ observedStatus: "published", publishedBy: "ben@gotham" })).toBe(false);
+    expect(isAutoPublishIncident({ observedStatus: "published", publishedBy: "staff@example-shop" })).toBe(
+      false
+    );
   });
 
   it("does not fire on a null published_by — an absence is not evidence", () => {

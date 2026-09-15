@@ -538,7 +538,7 @@ function bandOf(data) {
   return BAND_COPY[data.band] ? data.band : "low";
 }
 
-// Band copy — registered verbatim in 000-docs/021 §3.1 (C1 high, C2 medium,
+// Band copy — registered verbatim in the external-claims register (C1 high, C2 medium,
 // C3 low + contradiction). Band words only, never a number: 022 P6, 019 §2.
 const BAND_COPY = {
   high: { heading: "Best match", body: "Check the cover in your hand." },

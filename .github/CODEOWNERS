@@ -18,7 +18,7 @@
 # Provider seam — BYOK model policy, credential resolution, adapter contracts (locked decision 2)
 /src/providers/ @jeremylongshore
 
-# Delivery surface — workflows, dependabot, templates, this file
+# Delivery surface — workflows, templates, this file
 /.github/ @jeremylongshore
 
 # Governed docs — filing standard, decision records, registers, blueprint
@@ -30,4 +30,3 @@
 
 # Security-sensitive files
 SECURITY.md @jeremylongshore
-.github/dependabot.yml @jeremylongshore

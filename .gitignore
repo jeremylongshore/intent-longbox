@@ -53,6 +53,9 @@ uploads/
 # ===== Beads =====
 .beads/*.db-shm
 .beads/*.db-wal
+# Bead data stays out of the public repo (the Dolt store is the record)
+.beads/issues.jsonl
+.beads/interactions.jsonl
 
 # Beads / Dolt files (added by bd init)
 .dolt/

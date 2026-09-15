@@ -1,5 +1,5 @@
-# Beads task-tracking hook (Dolt<->git sync) — husky owns core.hooksPath, so chain it.
-if [ -x .beads/hooks/pre-commit ]; then .beads/hooks/pre-commit "$@"; fi
+# The beads pre-commit hook is deliberately NOT chained: it re-exports
+# .beads/issues.jsonl, and bead data stays out of this public repository.
 
 pnpm lint-staged
 pnpm typecheck && pnpm test

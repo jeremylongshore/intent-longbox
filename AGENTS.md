@@ -5,6 +5,12 @@
 This project uses [beads](https://github.com/steveyegge/beads) for AI-friendly task tracking.
 Tasks are stored in `.beads/` and tracked via the `bd` CLI.
 
+> **Public-repository note (2026-09-15).** The bead data files — `.beads/issues.jsonl` and
+> `.beads/interactions.jsonl` — are **not committed to this repository** and are git-ignored; the
+> Dolt store is the record. The husky `pre-commit` hook therefore does not chain the beads
+> `pre-commit` hook, which would re-export them. Passages below that describe
+> `.beads/issues.jsonl` as a file in the tree do not apply here.
+
 ## Quick Reference
 
 ```bash

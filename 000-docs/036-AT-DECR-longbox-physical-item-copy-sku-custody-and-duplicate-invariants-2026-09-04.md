@@ -4,7 +4,7 @@
 **Status:** **RATIFIED 2026-09-04** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §11. Amendments A1–A6 absorbed in full, none declined; two Fowler dissents preserved in §11.
 **Bead:** E02-B05 `longbox-e5b.2.5` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class DEC, owner-role product, risk critical) — see 000-docs/014 §8 row E02-B05
 **Drafted:** 2026-09-04 by `longbox-domain-builder` · **Audit:** `longbox-gate-auditor` before close · **Decision owner:** Jeremy Longshore
-**Sensitivity:** Restricted internal (014 §10)
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10)
 **Supersedes:** nothing — first physical-item record.
 **Inputs:** 014 §8 rows E02-B05, E02-B07, E02-B10, E05-B04, E06-B04, E10-B03, E10-B06, E10-B07, E10-B08, E10-B09, E10-B12, E11-B05 · 014 §17 (duplicate-inventory risk row) · 015 alias map · 029 v1.1.1 §2.2, §2.7, §2.10, §3.1, §9 (amend-by-a-row), §12 (the request transaction) · 030 v1.1.1 §2.1, §2.4, §2.5, §7, §7.1, §8, §12 · 033 v1.0.1 §2 B5/B7, §5.6, §5.7, §5.8, §7 · 032 v1.0.1 §2 (today's eight-step process; the JAF Comics double-sell) · 034 v1.1.1 §2.4, §2.10, §2.11, §2.12, §2.13, §4, §5, §7 · 019 v1.2.0 T17, T18, T19, T23, T32, T33, K1 · 022 P1, P7 (Q6 holds) · 018 (evidence rules) · `migrations/001_init.sql`, `migrations/002_ebay_credential_kind.sql`, `migrations/003_reserve_principle_slots.sql`, `src/services/shopify.ts`, `src/services/scanSession.ts`, `src/routes/scanSessions.ts` · CLAUDE.md locked decisions 3, 4, 5, 7.
 

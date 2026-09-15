@@ -4,7 +4,7 @@
 **Status:** RATIFIED — binding on product design, the pilot agreement and external claims per §Decision authority, from 2026-09-03 until Jeremy revises any line by a 006 decision-log row. Companion amendment: 019 v1.2.0 §9.1 (T35, T34 heartbeat, vocabulary).
 **Bead:** E00-B06 `longbox-cu1` (epic E00 `longbox-6om`, gate G0) — see 000-docs/014 §8
 **Drafted:** 2026-09-03 by the parent session · **Governed by:** 018 (evidence rules) and 019 (contract; standing amendments 1–2) · **Audited:** `longbox-gate-auditor` before close
-**Sensitivity:** Restricted internal (014 §10) — the principles themselves become shop-facing and public once ratified (§7); this draft is not. Nothing here is legal advice; items marked [counsel] go to counsel before the pilot agreement is signed (E01-B05).
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10) — the principles themselves become shop-facing and public once ratified (§7); this draft is not. Nothing here is legal advice; items marked [counsel] go to counsel before the pilot agreement is signed (E01-B05).
 **Inputs:** 014 §8 E00-B06 note ("employee analytics support learning, not covert speed quotas"), §2.3 stakeholder table, §17 (worker surveillance/deskilling risk); 004 §Personas and §What the journeys avoid; 017 P07, P08, P17, P18, P22; 019 §1 (standing amendments 1–2), T7, T8, T10, T24, T32, T33, T34; CLAUDE.md locked decision 5; 008 §Locked decisions; 010 (partner boundary); 016 C3, C4; 024 §2 (artifact map); cannon returns in the council session `2026-09-03-longbox-workplace-principles/inputs/cannon-{product,hr,security,ux}.md`.
 
 ## Decision authority

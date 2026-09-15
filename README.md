@@ -19,7 +19,7 @@ Photograph   →   Identify   →   Confirm   →   Condition   →   Price   �
 
 ## First shop to roll it out
 
-**Gotham City Limits** in Jacksonville, Florida is the first shop running Longbox.
+**Gotham City Limit** in Jacksonville, Florida is the first shop running Longbox.
 
 ## How a book gets listed
 

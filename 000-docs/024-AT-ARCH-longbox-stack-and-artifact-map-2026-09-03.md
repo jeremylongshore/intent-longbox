@@ -3,7 +3,7 @@
 **Version:** 1.0.1
 **Status:** MAPPED, NOT BUILT — this is the topology as it exists at main `1ed9ffb` and as the blueprint plans it; every "planned" cell names the bead that builds it. Written on 2026-09-03 in answer to Jeremy's question "do we have the software stack in place — where photos are hosted for backup, what iPhone app for pics, I use Immich, is this mapped?" It pulls the E13-B01 topology ADR forward as a map so the gaps are on paper before E00 closes.
 **Beads:** E13-B01 `longbox-e5b.13.1` (topology ADR — this map is its first draft), E05-B03 `longbox-e5b.5.3` (PWA vs native), E13-B06 `longbox-e5b.13.6` (object storage), E13-B07 `longbox-e5b.13.7` (backup/PITR)
-**Sensitivity:** Restricted internal (014 §10) — infrastructure detail.
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10) — infrastructure detail.
 **Evidence state (018):** "Today" cells are VERIFIED at `1ed9ffb` (file:line cited); "Planned" cells are ASSERTED (blueprint) unless a bead has closed.
 
 ## 1. The short answer

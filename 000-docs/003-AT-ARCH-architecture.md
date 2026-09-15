@@ -1,16 +1,16 @@
 # Architecture: intent-longbox
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 
 **Author:** Jeremy Longshore
 **Date:** 2026-09-01
-**Status:** Approved (panel-hardened per doc 008: Linus, Chip Huyen, Hickey seats)
+**Status:** Approved 2026-09-01 (panel-hardened: Linus, Chip Huyen, Hickey seats)
 
 ## System Context
 
-A TypeScript/Node web app, usable from a phone browser, backed by Postgres, deployed on the `intentsolutions` VPS behind Caddy per the intent-os ops deploy contracts. External surfaces: the shop employee's phone browser, the configured LLM provider (Claude default, BYOK), PriceCharting, the reference-corpus sources (GCD dump + Metron), and Shopify Admin GraphQL.
+A TypeScript/Node web app, usable from a phone browser, backed by Postgres. The first shop runs it on that shop's own system. External surfaces: the shop employee's phone browser, the configured LLM provider (Claude default, BYOK), PriceCharting, the reference-corpus sources (GCD dump + Metron), and Shopify Admin GraphQL.
 
 ## Pipeline
 
@@ -91,7 +91,7 @@ LLM-vision-only ID is not proven viable for issue/variant-exact identification a
 ## Stack and deployment
 
 - TypeScript/Node: matches the estate and the Shopify tooling ecosystem.
-- Postgres on the VPS: the Hickey model is plain relational, no exotic storage.
-- Deployed on the `intentsolutions` VPS behind Caddy, per `~/000-projects/intent-os/ops/` deploy contracts (Tailscale OIDC + force-command SSH deploy path, like the other stacks).
+- Postgres: the Hickey model is plain relational, no exotic storage.
+- Runs on the shop's own system; this repository ships no hosted deployment.
 - Phone-browser web app; no native app in v0.
 - Secrets: SOPS + age per the estate standard; `shop_credentials` stores refs, resolution happens in-process.

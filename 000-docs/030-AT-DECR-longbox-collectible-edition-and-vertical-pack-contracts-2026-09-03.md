@@ -4,7 +4,7 @@
 **Status:** **RATIFIED 2026-09-03** by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §11. Amendments A1–A8 absorbed in full, none declined; Fowler's dissent preserved in §11.
 **Bead:** E02-B04 `longbox-e5b.2.4` (epic LBOX-E02 `longbox-e5b.2`, gate G2) — see 000-docs/014 §8
 **Drafted:** 2026-09-03 by `longbox-domain-builder` · **Cannon:** `rich-hickey-reviewer` + `martin-fowler-reviewer`, 2026-09-03 · **Decision owner:** Jeremy Longshore (acting head of board under the 2026-09-03 delegation)
-**Sensitivity:** Restricted internal (014 §10)
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10)
 **Supersedes:** nothing — first catalog-core record. **Inputs:** 014 §3.4 (vertical packs), 014 §4.1 (resolution ladder), 014 §4.2 (provider capability contract), 014 §4.3 (canonical crosswalk / LCID rule), 014 §8 rows E02-B04, E02-B05, E02-B07, E02-B10, E04-B01, E04-B02, E04-B04, E04-B05, E04-B06, E19-B06; 003 (architecture, corpus section); 005 (v0 schema sketch and adapter shapes); 029 v1.1.1 §2.3 (catalog module ownership) and §2.2 (workflow owns the physical chain); 018 (evidence rules); 019 v1.2.0 T25 (rights-traceable data, non-waivable); 022 P1 (condition never numeric); `migrations/001_init.sql`, `migrations/003_reserve_principle_slots.sql`; `.beads/formulas/longbox-vertical-pack.formula.toml`; CLAUDE.md locked decisions 4, 5, 6.
 
 ## Change log

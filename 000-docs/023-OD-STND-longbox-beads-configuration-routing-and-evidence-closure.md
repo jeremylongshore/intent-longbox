@@ -3,7 +3,7 @@
 **Version:** 1.0.1
 **Bead:** E00-B07 `longbox-5ev` (epic E00 `longbox-6om`, gate G0) — see 000-docs/014 §8
 **Filed:** 2026-09-03 · **Owner:** parent session · **Audited:** `longbox-gate-auditor` before close
-**Sensitivity:** Restricted internal (014 §10) — tooling detail; nothing here is a claim about the product.
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10) — tooling detail; nothing here is a claim about the product.
 **Governed by:** CLAUDE.md §Governance (task tracking), 014 §11.3 (routing), 014 §13 (Definition of Done), 018 (evidence rules), 016 (register), ~/.claude/skills/beads (bd conventions), estate bead-naming rule (plain English, alias never in the title).
 
 ## 0. What this standard fixes

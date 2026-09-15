@@ -1,5 +1,7 @@
 # TEST_AUDIT — intent-longbox
 
+> **Historical audit dated 2026-09-02.** Its counts and gaps describe that pass and are stale; several gaps below have since been closed. Current counts: **1,900 unit tests in 102 files** (`pnpm test`, run 2026-09-15) and **879 integration tests** (CI run 34075206180).
+
 **Date:** 2026-09-02 (post-v0.3.0 dual pricing, post-blueprint graph) · **Branch:** beads/longbox-blueprint-graph @ 4f79fa7
 **Grade: B+ (84/100)** — down from A- (90) on 2026-09-01, not because anything regressed (coverage 99.56 → 99.67, tests 92 → 118, integration 14/14 green on real Postgres) but because this pass applies the service/api layer matrix strictly: L5-security scanning and L4-contract are ✅ required for a service and are absent, so they grade as P0 instead of the P2 the last audit gave them. Engineer can waive either in `tests/TESTING.md` if that is the intended v0 posture.
 **Classification:** service + api (`audit-harness classify` → `service` detected; also `skill` from `.agents/skills/beads/SKILL.md` — that is the vendored beads skill, not a product surface; treat as resolved noise)
@@ -19,7 +21,7 @@
 | L5 perf, chaos | WAIVED | per TESTING.md |
 | L6 smoke | INSTALLED | fastify-inject full chain register → … → drafted; only the all-stub → `policy_floor` pricing branch is hit at HTTP level (FMV → live-ask precedence is unit-only) |
 | L6 BDD | PARTIAL (P2) | `features/scan-session.feature` hash-pinned, 4 scenarios, gherkin-lint clean; no runner/step defs |
-| L7 UAT | WAIVED | pilot is the UAT (doc 008); RTM/PERSONAS/JOURNEYS rebuilt this pass |
+| L7 UAT | WAIVED | pilot is the UAT; RTM/PERSONAS/JOURNEYS rebuilt this pass |
 
 ## Gaps
 

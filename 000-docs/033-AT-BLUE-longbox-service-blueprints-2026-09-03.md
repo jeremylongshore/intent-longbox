@@ -3,7 +3,7 @@
 **Version:** 1.0.1 — patch: §0 timing sentence scoped to our own performance; planned artifacts admitted in §0; three line ranges nudged (gate audit).
 **Bead:** E01-B03 `longbox-e5b.1.3` (epic E01 `longbox-e5b.1`, gate G1) — "Produce employee, owner, support and partner service blueprints."
 **Filed:** 2026-09-03 · **Owner:** Jeremy Longshore · **Author:** parent session (service design) · **Audited:** `longbox-gate-auditor` before close
-**Sensitivity:** Restricted internal (014 §10). Every screen string quoted here is a 021 §3.1 registered string; nothing else in this document is shop-facing copy.
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10). Every screen string quoted here is a 021 §3.1 registered string; nothing else in this document is shop-facing copy.
 **Governed by:** 022 P1–P9 (RATIFIED — humans hold authority, overrides cheap, no per-person timing, accessibility, privacy of people in the frame, honesty about what the machine did, misuse path) · 019 §3.0 (eight safety controls before a live item) and §3.1–§3.6 thresholds · 021 (registered copy C1–C11; blocklist; retirement list) · 018 (evidence rules) · 017 (pain register, with severities).
 **Built from:** 031 (what owners face and think; §5 what we'd ask / give back) · 032 (today's eight-step process, the two batches, the measurement protocol) · 014 §3 (the four actors) and §8 row E01-B03 · 003 (architecture) · the shipped phone UI (`public/index.html`, `public/app.js`).
 **Supersedes:** 004 for E05 and E11 design purposes (§8). 004 is kept for its retailer language and is not deleted.

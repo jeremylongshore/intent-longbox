@@ -9,7 +9,7 @@
 Repo type: service + api (Fastify HTTP API over Postgres, static phone UI)
 Primary language(s): typescript
 Applicable layers: L1, L2, L3, L4-integration, L6-smoke
-Waived layers: L5-perf (v0 pilot, no SLO yet), L5-chaos (single-node v0), L7-UAT (the Gotham City Limit pilot IS the UAT, per 000-docs/008)
+Waived layers: L5-perf (v0 pilot, no SLO yet), L5-chaos (single-node v0), L7-UAT (the first shop's rollout is the acceptance test)
 Compliance overlay: none
 
 ## Thresholds (policy, hash-pinned)

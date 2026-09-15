@@ -1,18 +1,18 @@
 # Technical Specification: intent-longbox
 
-**Version:** 1.1.0
+**Version:** 1.1.1
 
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 
 **Author:** Jeremy Longshore
 **Date:** 2026-09-01
-**Status:** Approved (per doc 008); implementation detail may evolve, the Hickey model may not
+**Status:** Approved 2026-09-01; implementation detail may evolve, the Hickey model may not
 
 ## Tech Stack
 
 - TypeScript / Node (LTS), single web service.
-- Postgres (VPS-hosted) with migrations checked into the repo.
-- Deployed on the `intentsolutions` VPS behind Caddy per intent-os ops deploy contracts.
+- Postgres with migrations checked into the repo.
+- Runs on the shop's own system; this repository ships no hosted deployment.
 - Phone-browser web UI (server-rendered or light SPA; decided at build time, not load-bearing).
 - Secrets via SOPS + age (estate standard); runtime resolution in-process, never decrypted to disk.
 
@@ -159,4 +159,4 @@ Confirmed listings exported as a Whatnot bulk-upload CSV (their published seller
 
 ## Testing posture
 
-`/audit-tests` + `@intentsolutions/audit-harness` install in-repo is a Phase 1 governance item (pending, see doc 006). Until then: migrations + the static eval set + an end-to-end smoke (photo in → DRAFT visible) are the minimum gate for Phase 2 exit.
+`/audit-tests` + `@intentsolutions/audit-harness` install in-repo was a Phase 1 governance item (since installed; see `tests/TESTING.md`). Before it landed: migrations + the static eval set + an end-to-end smoke (photo in → DRAFT visible) are the minimum gate for Phase 2 exit.

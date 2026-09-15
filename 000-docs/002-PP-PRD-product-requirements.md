@@ -1,12 +1,12 @@
 # Product Requirements: intent-longbox
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 
 > Photo-to-listing pipeline for comic shops: snap a cover, identify the book, price it, draft the Shopify listing
 
 **Author:** Jeremy Longshore
 **Date:** 2026-09-01
-**Status:** Approved (per doc 008)
+**Status:** Approved 2026-09-01
 
 ## Goals
 

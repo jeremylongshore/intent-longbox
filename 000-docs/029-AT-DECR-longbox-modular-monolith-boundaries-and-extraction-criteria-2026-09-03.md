@@ -4,7 +4,7 @@
 **Status:** RATIFIED 2026-09-03 by the acting head of board under Jeremy Longshore's 2026-09-03 delegation, after a two-lens architecture cannon (`rich-hickey-reviewer`, `martin-fowler-reviewer`, both ACCEPT-WITH-CHANGES). Binding per §9. **v1.1.1, v1.2.0, v1.3.0 and v1.3.1 are amendments by a row under §9's "amend by a row" clause, not superseding records** — see the change log below; the decision itself is unchanged in all four.
 **Bead:** E02-B02 `longbox-e5b.2.2` (epic LBOX-E02 `longbox-e5b.2`, gate G2) — see 000-docs/014 §8
 **Drafted:** 2026-09-03 by `longbox-domain-builder` · **Cannon:** `rich-hickey-reviewer` + `martin-fowler-reviewer`, 2026-09-03 · **Decision owner:** Jeremy Longshore
-**Sensitivity:** Restricted internal (014 §10)
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10)
 **Supersedes:** nothing — first module-boundary record. **Inputs:** 014 §18 decision 2 ("modular monolith plus workers first"), 014 §3 (surfaces and journeys), 014 §4 (target technical architecture), 003 (architecture), 005 (v0 spec), 024 (stack and artifact map), 027 (repository truth audit, `46d9910`), 018 (evidence rules), 019 v1.2.0 (thresholds T10, T13a, T21, T22), 022 P7 (retention), CLAUDE.md locked decisions 2, 4, 5.
 
 ## Change log

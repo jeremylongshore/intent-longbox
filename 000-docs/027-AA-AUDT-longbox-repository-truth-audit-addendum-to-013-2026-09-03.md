@@ -3,7 +3,7 @@
 **Version:** 1.0.3
 **Bead:** E02-B01 `longbox-e5b.2.1` (epic LBOX-E02 `longbox-e5b.2`, gate G2, evidence class CODE) — see 000-docs/014 §8
 **Filed:** 2026-09-03 · **Owner:** Jeremy Longshore · **Author:** parent session via `longbox-domain-builder` · **Audit pending:** `longbox-gate-auditor`
-**Sensitivity:** Restricted internal (014 §10) — cites file:line and identifiers only, never file contents beyond single lines already public inside the repo.
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10) — cites file:line and identifiers only, never file contents beyond single lines already public inside the repo.
 **Supersedes:** nothing. **Amends:** 013 v1.0 (does not rewrite it — 018 §4 C2 forbids in-place rewriting of prior text). **Inputs:** 013, 005, 006, 014 §2.2, 016, 018, TEST_AUDIT.md, tests/TESTING.md, the repository at the pinned commit.
 
 ---

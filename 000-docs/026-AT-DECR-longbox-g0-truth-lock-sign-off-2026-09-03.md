@@ -4,7 +4,7 @@
 **Status:** SIGNED 2026-09-03 — by the acting head of board (Claude, parent session) under Jeremy Longshore's delegation of 2026-09-03 ("this is an autonomous build without human"); Jeremy may revise by a 006 decision-log row
 **Bead:** E00-B08 `longbox-9ad` (epic E00 `longbox-6om`, gate G0) — see 000-docs/014 §8 row E00-B08 and §5 (G0 = "Product success contract, evidence rules, claims policy, pain register")
 **Audited:** `longbox-gate-auditor` + `longbox-invariant-reviewer` before close (bead metadata)
-**Sensitivity:** Restricted internal (014 §10)
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10)
 
 ## 1. Decision
 

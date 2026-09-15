@@ -1,10 +1,10 @@
 # Decision Record — Evidence Taxonomy, Source Precedence, Contradiction, Supersession and Change Control
 
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Status:** RATIFIED 2026-09-03 by Jeremy Longshore (in-session, "Ratify all eight as drafted"); binding on all Longbox docs, code, beads, external claims and pilot analysis per §6
-**Bead:** E00-B03 `longbox-5s4` (epic E00 `longbox-6om`, gate G0) — see 000-docs/014 §8
+**Bead:** E00-B03 `longbox-5s4` (epic E00 `longbox-6om`, gate G0) — blueprint 014 §8
 **Drafted:** 2026-09-03 by the parent session · **Audited:** `longbox-gate-auditor` (pre-ratification) · **Decision owner:** Jeremy Longshore
-**Sensitivity:** Restricted internal (014 §10)
+**Sensitivity:** Restricted internal when written, public since 2026-09-15 (014 §10)
 **Supersedes:** nothing — first evidence-rules record. **Inputs:** 014 §13 (evidence ladder), 014 §6.1 rule 10, 016 §0 (register states), 017 (evidence cells), 006 decision log, 008 §Locked decisions, CLAUDE.md §Locked decisions.
 
 ## Decision authority

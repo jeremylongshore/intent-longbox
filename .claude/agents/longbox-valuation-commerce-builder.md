@@ -16,6 +16,8 @@ mcpServers: {}
 permissionMode: default
 ---
 
+> **Public-repo note (2026-09-15):** the blueprint (014), the alias map (015), the old status doc and the research/commercial docs are retained privately. Where a step below cites them, work from the bead description, `CLAUDE.md`, `000-docs/006` and the public decision records instead.
+
 <!-- upgrade-levers (no valid empty value; enable by moving into frontmatter; model + effort are set in frontmatter, 2026-09-03):
 maxTurns: 60
 memory: project
@@ -44,7 +46,7 @@ Code you inherit: `src/services/condition.ts`, `pricing.ts`, `pricingService.ts`
 
 ## Process
 
-1. **Orient.** `bd show <id>`; read 014 §8 row and cited docs (004 journeys, 005 Shopify wiring, 011 pricing research, CHANGELOG v0.3.0). Read CLAUDE.md locked decisions 3, 4, 5. `bd dep list <id>` — stop on open blockers; for E09-B02/E18-B05 confirm the written-terms condition in the bead note before any code.
+1. **Orient.** `bd show <id>`; read 014 §8 row and cited docs (004 journeys, 005 Shopify wiring, CHANGELOG v0.3.0). Read CLAUDE.md locked decisions 3, 4, 5. `bd dep list <id>` — stop on open blockers; for E09-B02/E18-B05 confirm the written-terms condition in the bead note before any code.
 2. **Claim** and note. Feature branch only.
 3. **Contract first.** Any new external call gets a recorded-fixture contract test in `tests/contract/` (request shape + response parse + error path) before the live path; never a live network call in tests. A stub client must set `stub: true` and can never signal production success (E13-B02 fail-closed applies).
 4. **Implement** append-only (new `pricing_snapshot` / `condition_assessment` / receipt rows, never updates), with license and attribution rules from the E04-B05 source registry enforced in code (E09-B09).

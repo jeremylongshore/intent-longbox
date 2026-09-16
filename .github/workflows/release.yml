@@ -18,8 +18,13 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    branches: [main]
+  # Deliberately NO `push: branches: [main]` trigger. This job commits a version
+  # bump and then runs `git push origin HEAD "$NEXT"`. `main` is protected, so
+  # GitHub refuses that push ("GH006: Protected branch update failed", 8 required
+  # checks expected) — but the tag is created first, so every push to main left a
+  # stray tag behind and a red run (that is how v0.6.0 appeared). Releases are cut
+  # deliberately via Actions -> Release -> Run workflow, which is the only path
+  # where a human has decided a release should happen at all.
 
 permissions:
   contents: write

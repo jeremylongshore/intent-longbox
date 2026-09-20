@@ -61,7 +61,7 @@ jobs:
     steps:
       - name: MiniMax code review (defect lane)
         # jeremylongshore/minimax-code-review @ main 2026-07-22 (api.minimax.io/v1 + M3 default)
-        uses: jeremylongshore/minimax-code-review@bcaa65182e52183f14746663aa2049641c0dbca5
+        uses: jeremylongshore/minimax-code-review@58867f12dd52362fefda74f4d3c48541f1784e2f
         with:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           MINIMAX_MODEL: ${{ vars.MINIMAX_MODEL || 'MiniMax-M3' }}
@@ -130,7 +130,7 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: MiniMax adversarial review (claims lane)
-        uses: jeremylongshore/minimax-code-review@bcaa65182e52183f14746663aa2049641c0dbca5
+        uses: jeremylongshore/minimax-code-review@58867f12dd52362fefda74f4d3c48541f1784e2f
         with:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           MINIMAX_MODEL: ${{ vars.MINIMAX_MODEL || 'MiniMax-M3' }}

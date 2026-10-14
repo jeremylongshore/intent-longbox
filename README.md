@@ -1,5 +1,12 @@
 # Intent Longbox
 
+<!-- intent-select-partner:start -->
+
+[![Intent Solutions: Claude Partner Network Select Services Partner](https://raw.githubusercontent.com/intent-solutions-io/.github/b82af5d3e7951d85e39ea9e65cc24ee8278722a7/assets/brand/claude-select-partner.svg)](https://intentsolutions.io/)
+
+Intent Solutions is a Claude Partner Network Select Services Partner.
+<!-- intent-select-partner:end -->
+
 **Snap a photo of a back-issue comic. Get a Shopify listing ready for your approval.**
 
 Every comic shop has the same problem sitting in the back room: long boxes full of back issues that never make it online. Listing one book by hand means looking it up, judging its condition, checking what it sells for, and typing it all into Shopify. For most back issues, that work costs more than the book earns. So the boxes stay in the back.

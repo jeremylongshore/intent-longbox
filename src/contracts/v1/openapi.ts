@@ -10,100 +10,66 @@
 // **The generated file is COMMITTED** so a reviewer sees a contract change as a
 // diff in the PR, which is what makes §2.3's additive-only rule reviewable.
 //
-// WHY A LOCAL CONVERTER AND NOT `zod-to-json-schema`. Adding a dependency was
-// available and was not taken: the contract uses eleven Zod constructors, the
-// conversion for them is fifty lines, and a lockfile change is a supply-chain
-// decision this bead has no mandate to make. The converter THROWS on any
-// constructor it does not know (the `default` branch below), so the failure mode
-// is a loud build error rather than a silently wrong artifact — which is the
-// property that matters, and the one a generic converter would also owe.
-import type { z, ZodTypeAny } from "zod";
+// Keep the existing published projection while upgrading the validator. This
+// bounded converter uses Zod 4 schema accessors, preserves the established
+// OpenAPI byte contract, and refuses unsupported constructors. The unit and
+// contract tests compare required keys with parsing and the emitted artifact
+// with the committed document; dependency upgrades must preserve both.
+import { z, type ZodTypeAny } from "zod";
 import { ERROR_CODES, ERROR_CODE_NAMES } from "./errors.js";
 import { ROUTES, ROUTE_ALLOWLIST, type RouteSpec } from "./routes.js";
 
 export type JsonSchema = Record<string, unknown>;
 
-interface ZodDefLike {
-  typeName: string;
-  [key: string]: unknown;
-}
-
-function def(schema: ZodTypeAny): ZodDefLike {
-  return (schema as unknown as { _def: ZodDefLike })._def;
-}
-
-/** Zod → JSON Schema for the constructors this contract uses, and no others. */
-export function toJsonSchema(schema: ZodTypeAny): JsonSchema {
-  const d = def(schema);
-  switch (d.typeName) {
-    case "ZodString": {
-      const checks = (d["checks"] ?? []) as Array<{ kind: string; value?: number }>;
-      const out: JsonSchema = { type: "string" };
-      for (const c of checks) {
-        if (c.kind === "uuid") out["format"] = "uuid";
-        if (c.kind === "min" && typeof c.value === "number") out["minLength"] = c.value;
-        if (c.kind === "max" && typeof c.value === "number") out["maxLength"] = c.value;
-      }
-      return out;
-    }
-    case "ZodNumber": {
-      const checks = (d["checks"] ?? []) as Array<{ kind: string }>;
-      return checks.some((c) => c.kind === "int") ? { type: "integer" } : { type: "number" };
-    }
-    case "ZodBoolean":
-      return { type: "boolean" };
-    case "ZodUnknown":
-    case "ZodAny":
-      return {};
-    case "ZodLiteral":
-      return { const: d["value"] };
-    case "ZodEnum":
-      return { type: "string", enum: [...(d["values"] as string[])] };
-    case "ZodArray":
-      return { type: "array", items: toJsonSchema(d["type"] as ZodTypeAny) };
-    case "ZodRecord":
-      return { type: "object", additionalProperties: toJsonSchema(d["valueType"] as ZodTypeAny) };
-    case "ZodNullable":
-      return { anyOf: [toJsonSchema(d["innerType"] as ZodTypeAny), { type: "null" }] };
-    case "ZodOptional":
-    case "ZodDefault":
-      return toJsonSchema(d["innerType"] as ZodTypeAny);
-    case "ZodEffects":
-      return toJsonSchema(d["schema"] as ZodTypeAny);
-    case "ZodObject": {
-      const shape = (schema as unknown as z.AnyZodObject).shape as Record<string, ZodTypeAny>;
-      const properties: JsonSchema = {};
-      const required: string[] = [];
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = toJsonSchema(value);
-        // `isOptional()` and NOT a typeName check. Zod treats several shapes as
-        // optional that are not spelled `ZodOptional` — a bare `z.unknown()` is
-        // the one in this contract, and the first version marked every
-        // `z.unknown()` REQUIRED. An artifact that says a field must be present
-        // when the validator accepts its absence is a contract that lies in the
-        // direction a partner would build against.
-        if (!value.isOptional()) required.push(key);
-      }
-      // `additionalProperties: false` is a CLAIM that unknown keys are rejected,
-      // and only `.strict()` rejects them — a plain `z.object()` STRIPS them and
-      // a passthrough keeps them. Saying false for a stripping schema describes a
-      // stricter API than the one that runs, which is how a client learns to fear
-      // a field the server would have ignored.
-      const strict = d["unknownKeys"] === "strict";
-      const out: JsonSchema = {
-        type: "object",
-        properties,
-        ...(strict ? { additionalProperties: false } : {}),
-      };
-      if (required.length > 0) out["required"] = required;
-      return out;
-    }
-    default:
-      throw new Error(
-        `openapi: unsupported Zod constructor ${d.typeName}. Add it to toJsonSchema rather than ` +
-          `letting the generated artifact describe a fiction (042 §3.3 property 3).`
-      );
+/** Convert the supported contract constructors through Zod 4's schema API. */
+export function toJsonSchema(schema: z.core.$ZodType): JsonSchema {
+  if (schema instanceof z.ZodString) {
+    const out: JsonSchema = { type: "string" };
+    if (schema.format === "uuid") out["format"] = "uuid";
+    if (schema.minLength !== null) out["minLength"] = schema.minLength;
+    if (schema.maxLength !== null) out["maxLength"] = schema.maxLength;
+    return out;
   }
+  if (schema instanceof z.ZodNumber) return { type: schema.isInt ? "integer" : "number" };
+  if (schema instanceof z.ZodBoolean) return { type: "boolean" };
+  if (schema instanceof z.ZodUnknown || schema instanceof z.ZodAny) return {};
+  if (schema instanceof z.ZodLiteral) {
+    if (schema.values.size !== 1) throw new Error("openapi: unsupported multi-value literal");
+    return { const: [...schema.values][0] };
+  }
+  if (schema instanceof z.ZodEnum) return { type: "string", enum: [...schema.options] };
+  if (schema instanceof z.ZodArray) return { type: "array", items: toJsonSchema(schema.element) };
+  if (schema instanceof z.ZodRecord) {
+    return { type: "object", additionalProperties: toJsonSchema(schema.valueType) };
+  }
+  if (schema instanceof z.ZodNullable) {
+    return { anyOf: [toJsonSchema(schema.unwrap()), { type: "null" }] };
+  }
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault) {
+    return toJsonSchema(schema.unwrap());
+  }
+  if (schema instanceof z.ZodObject) {
+    const properties: JsonSchema = {};
+    const required: string[] = [];
+    for (const [key, value] of Object.entries(schema.shape as Record<string, ZodTypeAny>)) {
+      properties[key] = toJsonSchema(value);
+      // Zod 4 accepts undefined as an unknown value but requires a bare unknown
+      // object key. Ask the object parser about absence, not value.isOptional().
+      if (!z.object({ value }).safeParse({}).success) required.push(key);
+    }
+    const out: JsonSchema = {
+      type: "object",
+      properties,
+      // A stripping object accepts extra input keys. Only strict rejects them.
+      ...(schema.def.catchall instanceof z.ZodNever ? { additionalProperties: false } : {}),
+    };
+    if (required.length > 0) out["required"] = required;
+    return out;
+  }
+  throw new Error(
+    `openapi: unsupported Zod constructor ${schema._zod.def.type}. Add it to toJsonSchema rather than ` +
+      `letting the generated artifact describe a fiction (042 §3.3 property 3).`
+  );
 }
 
 const ERROR_ENVELOPE_SCHEMA: JsonSchema = {

@@ -223,12 +223,14 @@ export const transitionDto = z.object({
  * response body on the day its migration applies, with no route, test or
  * reviewer involved.
  */
+// Zod 3 accepted omitted unknown-valued DTO fields. Explicit optional wrappers
+// preserve that wire contract under Zod 4, which requires bare unknown keys.
 export const eventDtos = {
   scan_photo: z.object({ id: uuid, kind: z.string(), taken_at: timestamp }),
   candidate_set: z.object({
     id: uuid,
     method: z.string(),
-    candidates: z.unknown(),
+    candidates: z.unknown().optional(),
     created_at: timestamp,
   }),
   // No `provider`, no `model`, no `confidence`, no `cost_usd`, no `response`
@@ -253,7 +255,7 @@ export const eventDtos = {
   // `null` means 042 §6.5's counted fallback or a row older than that migration.
   human_confirmation: z.object({
     id: uuid,
-    confirmed_issue: z.unknown(),
+    confirmed_issue: z.unknown().optional(),
     source: z.string(),
     outcome: z.string().nullable(),
     supersedes_id: uuid.nullable(),
@@ -276,7 +278,7 @@ export const eventDtos = {
     id: uuid,
     source: z.string(),
     query: z.string(),
-    comps: z.unknown(),
+    comps: z.unknown().optional(),
     suggested_cents: z.number(),
     override_cents: z.number().nullable(),
     created_at: timestamp,
@@ -365,7 +367,7 @@ export const priceSourceDto = z.object({
   status: z.enum(["ok", "failed"]),
   stub: z.boolean(),
   comps_count: z.number(),
-  summary: z.unknown(),
+  summary: z.unknown().optional(),
   snapshot_id: uuid.optional(),
   error: z.string().optional(),
 });

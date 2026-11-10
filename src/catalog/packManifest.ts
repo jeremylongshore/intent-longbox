@@ -202,7 +202,9 @@ export const verticalPackManifest = z
       .object({
         gradeLabels: z.array(nonBlank).min(2),
         defectVocabulary: z.array(nonBlank),
-        graderLabelMap: z.record(z.object({ low: nonBlank, high: nonBlank }).strict()).default({}),
+        graderLabelMap: z
+          .record(z.string(), z.object({ low: nonBlank, high: nonBlank }).strict())
+          .default({}),
       })
       .strict(),
     /**
